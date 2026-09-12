@@ -63,17 +63,21 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 > 全部截图取自 Android 模拟器（Pixel 9 / Android 15 / 1080×2424）。
 
-### 搜索与播放
+### 搜索与播放（YouTube / Bilibili）
 
 | 主界面 | 搜索结果 | 播放中 |
 |---|---|---|
 | ![home](docs/screenshots/01-home-screen.png) | ![search](docs/screenshots/02-search-results.png) | ![playing](docs/screenshots/03-now-playing.png) |
 
-### 全屏与队列
-
 | 全屏铺满（消除左右黑边） | 播放队列 | |
 |---|---|---|
 | ![fullscreen](docs/screenshots/04-fullscreen.png) | ![queue](docs/screenshots/05-queue.png) | |
+
+### 音乐平台（网易云音乐 / QQ音乐）
+
+| 音乐搜索（含时长 / 歌手 / 专辑封面） | | |
+|---|---|---|
+| ![music-search](docs/screenshots/06-music-search.png) | | |
 
 ### 本地库 · 设置 · 存储
 

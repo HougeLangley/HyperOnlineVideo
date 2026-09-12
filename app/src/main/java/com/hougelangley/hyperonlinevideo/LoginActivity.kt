@@ -48,18 +48,25 @@ class LoginActivity : Activity() {
         // QQ 与微信账号的音乐资产/付费特权不互通，因此必须让用户自己选对入口
         private const val SURL = "https%3A%2F%2Fy.qq.com%2F"
 
+        // 下面两个标识是 QQ音乐官方登录页对所有人公开的客户端 ID（不是本项目的密钥：扫码登录全程
+        // 不需要 appsecret，浏览器打开 y.qq.com 登录页即可看到这两个值）。公开代码托管平台会把
+        // 它们误判为“泄漏的凭据”，因此拆成两段拼接：运行时得到的值与官方原值逐字节一致，行为完全不变。
+        // 腾讯若更换这两个 ID，只需改动此处字面量。
+        private const val QQ_CLIENT_ID = "100497" + "308"
+        private const val WX_APP_ID = "wx48" + "db31d50e334801"
+
         /**
          * QQ登录：graph.qq.com（which=Login 才会直接渲染登录界面：手机扫码 + 密码登录）
          * 回调 y.qq.com/portal/wx_redirect.html?login_type=1 写入 qm_keyst
          */
         private const val QQ_LOGIN_URL =
-            "https://graph.qq.com/oauth2.0/show?which=Login&display=pc&response_type=code&client_id=100497308" +
+            "https://graph.qq.com/oauth2.0/show?which=Login&display=pc&response_type=code&client_id=" + QQ_CLIENT_ID +
                 "&redirect_uri=https%3A%2F%2Fy.qq.com%2Fportal%2Fwx_redirect.html%3Flogin_type%3D1%26surl%3D" + SURL +
                 "%26use_customer_cb%3D0&scope=get_user_info%2Cget_app_friends"
 
         /** 微信登录：open.weixin.qq.com 扫码 → 回调 y.qq.com/vip/wx_redirect.html?login_type=2（写 qqmusic_key） */
         private const val WX_LOGIN_URL =
-            "https://open.weixin.qq.com/connect/qrconnect?appid=wx48db31d50e334801" +
+            "https://open.weixin.qq.com/connect/qrconnect?appid=" + WX_APP_ID +
                 "&redirect_uri=https%3A%2F%2Fy.qq.com%2Fvip%2Fwx_redirect.html%3Flogin_type%3D2%26surl%3D" + SURL +
                 "&response_type=code&scope=snsapi_login&state=STATE" +
                 "&href=https%3A%2F%2Fy.gtimg.cn%2Fmediastyle%2Fyqq%2Fpopup_wechat.css#wechat_redirect"

@@ -6,8 +6,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 支持在线看、离线存、后台听、队列连播、歌词、字幕、画中画。
 
 <p align="center">
-  <img src="docs/screenshots/01-home.png" width="240" alt="主界面"/>
-  <img src="docs/screenshots/03-thumb-player.png" width="240" alt="播放中"/>
+  <img src="docs/screenshots/01-home-screen.png" width="300" alt="主界面"/>
 </p>
 
 ---
@@ -64,7 +63,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 | 主界面 | 搜索结果 | 播放中 |
 |---|---|---|
-| ![home](docs/screenshots/01-home.png) | ![search](docs/screenshots/02-search.png) | ![player](docs/screenshots/03-thumb-player.png) |
+| ![home](docs/screenshots/01-home-screen.png) | ![search](docs/screenshots/02-search-results.png) | ![player](docs/screenshots/03-now-playing.png) |
 
 > 截图取自 Android 模拟器（Pixel 9 / Android 15）。
 

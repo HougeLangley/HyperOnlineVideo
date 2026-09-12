@@ -61,11 +61,19 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ## 截图
 
+> 全部截图取自 Android 模拟器（Pixel 9 / Android 15 / 1080×2424）。
+
+### 搜索与播放
+
 | 主界面 | 搜索结果 | 播放中 |
 |---|---|---|
-| ![home](docs/screenshots/01-home-screen.png) | ![search](docs/screenshots/02-search-results.png) | ![player](docs/screenshots/03-now-playing.png) |
+| ![home](docs/screenshots/01-home-screen.png) | ![search](docs/screenshots/02-search-results.png) | ![playing](docs/screenshots/03-now-playing.png) |
 
-> 截图取自 Android 模拟器（Pixel 9 / Android 15）。
+### 本地库 · 设置 · 存储
+
+| 本地库（排序 / 搜索 / 重命名） | 设置（播放偏好 / 音质上限 / 铺满屏幕） | 存储管理（2GB LRU） |
+|---|---|---|
+| ![library](docs/screenshots/08-library.png) | ![settings](docs/screenshots/09-settings.png) | ![storage](docs/screenshots/10-storage.png) |
 
 ## 从零构建（完整流程）
 

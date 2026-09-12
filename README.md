@@ -73,12 +73,6 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 |---|---|---|
 | ![fullscreen](docs/screenshots/04-fullscreen.png) | ![queue](docs/screenshots/05-queue.png) | |
 
-### 音乐平台（网易云音乐 / QQ音乐）
-
-| 音乐搜索（含时长 / 歌手 / 专辑封面） | | |
-|---|---|---|
-| ![music-search](docs/screenshots/06-music-search.png) | | |
-
 ### 本地库 · 设置 · 存储
 
 | 本地库（排序 / 搜索 / 重命名） | 设置（播放偏好 / 音质上限 / 铺满屏幕） | 存储管理（2GB LRU） |

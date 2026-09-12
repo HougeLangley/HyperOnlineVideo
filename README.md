@@ -7,7 +7,6 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 <p align="center">
   <img src="docs/screenshots/01-home.png" width="240" alt="主界面"/>
-  <img src="docs/screenshots/02-search.png" width="240" alt="搜索结果"/>
   <img src="docs/screenshots/03-thumb-player.png" width="240" alt="播放中"/>
 </p>
 

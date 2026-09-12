@@ -7,8 +7,8 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 <p align="center">
   <img src="docs/screenshots/01-home.png" width="240" alt="主界面"/>
+  <img src="docs/screenshots/02-search.png" width="240" alt="搜索结果"/>
   <img src="docs/screenshots/03-thumb-player.png" width="240" alt="播放中"/>
-  <img src="docs/screenshots/06-music.png" width="240" alt="音乐播放"/>
 </p>
 
 ---
@@ -63,27 +63,11 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ## 截图
 
-> 全部截图取自 Android 模拟器（Pixel 9 / Android 15 / 1080×2424）。
-
-### 搜索与播放
-
-| 主界面 | 搜索结果 | 播放中（竖屏） |
+| 主界面 | 搜索结果 | 播放中 |
 |---|---|---|
 | ![home](docs/screenshots/01-home.png) | ![search](docs/screenshots/02-search.png) | ![player](docs/screenshots/03-thumb-player.png) |
 
-| 全屏铺满 | 播放队列 | 音乐播放 |
-|---|---|---|
-| ![fullscreen](docs/screenshots/04-fullscreen.png) | ![queue](docs/screenshots/05-queue.png) | ![music](docs/screenshots/06-music.png) |
-
-### 歌词 · 本地库 · 设置
-
-| 双语歌词 | 本地库（排序/搜索/重命名） | 设置 |
-|---|---|---|
-| ![lyrics](docs/screenshots/07-lyrics.png) | ![library](docs/screenshots/08-library.png) | ![settings](docs/screenshots/09-settings.png) |
-
-| 存储管理 | | |
-|---|---|---|
-| ![storage](docs/screenshots/10-storage.png) | | |
+> 截图取自 Android 模拟器（Pixel 9 / Android 15）。
 
 ## 从零构建（完整流程）
 

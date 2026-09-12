@@ -1,0 +1,19 @@
+# 构建产物
+build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+*.ap_
+*.dex
+# 本地配置（含 SDK 路径，不入库）
+local.properties
+# IDE
+.idea/
+*.iml
+.DS_Store
+# 隐私：登录 Cookie / 密钥库（永不入库）
+*.jks
+*.keystore
+keystore.properties
+cookies/

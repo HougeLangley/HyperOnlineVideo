@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0F0F0F</item>
+        <item name="android:statusBarColor">#0F0F0F</item>
+        <item name="android:navigationBarColor">#0F0F0F</item>
+        <!-- 关键：避开摄像头挖孔模式下 IME 内边距计算错误（MIUI 上键盘被定位到屏外） -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <!-- 启动页（Android 12+ 系统 SplashScreen） -->
+        <item name="android:windowSplashScreenBackground">#0F0F0F</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+    </style>
+</resources>

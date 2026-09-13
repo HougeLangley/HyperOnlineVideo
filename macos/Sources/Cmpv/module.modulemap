@@ -1,0 +1,5 @@
+module Cmpv {
+    header "shim.h"
+    link "mpv"
+    export *
+}

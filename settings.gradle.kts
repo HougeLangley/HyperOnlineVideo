@@ -6,3 +6,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "HyperOnlineVideo"
 include(":app")
+include(":core")

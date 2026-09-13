@@ -48,7 +48,7 @@ object BiliApi {
 
     /** 从登录 Cookie 文件读取 SESSDATA（Netscape 格式；登录后解锁更高清晰度） */
     private fun readSessdata(): String? = try {
-        val f = Repo.cookieFile("bilibili")
+        val f = StorageRepo.cookieFile("bilibili")
         if (!f.exists()) null
         else f.readLines().firstNotNullOfOrNull { line ->
             val parts = line.split("\t")

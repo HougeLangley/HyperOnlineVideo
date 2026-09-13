@@ -787,10 +787,6 @@ object Repo {
 
     // ---------- 存储 ----------
 
-    /** 本地库排序方式（M16；StorageRepo 与 UI 共用） */
-    enum class LocalSort(val label: String) {
-        RECENT("最近"), NAME("名称"), SIZE("大小"), TYPE("类型")
-    }
 
     // ---------- 本地存储（B2 拆分：实现已移至 StorageRepo，这里只保留委托，调用点零改动） ----------
 
@@ -798,7 +794,7 @@ object Repo {
 
     private fun enforceCap(dir: File) = StorageRepo.enforceCap(dir)
 
-    fun listDownloads(sort: LocalSort = LocalSort.RECENT, query: String = ""): List<LocalFile> =
+    fun listDownloads(sort: StorageRepo.LocalSort = StorageRepo.LocalSort.RECENT, query: String = ""): List<LocalFile> =
         StorageRepo.listDownloads(sort, query)
 
     fun renameDownload(path: String, newBaseName: String): String? =

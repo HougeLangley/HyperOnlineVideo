@@ -59,7 +59,61 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ---
 
+## 三平台（Android / Linux / macOS）
+
+本仓库是**单仓库三端**：Android 手机端 + Linux 桌面端（Qt6/Wayland）+ macOS 桌面端（SwiftUI/AppKit）。
+三端**共用同一套配置文件**（`~/.config/hov/`：settings / queue / favorites / progress / cookies），
+所以在任一端的设置、队列、收藏、播放进度、登录 cookie 都能被另两端直接复用。
+
+| | Android | Linux（Qt6） | macOS（AppKit + SPM） |
+|---|---|---|---|
+| 源码 | `app/` + `core/`(KMP) | `desktop/src/`（C++，37 文件 / 5900 行） | `macos/Sources/`（Swift，21 文件 / 3100 行） |
+| 播放引擎 | libmpv（`MpvWidget`） | libmpv render API（`MpvWidget`） | libmpv render API（`NSOpenGLView` + `MpvView`） |
+| 构建 | `gradle :app:assembleDebug` | `cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build` | `cd macos && swift build -c release`（**无需 Xcode**） |
+| 运行 | 安装 APK | `./build/hov-qt [--open <地址>]` | `./build/HyperOnlineVideo [--open <地址>]`；打包后双击 `.app` |
+| 打包 | APK（R8 混淆 + 资源压缩） | AppImage 88.7MB / Arch 包 498KB / Flatpak 40.4MB | `.app`（自包含 48 动态库）+ DMG 29MB |
+| 自动化自检 | 单元测试 16 项 | `--queue-selftest` 52 项 | `--selftest-logic` 41 项 |
+| 登录 | 内置 WebView | QtWebEngine（AppImage/Flatpak 降级为 cookie 导入） | WKWebView（cookie 自动落盘） |
+| 媒体控制 | MediaSession（通知栏/锁屏） | MPRIS（媒体键/playerctl） | `MPRemoteCommandCenter`（控制中心/键盘媒体键） |
+
+### 三端能力差异（如实说明）
+
+| 能力 | Android | Linux | macOS |
+|---|---|---|---|
+| 流量强制直连（无视 VPN 代理） | ✅ VpnService 内绕过 | ✅ 设置项（仅对环境变量代理生效） | ✅ 设置项 |
+| 手势（亮度/音量/双击快进退） | ✅ | —（桌面用键鼠） | — |
+| 画中画 / 全屏铺满 | ✅ | 全屏有，铺满未做 | 全屏有，铺满未做 |
+| 下载管理 | ✅（2 并发/仅 WiFi/2GB LRU） | ✅（2 并发/重试/LRU） | ⏳ 未实现 |
+| 本地库 | ✅ | ✅ | ✅ |
+| 在线字幕 | ✅ B站 CC / YouTube | ✅ B站 CC（官方 API）/ YouTube | ✅ 同左 |
+| 逐字歌词 | ✅ | ✅ YRC/QRC | ✅ YRC/QRC |
+| 歌曲标签/封面 | ✅ 下载时写入 | ✅ 下载时写入 | ⏳ 封面显示有，写入待做 |
+
+### 配置文件（三端共用）
+
+```
+~/.config/hov/
+├── settings.json     # 音质上限 / 字号 / 延迟 / 下载目录 / 下载上限 / 强制直连 / 进度记忆 …
+├── queue.json        # 播放队列（顺序/单曲/随机 + 当前下标）
+├── favorites.json    # 收藏
+├── progress.json     # 播放进度（续播）
+└── cookies/          # youtube.txt / bilibili.txt / netease.txt / qqmusic.txt（Netscape 格式，yt-dlp 可直接用）
+```
+
 ## 截图
+
+### Linux（Qt6 / Wayland）
+
+| 网易云：封面 + 逐字歌词 | 本地库 |
+|---|---|
+| ![linux-1](docs/screenshots/linux/01-netease-cover-lyrics.png) | ![linux-2](docs/screenshots/linux/02-local-library.png) |
+
+### macOS（AppKit + SPM）
+
+| 搜索 + 歌词面板 | 本地库 | 字幕渲染 |
+|---|---|---|
+| ![mac-1](docs/screenshots/macos/01-search-lyrics.png) | ![mac-2](docs/screenshots/macos/02-local-library.png) | ![mac-3](docs/screenshots/macos/03-subtitle.png) |
+
 
 > 全部截图取自 Android 模拟器（Pixel 9 / Android 15 / 1080×2424）。
 

@@ -19,8 +19,8 @@ android {
         applicationId = "com.hougelangley.hov"
         minSdk = 35
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         ndk {
             abiFilters += "arm64-v8a"   // 只带 arm64，砍掉模拟器 ABI 体积
@@ -70,6 +70,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core"))          // 共享核心（P1 抽取）
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")   // 单测环境提供真实 JSONObject
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")

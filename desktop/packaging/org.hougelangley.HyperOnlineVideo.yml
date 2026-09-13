@@ -1,0 +1,179 @@
+# Flatpak 清单（本地构建用，无需上架 Flathub）
+#
+# 构建：
+#   flatpak-builder --user --install --force-clean build-dir \
+#     desktop/packaging/org.hougelangley.HyperOnlineVideo.yml
+#
+# 实测记录（2026-09-12，Arch ARM 测试 VM，org.kde.Platform//6.11 + Sdk//6.11）：
+#   - 运行时安装体积 5.3 GB（Platform 1.2 + Sdk 4.1），下载约 1.5 GB
+#   - SDK 自带：gcc/meson/ninja/python3/mako/cmake、ffmpeg 开发文件（libavcodec 61）、
+#     libpulse、wayland + EGL、Qt6 6.11.1、freetype/harfbuzz/fribidi/fontconfig、vulkan + shaderc
+#   - SDK 缺少：libmpv、libass、libplacebo —— 三者都必须自建（见下方模块）
+#   - 原清单里的 `runtime-version: '6.8'` 已从 Flathub 下线，必须是 6.11 / 6.10
+#
+# 【关键约束：mpv 0.36+ 把 libass 与 libplacebo 变成硬依赖】
+#   实测：mpv 0.38/0.39/0.40/0.41 的 meson 选项里**没有** libass/libplacebo 开关，
+#   只能先把这两个库建出来。因此模块顺序必须是 libass → libplacebo → mpv。
+app-id: org.hougelangley.HyperOnlineVideo
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+command: hov-qt
+
+finish-args:
+  - --share=network                      # 网络：YouTube / B站 / 音乐接口
+  - --socket=wayland                     # Wayland 优先（本项目必须支持，见 ADR）
+  - --socket=fallback-x11                # X11 兜底
+  - --socket=pulseaudio                  # 音频输出（媒体播放器必需，勿删）
+  - --device=dri                         # GPU 渲染
+  - --filesystem=home                    # 打开本地媒体文件 / 下载目录
+  - --own-name=org.mpris.MediaPlayer2.hov   # 注册自己的 MPRIS 服务名（只有 talk-name 的话注册会失败）
+  - --talk-name=org.mpris.MediaPlayer2     # 媒体键与桌面媒体控制
+
+modules:
+  # ---------------------------------------------------------------- libass
+  # mpv 的硬依赖（本项目字幕走 App 层渲染，实际不使用 libass，但缺了 mpv 编译不过）
+  - name: libass
+    buildsystem: meson
+    config-opts:
+      - -Dtest=disabled
+      - -Dcompare=disabled
+      - -Dprofile=disabled
+      - -Dfuzz=disabled
+      - -Dcheckasm=disabled
+    sources:
+      - type: archive
+        url: https://github.com/libass/libass/archive/refs/tags/0.17.5.tar.gz
+        sha256: fa286fc9ee1ba3b932703a3df7b8474d01dc8abe29ec69b6fa68781dc4bf7acc
+
+  # ------------------------------------------------------ glad2（构建期依赖）
+  # libplacebo 的 OpenGL 后端在构建期调用 `python -m glad` 生成 GL 加载器。
+  # SDK 里没有 glad，也没有 jinja2（glad2 的依赖），因此这里用 pip 装一份到 /app，
+  # 并通过 PYTHONPATH 传给 libplacebo 模块。
+  # 注意：
+  #   1) 本模块必须排在 libplacebo **之前**
+  #   2) 需要网络（pip 访问 PyPI），所以给构建沙箱显式加 --share=network
+  #   3) 不能在本模块里 cleanup —— 因为 libplacebo 构建时还要用它
+  - name: python-glad2
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - python3 -m pip install --no-cache-dir --target=/app/lib/hov-python glad2
+
+  # ------------------------------------------------------------ libplacebo
+  # 同样是 mpv 0.36+ 的硬依赖。只保留必要后端：Vulkan/OpenGL + shaderc，
+  # 不做 demo/测试/bench/fuzz，避免拖入无关依赖。
+  # 注：它的 OpenGL 后端在构建期需要 Python 的 glad2 生成 GL 加载器（见下方模块）
+  - name: libplacebo
+    buildsystem: meson
+    build-options:
+      env:
+        PYTHONPATH: /app/lib/hov-python
+    config-opts:
+      - -Ddemos=false
+      - -Dtests=false
+      - -Dbench=false
+      - -Dfuzz=false
+      - -Dd3d11=disabled
+      # 不开 Vulkan：App 用的是 libmpv 的 **OpenGL render API**，不需要 Vulkan 后端；
+      # 而且 libplacebo 7.351 的 Vulkan 代码生成脚本（src/vulkan/utils_gen.py）
+      # 与 SDK 的 Python 3.13 不兼容（VkXML(ET.parse(...)) 类型错误），关掉可直接绕开。
+      - -Dvulkan=disabled
+      - -Dvk-proc-addr=disabled
+      - -Dopengl=enabled
+      - -Dglslang=disabled        # SDK 无 glslang，用 shaderc
+      - -Dshaderc=disabled        # 仅 Vulkan 路线需要 SPIR-V 编译器，已关 Vulkan
+      - -Dunwind=disabled
+    sources:
+      - type: archive
+        url: https://github.com/haasn/libplacebo/archive/refs/tags/v7.351.0.tar.gz
+        sha256: 716954501d9b76e6906fddda66febc5886493d0673dd265ec1e6e52f4e5cd7c6
+
+  # ------------------------------------------------------- libmpv（播放引擎）
+  # 只构建 libmpv（不要命令行 mpv），关掉与播放无关的后端
+  - name: mpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true            # 提供 libmpv.so（App 的播放引擎）
+      - -Dcplayer=false          # 不需要 mpv 命令行前端
+      - -Dcuda-hwaccel=disabled
+      - -Dvaapi=disabled
+      - -Dvdpau=disabled
+      - -Dx11=disabled
+      - -Dxv=disabled
+      - -Ddvdnav=disabled
+      - -Dcdda=disabled
+      - -Dlibarchive=disabled
+      - -Djack=disabled
+      - -Djavascript=disabled    # 不需要 JS 脚本（搜索/解析走 yt-dlp）
+      - -Dlua=disabled
+      - -Dmanpage-build=disabled
+      - -Dhtml-build=disabled
+      - -Dpdf-build=disabled
+      - -Dtests=false
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+
+  # ---------------------------------------------------------------- yt-dlp
+  # 官方单文件版（自带 Python 运行时），供搜索与在线解析使用。
+  # 版本固定在下面这一版；升级时同步更新 url 与 sha256。
+  - name: yt-dlp
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 yt-dlp /app/bin/yt-dlp
+    sources:
+      - type: file
+        url: https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux_aarch64
+        dest-filename: yt-dlp
+        sha256: b16e4dab368a816cd05d477d698a605a6ae87ccee1c8ffd38fa21d7254141fcc
+
+  # ------------------------------------------------- 主程序（desktop/ 子目录）
+  # 注意：CMakeLists.txt 位于仓库的 desktop/ 子目录，不能用 cmake-ninja 的默认行为
+  #      （它会在源码根目录找 CMakeLists.txt），因此用 simple 显式进入子目录构建。
+  - name: hov-qt
+    buildsystem: simple
+    build-commands:
+      - cd desktop && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/app
+      - cd desktop && cmake --build build
+      - cd desktop && DESTDIR="" cmake --install build
+      - install -Dm644 LICENSE /app/share/licenses/org.hougelangley.HyperOnlineVideo/LICENSE
+    sources:
+      # 发布后可直接改用网络源（与 PKGBUILD 一致）：
+      #   - type: git
+      #     url: https://github.com/HougeLangley/HyperOnlineVideo.git
+      #     tag: v0.1.0
+      # 开发阶段用本地工作区（注意：不要把 desktop/build/ 带进去，否则 CMakeCache 会指向旧路径导致失败）
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - app
+          - core
+          - build
+          - gradle
+          - pkgbuild
+          - HyperOnlineVideo
+          - desktop/build
+          - desktop/build-appimage
+          - desktop/AppDir
+          - desktop/.appimage-check
+          - "*.AppImage"
+          - "*.pkg.tar.*"
+
+# ============================================================ 首次构建检查清单
+# 1) 确认运行时分支存在（6.8 已下线）：
+#      flatpak remote-ls --user flathub --runtime | grep org.kde.Platform
+# 2) 安装运行时与 SDK（约 1.5 GB 下载 / 5.3 GB 占用）：
+#      flatpak install --user -y flathub org.kde.Platform//6.11 org.kde.Sdk//6.11
+# 3) 构建并安装：
+#      flatpak-builder --user --install --force-clean build-dir \
+#        desktop/packaging/org.hougelangley.HyperOnlineVideo.yml
+# 4) 运行与自检：
+#      flatpak run org.hougelangley.HyperOnlineVideo
+#      flatpak run --command=sh org.hougelangley.HyperOnlineVideo -c "ldd /app/bin/hov-qt | grep mpv"
+#      flatpak run --command=sh org.hougelangley.HyperOnlineVideo -c "yt-dlp --version"
+# 5) 升级 yt-dlp：改 url 里的版本号与 sha256（sha256sum yt-dlp_linux_aarch64）

@@ -17,3 +17,17 @@ local.properties
 *.keystore
 keystore.properties
 cookies/
+
+# 桌面端（Qt）构建与打包产物
+desktop/build/
+desktop/build-appimage/
+desktop/AppDir/
+desktop/.appimage-check/
+desktop/*.AppImage
+desktop/CMakeCache.txt
+desktop/CMakeFiles/
+desktop/cmake_install.cmake
+desktop/Makefile
+desktop/build.ninja
+desktop/.ninja_deps
+desktop/.ninja_log

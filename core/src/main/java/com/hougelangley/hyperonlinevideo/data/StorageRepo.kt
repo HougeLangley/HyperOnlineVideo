@@ -21,6 +21,14 @@ object StorageRepo {
         appContext = ctx.applicationContext
     }
 
+    /** 平台登录 Cookie 文件（Netscape 格式；BiliApi 与 yt-dlp 共用） */
+    /** 本地库排序方式（M16；StorageRepo 与 UI 共用） */
+    enum class LocalSort(val label: String) {
+        RECENT("最近"), NAME("名称"), SIZE("大小"), TYPE("类型")
+    }
+
+    fun cookieFile(platform: String): File = File(appContext!!.filesDir, "cookies/$platform.txt")
+
     fun downloadsDir(): File =
         File(appContext!!.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "videos")
 
@@ -35,7 +43,7 @@ object StorageRepo {
         }
     }
 
-    fun listDownloads(sort: Repo.LocalSort = Repo.LocalSort.RECENT, query: String = ""): List<LocalFile> {
+    fun listDownloads(sort: LocalSort = LocalSort.RECENT, query: String = ""): List<LocalFile> {
         val all = downloadsDir().listFiles()
             ?.filter { it.isFile && isMediaFile(it) }
             ?.map { LocalFile(it.name, it.absolutePath, it.length(), it.lastModified()) }
@@ -45,10 +53,10 @@ object StorageRepo {
             all.filter { it.name.lowercase().contains(q) || it.artist.lowercase().contains(q) }
         }
         return when (sort) {
-            Repo.LocalSort.RECENT -> filtered.sortedByDescending { it.mtime }
-            Repo.LocalSort.NAME -> filtered.sortedBy { it.name.lowercase() }
-            Repo.LocalSort.SIZE -> filtered.sortedByDescending { it.sizeBytes }
-            Repo.LocalSort.TYPE -> filtered.sortedWith(
+            LocalSort.RECENT -> filtered.sortedByDescending { it.mtime }
+            LocalSort.NAME -> filtered.sortedBy { it.name.lowercase() }
+            LocalSort.SIZE -> filtered.sortedByDescending { it.sizeBytes }
+            LocalSort.TYPE -> filtered.sortedWith(
                 compareBy({ if (it.isAudio) 1 else 0 }, { -it.mtime })
             )
         }

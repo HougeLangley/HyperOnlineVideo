@@ -31,6 +31,7 @@ import coil.compose.AsyncImage
 import com.hougelangley.hyperonlinevideo.data.Favorites
 import com.hougelangley.hyperonlinevideo.data.LocalFile
 import com.hougelangley.hyperonlinevideo.data.Repo
+import com.hougelangley.hyperonlinevideo.data.StorageRepo
 import com.hougelangley.hyperonlinevideo.data.SearchFilters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -113,7 +114,7 @@ fun LibrarySheet(
 ) {
     var files by remember { mutableStateOf<List<LocalFile>>(emptyList()) }
     var refresh by remember { mutableStateOf(0) }
-    var sort by remember { mutableStateOf(Repo.LocalSort.RECENT) }   // M16：排序
+    var sort by remember { mutableStateOf(StorageRepo.LocalSort.RECENT) }   // M16：排序
     var query by remember { mutableStateOf("") }                     // M16：库内搜索
     var renaming by remember { mutableStateOf<LocalFile?>(null) }    // M16：重命名
     var renameText by remember { mutableStateOf("") }
@@ -144,7 +145,7 @@ fun LibrarySheet(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Repo.LocalSort.entries.forEach { st ->
+                StorageRepo.LocalSort.entries.forEach { st ->
                     FilterChip(
                         selected = sort == st,
                         onClick = { sort = st },

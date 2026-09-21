@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# pre-push 钩子：推送前自动做身份断言（2026-09-21 身份事故的防线 ✓）
+# 启用方式（每台克隆执行一次）： git config core.hooksPath .githooks
+# 设计：在线=强校验（ID 归属不符即**拒绝推送** ✗）；离线=形式校验+告警（**不阻断** ✓）
+exec "$(git rev-parse --show-toplevel)/scripts/gh-identity-guard.sh" --hook

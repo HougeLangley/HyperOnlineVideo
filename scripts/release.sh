@@ -50,7 +50,7 @@ if [ "${VERIFY}" = "1" ]; then
   ( cd macos && swift build -c release >/dev/null 2>&1 && \
     .build/out/Products/Release/HyperOnlineVideo --selftest-logic 2>/dev/null | grep -a 自检 || true ) | sed 's/^/  macOS: /'
   # 注意：必须先 source ~/hovenv.sh（否则缺 XDG_RUNTIME_DIR → 静默无输出，见踩坑 #76）
-  ssh -o ConnectTimeout=8 houge@192.168.64.9 \
+  ssh -o ConnectTimeout=8 ${HOV_VM:-user@host} \
     'source ~/hovenv.sh 2>/dev/null; cd ~/desktop && HOME=/tmp/hovhome QT_QPA_PLATFORM=offscreen ./build/hov-qt --queue-selftest --exit-after 8 2>&1 | grep -a 队列自检' \
     2>/dev/null | sed 's/^/  Linux: /' || echo "  Linux: （VM 不可达，跳过）"
   echo "  Android: 单元测试请手动执行 gradle :app:testDebugUnitTest"

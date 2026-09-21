@@ -1,9 +1,0 @@
-# .mailmap —— 统一提交身份归属（Git 标准文件，GitHub 会据此把提交归属到正确账号）
-#
-# 背景：某次提交误用了带错误数字前缀的 noreply 邮箱（前缀属于**他人**账号 ID），
-# 导致 GitHub 把该提交归属给了无关的人。该提交已通过 amend + force-push 更正；
-# 此文件用于把**历史的错误身份**一并映射回本仓库作者，避免统计再次误归属。
-#
-# 格式：正确姓名 <正确邮箱>  <需要映射的邮箱>
-
-HougeLangley <HougeLangley@users.noreply.github.com> <18057449+HougeLangley@users.noreply.github.com>

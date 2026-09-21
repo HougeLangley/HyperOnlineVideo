@@ -57,6 +57,13 @@ public:
      *   0 中文简体（原生） 1 简体（由其他语言再翻） 2 中文繁体 3 繁体（再翻） 4 英文 5 英文（再翻） 6 其他
      * 背景：“按文件名字母序”会把 en 排在 zh 前面，自动启用的将是英文字幕（实测踩到）。
      */
+    /// 系统语言偏好提示（小写前缀，下标即优先级）——取自 `QLocale::uiLanguages()` ✓
+    /// 例：中文系统 → ["zh-hans-cn","zh-hans","zh","en"]；德语系统 → ["de-de","de","en"]
+    /// 用途：**默认选哪条字幕轨由系统语言决定** ✓（与 macOS 的 Locale.preferredLanguages / Android 的 Locale ✓ 同一套语义 ✓）
+    static QStringList systemLanguageHints();
+    /// yt-dlp 的 --sub-langs 值（按系统语言生成 ✓ 末尾补中英兼容旧习惯 ✓）
+    static QString subLangsForSystem();
+    /// 按系统语言给字幕轨排序（越小越优先 ✓ 与 macOS 端同一判据 ✓）
     static int languageRank(const QString &lang);
 
     /** 为媒体文件查找同名字幕（a.mp4 → a.srt / a.vtt / a.lrc），没有则返回空。

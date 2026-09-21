@@ -123,7 +123,17 @@ step "2/6 构建 Release（独立构建目录，避免污染开发构建）"
 # 注意：必须用**独立构建目录** —— 曾经在开发用的 build/ 里加了这个禁用参数，
 # 结果缓存残留导致之后的开发构建也丢了 WebEngine（登录组件凭空消失，排查很久）。
 BUILD_DIR="$here/build-appimage"
-cmake -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+# HOV_OPTIMIZED=1：用 clang + full-LTO + PGO 构建（体积更小、启动更快）。
+# 默认不开启，保证"同样源码 → 同样产物"的可复现性；发布优化版时显式打开：
+#   HOV_OPTIMIZED=1 HOV_PROFDATA=/tmp/hovpgo/hov.profdata bash packaging/build-appimage.sh
+OPT_FLAGS=()
+if [ "${HOV_OPTIMIZED:-0}" = "1" ]; then
+  OPT_FLAGS+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+              -DHOV_LTO=ON -DHOV_PGO=use -DHOV_PROFDATA="${HOV_PROFDATA:-/tmp/hovpgo/hov.profdata}")
+  echo "==> 优化构建：clang + full-LTO + PGO（profdata: ${HOV_PROFDATA:-/tmp/hovpgo/hov.profdata}）"
+fi
+
+cmake -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release \ "${OPT_FLAGS[@]}" \
       -DCMAKE_DISABLE_FIND_PACKAGE_Qt6WebEngineWidgets=ON
 cmake --build "$BUILD_DIR"
 BIN="$BUILD_DIR/hov-qt"
@@ -154,6 +164,12 @@ copy_plugin_dir() {   # $1 = 插件子目录名
 # 平台插件：只带 wayland(全部变体) 与 xcb，避免把 eglfs/vnc 等无关后端打进去
 mkdir -p AppDir/usr/plugins/platforms
 for f in "${WAYLAND_SRC[@]}"; do cp -a "$f" AppDir/usr/plugins/platforms/; PLUGIN_SOS+=("$f"); done
+# offscreen：让「纯命令行维护动作」（--import-cookies / --cleanup-downloads / 设置读写…）
+# 在没有显示环境的服务器、SSH、CI 里也能跑（程序会按需自动切到 offscreen，见 main.cpp）。
+if [ -f "$QT_PLUGINS/platforms/libqoffscreen.so" ]; then
+  cp -a "$QT_PLUGINS/platforms/libqoffscreen.so" AppDir/usr/plugins/platforms/
+  PLUGIN_SOS+=("$QT_PLUGINS/platforms/libqoffscreen.so")
+fi
 if [ -f "$QT_PLUGINS/platforms/libqxcb.so" ]; then
   cp -a "$QT_PLUGINS/platforms/libqxcb.so" AppDir/usr/plugins/platforms/
   PLUGIN_SOS+=("$QT_PLUGINS/platforms/libqxcb.so")

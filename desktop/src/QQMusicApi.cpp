@@ -80,7 +80,10 @@ void QQMusicApi::search(const QString &keyword, int limit,
     r.setRawHeader("Referer", kReferer);
     r.setRawHeader("User-Agent", kUserAgent);
     const Cookie ck = readCookie();
-    if (!ck.header.isEmpty()) r.setRawHeader("Cookie", ck.header.toUtf8());
+    if (!ck.header.isEmpty()) {
+        r.setRawHeader("Cookie", ck.header.toUtf8());
+        qInfo() << "[cookie] QQ音乐请求附带 cookie（" << ck.header.size() << "字节，来自 qqmusic.txt）";
+    }
 
     if (status_) status_(hasCookie() ? "QQ音乐搜索中（已带 cookie）" : "QQ音乐搜索中（匿名）");
     QNetworkReply *reply = net_->get(r);
@@ -225,7 +228,7 @@ void QQMusicApi::streamUrl(const QString &mid, const QString &tier,
     const Cookie ck = readCookie();
 
     // 先在登录态试；失败且 cookie 里有数字 uin 时再试一次数字形式（与 Android 版同策略）
-    auto attemptNumeric = [this, mid, filename, ck, done, t](const QString &err) {
+    auto attemptNumeric = [this, mid, filename, ck, done](const QString &err) {
         if (ck.uinNumeric.isEmpty() || ck.uinNumeric == ck.uin) { done(QString(), err); return; }
         Cookie alt = ck;
         alt.uin = ck.uinNumeric;

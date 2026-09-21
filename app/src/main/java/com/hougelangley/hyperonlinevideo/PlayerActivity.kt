@@ -41,6 +41,12 @@ import `is`.xyz.mpv.MPVNode
 
 /** 全屏播放器（libmpv 硬解直链流） */
 class PlayerActivity : Activity() {
+    /** 进程级封面缓存：随前台服务存活 → Activity 重建后仍可恢复封面（平台封面 URL 会过期，缓存位图更可靠） */
+    private object CoverCache {
+        var url: String = ""
+        var bitmap: android.graphics.Bitmap? = null
+    }
+
 
     /** BaseMPVView 是抽象类，子类化配置 mpv 选项 */
     class HyperMPVView(context: android.content.Context) : BaseMPVView(context, null) {
@@ -49,6 +55,19 @@ class PlayerActivity : Activity() {
         override fun initOptions() {
             if (logPath.isNotEmpty()) mpv.setOptionString("log-file", logPath)
             mpv.setOptionString("hwdec", "mediacodec")
+            // 渲染后端：必须在 mpv.initialize() **之前**设 ✓（initialize 之后改 vo 无效 ✓）
+            // 本包 libmpv 已静态编入 libplacebo（165 处符号 ✓ 实测确认 ✓）→ gpu-next 具备条件 ✓
+            // ── Android **完全采用 gpu-next**（2026-09-20 决策 ✓ 见 33-Android默认渲染后端崩溃调查.md）──
+            // 依据（实测 ✗✓）：mpv-android 的**默认 `vo=gpu`** 在 Xiaomi 17 Pro Max(Android 16) 上
+            // **原生崩溃**（tombstone 线程名 `vo` ✓ 栈在 libmpv ✓ 复现 2/2 ✓）；
+            // 而 `vo=gpu-next` 稳定可用（三轮复现 ✓ PSNR 证明在播 ✓ mpv 帧号佐证 ✓）。
+            // → 稳定性优先 ✓ 不再让用户选择（原开关已从设置界面移除 ✓）。
+            // 紧急回退：把**下面这一行**的 "gpu-next" 改成 "gpu" 即可（全仓仅此一处 ✓ 一行回滚 ✓）。
+            // ⚠️ **不读设置** ✗ —— 否则老版本里"关过开关"的用户机器上存着 `video_gpu_next=false`
+            //    会覆盖新默认值 → 继续走**会崩的** `gpu` 路径 ✗✗（本机实测就踩到：我上轮还原时写入了 false ✓）
+            // 紧急回退：把下面这一行改成 "gpu" 即可（仅此一处 ✓ 便于将来一行回滚 ✓）。
+            mpv.setOptionString("vo", "gpu-next")
+            android.util.Log.i("HOV", "[PLAY] 渲染后端 = gpu-next（libplacebo，Android 固定）")
             mpv.setOptionString("cache", "auto")
             mpv.setOptionString("cache-secs", "30")
             if (referer.isNotEmpty()) mpv.setOptionString("http-header-fields", "Referer: $referer")
@@ -107,6 +126,21 @@ class PlayerActivity : Activity() {
     private var pausedByFocus = false
     private var platform = ""
     private var videoTitle = ""
+    private var currentPlayUrl = ""   // 当前播放直链（onResume 重挂用；playUrl 是 onCreate 局部变量）
+    // ── Bug B：直链过期自愈 ──────────────────────────────────────────────
+    // 现象：暂停很久后继续播 → 播一会儿停住 → 手动切分辨率才恢复。
+    // 根因：解析出的直链有有效期（googlevideo / B站 数小时失效），切档会重新解析 → 与用户观察完全吻合。
+    private var resolvedAtMs = 0L          // 本直链的解析时刻
+    private var healTried = false          // 每条内容最多自愈一次（避免抖动）
+    private var lastPos = -1.0             // 停滞检测：上次进度
+    private var lastPosAtMs = 0L
+    /** 直链保守 TTL（按来源；未知来源视为不过期）*/
+    private fun ttlMs(): Long = when (platform) {
+        "youtube"  -> 4 * 60 * 60 * 1000L
+        "bilibili" -> 2 * 60 * 60 * 1000L
+        "netease", "qqmusic" -> 30 * 60 * 1000L
+        else -> Long.MAX_VALUE
+    }
     // ---- 播放队列（Phase 1）----
     private lateinit var titleLabel: TextView
     private var coverView: ImageView? = null
@@ -174,6 +208,7 @@ class PlayerActivity : Activity() {
         currentAudioUrl = audioUrl
         @Suppress("UNCHECKED_CAST")
         subtitleTracks = (intent.getSerializableExtra("subtitles") as? ArrayList<SubTrack>) ?: arrayListOf()
+        autoSelectSubtitleBySystemLanguage()      // 默认按系统语言选中并显示字幕（用户要求 ✓）
         // 音乐平台：构建音质档位（受设置上限裁剪）+ 从当前音质标签推断档位（M20 播放器内切音质）
         songId = intent.getStringExtra("songId").orEmpty()
         if (isMusicPlatform(platform)) {
@@ -223,6 +258,11 @@ class PlayerActivity : Activity() {
             if (coverUrl.isNotEmpty()) {
                 // 在线音乐：直接加载平台封面
                 cv.load(coverUrl) { crossfade(true) }
+                CoverCache.url = coverUrl
+                cv.postDelayed({ runCatching {
+                    val bmp = (cv.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                    if (bmp != null) CoverCache.bitmap = bmp
+                } }, 2000)
                 root.addView(cv)
             } else if (platform == "local") {
                 // 本地音频：读取内嵌专辑封面（异步，避免阻塞）
@@ -330,9 +370,12 @@ class PlayerActivity : Activity() {
                 }
             })
         }
+        currentPlayUrl = playUrl
+        resolvedAtMs = System.currentTimeMillis()
         mpvView.playFile(playUrl)
         if (platform == "local") autoLoadSubtitle(url)
         handler.postDelayed({ applyFillMode() }, 900)   // 起播后应用显示模式（铺满/适应）
+        startStallWatch()                              // Bug B：停滞自愈看门狗
 
         // 后台播放：注册播放器桥 + 前台服务（媒体通知/锁屏控制）+ 音频焦点
         PlaybackController.listener = object : PlaybackController.Listener {
@@ -593,6 +636,40 @@ class PlayerActivity : Activity() {
     }
 
     /** 字幕菜单：关闭 / 本地同名 / 在线轨（B站 CC、YouTube 人工·自动）（M14b） */
+    /**
+     * 默认字幕：按**系统语言**自动选轨并显示。
+     * 用户要求：中文系统 → 中文字幕；英文系统 → 英文字幕；其它语言同理（有则用，无则不自动开 ✗ 免得乱开）。
+     * 与 macOS 端 languageRank 同一套判据（系统语言优先 → 同主语言 → 中文简繁 → 英文兜底）。
+     */
+    private fun autoSelectSubtitleBySystemLanguage() {
+        if (subtitleTracks.isEmpty()) return
+        if (!Settings.subtitleAutoShow) { android.util.Log.i("HOV", "[SUB] 用户关闭了「字幕默认显示」→ 不自动选轨"); return }
+        val loc = java.util.Locale.getDefault()
+        val lang = loc.language.lowercase()                       // zh / en / de …
+        val tag = loc.toLanguageTag().lowercase()                  // zh-hans-cn / en-us …
+
+        fun key(label: String) = label.substringBefore("·").trim().lowercase()   // "zh-Hans · SRT" → "zh-hans"
+
+        fun rank(label: String): Int {
+            val k = key(label)
+            if (k.isEmpty()) return 9
+            if (tag.isNotEmpty() && (k == tag || k.startsWith(tag) || tag.startsWith(k))) return 0   // ① 精确/前缀
+            if (k == lang || k.startsWith("$lang-") || k.contains(lang)) return 1                     // ② 同主语言
+            if (lang == "zh") {                                                                       // ③ 中文自然语言标签
+                if (k.contains("简体") || k.contains("中文（中国）") || k.contains("中文(中国)")) return 0
+                if (k.contains("繁體") || k.contains("中文（台") || k.contains("中文(台")) return 2
+            }
+            if (k.startsWith("en")) return 3                                                          // ④ 英文兜底
+            return 9
+        }
+
+        val best = subtitleTracks.minByOrNull { rank(it.label) } ?: return
+        val r = rank(best.label)
+        android.util.Log.i("HOV", "[SUB] 系统语言=$tag 候选=${subtitleTracks.map { it.label }} → 选中 ${best.label}（rank=$r）")
+        if (r >= 9) return                        // 没有与系统语言匹配的轨 → 不自动开 ✓
+        loadOnlineSubs(best)                      // 复用既有链路（含 subsEnabled=true ✓ 显示 ✓）
+    }
+
     private fun showSubtitlePicker() {
         val acts = ArrayList<Pair<String, () -> Unit>>()
         acts.add((if (!subsEnabled) "● " else "") + "关闭字幕" to { setSubsEnabled(false) })
@@ -787,7 +864,43 @@ class PlayerActivity : Activity() {
     /** 重新加载流（清晰度切换）：保持播放位置与倍速
      *  注意：lib 的 playFile() 只更新字段、loadfile 仅在 surfaceCreated 时执行，
      *  运行时换流必须直接发 mpv 命令（replace 模式）。 */
+    /** 直链过期自愈：用**当前档位**重新解析（与用户手动切档同一条链路）并回到原位置 */
+    private fun healIfExpired(force: Boolean = false) {
+        if (healTried) return
+        val age = System.currentTimeMillis() - resolvedAtMs
+        if (!force && (resolvedAtMs == 0L || age < ttlMs())) return
+        val opt = qualitiesList.firstOrNull { it.id == currentQualityId }
+        if (opt == null) { android.util.Log.i("HOV", "[HEAL] 无可用档位，跳过自愈"); return }
+        healTried = true
+        android.util.Log.i("HOV", "[HEAL] 直链已 ${age / 1000}s（> TTL ${ttlMs() / 1000}s）→ 重新解析：${opt.label}")
+        runCatching { android.widget.Toast.makeText(this, "直链已过期，正在重新解析…", android.widget.Toast.LENGTH_SHORT).show() }
+        switchQuality(opt)                                   // 内含重新解析 + seekAfterReload 回原位
+    }
+
+    /** 停滞检测：播放中且进度 N 秒不推进（且非用户暂停/非播放结束）→ 触发一次自愈 */
+    private fun startStallWatch() {
+        val tick = object : Runnable {
+            override fun run() {
+                runCatching {
+                    val m = mpvView.mpv
+                    val pos = runCatching { m.getPropertyDouble("time-pos") ?: -1.0 }.getOrNull() ?: -1.0
+                    val now = System.currentTimeMillis()
+                    if (pos >= 0.0 && kotlin.math.abs(pos - lastPos) > 0.05) {
+                        lastPos = pos; lastPosAtMs = now
+                    } else if (lastPosAtMs > 0 && now - lastPosAtMs > 15_000 && !pausedByFocus) {
+                        android.util.Log.i("HOV", "[HEAL] 进度停滞 15s（pos=$pos）→ 尝试自愈")
+                        healIfExpired(force = true)
+                        lastPosAtMs = now                        // 避免反复触发（healTried 也兜底）
+                    }
+                }
+                handler.postDelayed(this, 5_000)
+            }
+        }
+        handler.postDelayed(tick, 8_000)
+    }
+
     private fun reloadStream(newUrl: String) {
+        if (newUrl.isNotEmpty()) { currentPlayUrl = newUrl; resolvedAtMs = System.currentTimeMillis() }
         val seekTarget = pendingReloadSeek
         mpvView.mpv.command("loadfile", newUrl, "replace")
         if (currentAudioUrl.isNotEmpty()) {
@@ -1429,6 +1542,43 @@ class PlayerActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (isFullscreen) toggleFullscreen() else finish()
+    }
+
+    // ── 锁屏/后台很久后回到前台（用户实测 bug：画面全黑 + 无封面）────────────────
+    // 机制：① lib 的 loadfile 只在 surfaceCreated 时执行 → Activity 重建/恢复后没有任何重挂动作 → 黑屏；
+    //       ② 封面只从 Intent extra 取，且平台封面 URL 会过期 → 无封面。
+    // 处理：幂等重挂（**绝不打断正常播放**）+ 进程级缓存恢复封面。
+    override fun onResume() {
+        super.onResume()
+        runCatching { reattachSurfaceAndPlayback() }.onFailure { android.util.Log.w("HOV", "[RESUME] 重挂失败: $it") }
+        runCatching { restoreCoverFromCache() }
+        runCatching { healIfExpired() }                      // Bug B：长时间暂停后直链可能已过期
+    }
+
+    /** 幂等：仅在"有曲目、非空闲、但已无视频输出"时重新挂载并回到原位置 */
+    private fun reattachSurfaceAndPlayback() {
+        val m = mpvView.mpv
+        val w: Double = runCatching { m.getPropertyDouble("width") ?: 0.0 }.getOrNull() ?: 0.0
+        val h: Double = runCatching { m.getPropertyDouble("height") ?: 0.0 }.getOrNull() ?: 0.0
+        val pos: Double = runCatching { m.getPropertyDouble("time-pos") ?: 0.0 }.getOrNull() ?: 0.0
+        if (currentPlayUrl.isEmpty() || (w > 0.0 && h > 0.0)) {   // 无曲目 or 画面正常 → 绝不打扰
+            android.util.Log.i("HOV", "[RESUME] 无需重挂（w=$w h=$h url=${currentPlayUrl.isNotEmpty()}）")
+            return
+        }
+        android.util.Log.i("HOV", "[RESUME] 无视频输出 → 重新挂载并在 ${"%.1f".format(pos)}s 续播")
+        val token = ++reloadSeekToken
+        reloadStream(currentPlayUrl)
+        if (pos > 3.0) seekAfterReload(pos)                  // 复用既有对齐助手（异步加载 + 轮询矫正）
+    }
+
+    /** 从进程级缓存恢复封面（URL 过期也能显示） */
+    private fun restoreCoverFromCache() {
+        val cv = coverView ?: return
+        val cached = CoverCache.bitmap ?: return
+        if (cv.drawable != null) return
+        cv.setImageBitmap(cached)
+        cv.visibility = View.VISIBLE
+        android.util.Log.i("HOV", "[RESUME] 已用缓存封面恢复")
     }
 
     override fun onDestroy() {

@@ -18,7 +18,7 @@ struct QueueEntry {
 
 class PlayQueue {
 public:
-    enum class Mode { Sequential, RepeatOne, Shuffle };
+    enum class Mode { Sequential, RepeatOne, Shuffle, RepeatAll };   // 与 macOS/Android 四档对齐
 
     void setList(const QVector<QueueEntry> &entries, int start);
     void setSingle(const QueueEntry &e);
@@ -32,7 +32,8 @@ public:
     QVector<QueueEntry> entries() const { return entries_; }
 
     /** 下一首：按模式推进；返回是否发生了"换曲"（单曲模式返回 false，表示应重播当前曲） */
-    bool next();
+    bool next();          // 手动切歌：总是前进（单曲循环也前进）
+    bool autoNext();      // 播完自动续播：单曲=重播本曲；顺序=到底停止；列表循环=回到开头；随机=随机
     void prev();
     void jumpTo(int i);
     void cycleMode();

@@ -24,12 +24,24 @@ object Settings {
     private const val K_QUALITY = "music_quality"
     private const val K_WIFI_ONLY = "wifi_only_download"
     private const val K_FILL_SCREEN = "fill_screen_fullscreen"
+    private const val K_THEME = "ui_theme"            // auto=跟随系统 / dark / light（与另两端同键语义 ✓）
+    private const val K_SUB_AUTO = "subtitle_auto_show"   // 默认自动显示字幕（按系统语言选轨 ✓ 用户可关 ✓）
 
     @Volatile private var sp: SharedPreferences? = null
 
     fun init(ctx: Context) {
         if (sp == null) sp = ctx.applicationContext.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     }
+
+    /** 字幕默认显示：开启后按**系统语言**自动选轨并显示（用户 2026-09-18 要求 ✓） */
+    var subtitleAutoShow: Boolean
+        get() = sp?.getBoolean(K_SUB_AUTO, true) ?: true
+        set(v) { sp?.edit()?.putBoolean(K_SUB_AUTO, v)?.apply() }
+
+    /** 应用主题：auto=跟随系统 light/dark（用户 2026-09-18 要求）/ dark / light */
+    var theme: String
+        get() = sp?.getString(K_THEME, "auto") ?: "auto"
+        set(v) { sp?.edit()?.putString(K_THEME, v)?.apply() }
 
     /** 进度记忆：退出/重进续播 */
     var resumePlayback: Boolean

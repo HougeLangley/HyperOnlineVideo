@@ -9,6 +9,14 @@ enum CliDecision {
 
 /// 纯命令行模式（不创建窗口），供自动化与快速验证使用
 enum Cli {
+    /// 纯 CLI 路径也必须有设置上下文（否则 --resolve 永远用默认档位/匿名 cookie —— 实测踩过）
+    private static func loadSettingsContext() {
+        let st = Settings()
+        st.load()
+        UrlResolver.cookiesFromBrowser = st.string("network.cookiesFromBrowser")
+        UrlResolver.maxHeight = Int(st.number("video.maxHeight", 0))
+    }
+
     static func run(_ args: [String]) -> CliDecision {
         // 自检：--selftest-logic / --queue-selftest（与 Qt 端的参数名保持一致）
         if args.contains("--selftest-logic") || args.contains("--queue-selftest") {
@@ -52,8 +60,20 @@ enum Cli {
             for t in tracks { print("  - \(t.label)  \(t.source)") }
             return .exit(0)
         }
-        // 直链解析：--resolve <页面地址>
+        // 直链解析：--resolve <页面地址>（可配 --video-quality auto|audio|360|480|720|1080…）
         if let i = args.firstIndex(of: "--resolve"), i + 1 < args.count {
+            loadSettingsContext()
+            if let qi = args.firstIndex(of: "--video-quality"), qi + 1 < args.count {
+                let v = args[qi + 1].lowercased()
+                let h: Int
+                switch v {
+                case "auto": h = 0
+                case "audio", "audio-only": h = -1
+                default: h = Int(v.replacingOccurrences(of: "p", with: "")) ?? 0
+                }
+                UrlResolver.maxHeight = h
+                Config.log("[CLI] 清晰度档位 = \(UrlResolver.qualityLabel(h))")
+            }
             guard let s = UrlResolver().resolve(args[i + 1]) else {
                 print("解析失败"); return .exit(1)
             }

@@ -15,7 +15,9 @@ let package = Package(
         .executableTarget(
             name: "HyperOnlineVideo",
             dependencies: ["Cmpv"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            // GL_SILENCE_DEPRECATION：客户端 API 用 mpv 的 GL 渲染器，OpenGL 弃用警告无法避免，
+            // 全量屏蔽它，让以后出现的**其它**警告能一眼看见（本次审计就是靠这个把 175 条噪音变 0）。
+            swiftSettings: [.swiftLanguageMode(.v5), .unsafeFlags(["-Xcc", "-DGL_SILENCE_DEPRECATION"])]
         ),
     ]
 )

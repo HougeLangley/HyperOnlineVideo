@@ -7,17 +7,55 @@ struct SubtitleTrack { var label = "", source = ""; var cues: [SubtitleCue] = []
 
 enum Subtitles {
     // MARK: 语言优先级（修复过"英文轨排在中文前"的问题）
+    /// 系统语言偏好提示（小写前缀，下标即优先级）——
+    /// 例：中文 macOS → ["zh-hans-cn","zh-hans","zh","en"]；德语系统 → ["de-de","de","en"]
+    /// 用途：**默认选哪条字幕轨由系统语言决定**（用户明确要求），而不是写死中文优先。
+    static var systemLanguageHints: [String] {
+        var hints: [String] = []
+        for tag in Locale.preferredLanguages {
+            let low = tag.lowercased()
+            hints.append(low)
+            let parts = low.split(separator: "-").map(String.init)
+            if parts.count >= 2 { hints.append(parts[0] + "-" + parts[1]) }
+            if let p = parts.first { hints.append(p) }
+        }
+        hints.append("en")
+        var seen = Set<String>()
+        return hints.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
     static func languageRank(_ lang: String) -> Int {
         let l = lang.trimmingCharacters(in: .whitespaces).lowercased()
-        let dashes = l.filter { $0 == "-" }.count
-        let hans = l.hasPrefix("zh-hans") || l == "zh" || l == "zh-cn" || l == "zh-sg"
-            || l.contains("简体") || l.contains("中文（中国）") || l.contains("中文(中国)")
-        let hant = l.hasPrefix("zh-hant") || l == "zh-tw" || l == "zh-hk" || l == "zh-mo"
-            || l.contains("繁體") || l.contains("中文（台") || l.contains("中文(台")
-        if hans { return dashes > 1 ? 1 : 0 }
-        if hant { return dashes > 1 ? 3 : 2 }
-        if l == "en" || l.hasPrefix("en-") || l.hasPrefix("english") { return dashes > 1 ? 5 : 4 }
-        return 6
+        // 字幕标签形如 "zh-Hans · SRT" / "en · SRT" / "中文（中国）· CC" → 取分隔符前部分做语言判定
+        let label = l.components(separatedBy: "·").first?.trimmingCharacters(in: .whitespaces) ?? l
+        let hints = systemLanguageHints
+        let systemIsChinese = hints.contains { $0.hasPrefix("zh") }
+
+        // ① 系统语言驱动：**按 hint 下标打分**（下标越小越优先）。
+        //    不能压成 0/1 —— 否则"系统首选语言"和"兜底英文"会同级，英文会顶掉中文（自检抓到过）。
+        for (idx, hint) in hints.enumerated() where hint.count >= 2 {
+            if label == hint || label.hasPrefix(hint + "-") || label.hasPrefix(hint) { return idx }
+        }
+        // ② 中文轨可能写成自然语言（简体/繁體/中文（中国））→ 视为命中系统语言
+        if systemIsChinese {
+            let hans = label.contains("简体") || label.contains("中文（中国）") || label.contains("中文(中国)")
+            let hant = label.contains("繁體") || label.contains("中文（台") || label.contains("中文(台")
+            if hans || hant {
+                let systemHant = (hints.first ?? "").hasPrefix("zh-hant")
+                return systemHant == hant ? 0 : 1
+            }
+        }
+        // ③ 都未命中：排在所有 hints 之后（英文优先；中文系统再保留"简体优先"的原有观感）
+        let base = hints.count
+        let isEn = label == "en" || label.hasPrefix("en-") || label.hasPrefix("english")
+        if isEn { return base }
+        if systemIsChinese {
+            let hans = label.hasPrefix("zh-hans") || label == "zh" || label == "zh-cn" || label == "zh-sg"
+            let hant = label.hasPrefix("zh-hant") || label == "zh-tw" || label == "zh-hk" || label == "zh-mo"
+            if hans { return base + 1 }
+            if hant { return base + 2 }
+        }
+        return base + 3
     }
 
     // MARK: 时间戳

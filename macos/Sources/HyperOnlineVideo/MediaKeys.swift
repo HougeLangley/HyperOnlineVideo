@@ -5,6 +5,7 @@ import MediaPlayer
 /// 设计：与 Linux 端 Mpris 一致 —— 只做"协议翻译"，动作交回主控制器
 /// （保证媒体键与界面按钮/快捷键走同一条逻辑）。
 final class MediaKeys {
+    private static var installed = false
     private let player: MpvView
     weak var delegate: AppDelegate?
 

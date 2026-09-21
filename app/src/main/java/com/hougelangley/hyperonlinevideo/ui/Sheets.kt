@@ -363,6 +363,7 @@ fun SettingsSheet(
     var autoNext by remember { mutableStateOf(Settings.autoNext) }
     var gestures by remember { mutableStateOf(Settings.gesturesEnabled) }
     var fillScreen by remember { mutableStateOf(Settings.fillScreen) }
+    var subtitleAuto by remember { mutableStateOf(Settings.subtitleAutoShow) }
     var quality by remember { mutableStateOf(Settings.musicQuality) }
     var wifiOnly by remember { mutableStateOf(Settings.wifiOnlyDownload) }
     val ytdlp by Repo.ytdlpStatus.collectAsStateWithLifecycle()
@@ -382,7 +383,30 @@ fun SettingsSheet(
             Spacer(Modifier.height(12.dp))
 
             // ---------- 播放 ----------
-            SectionTitle("播放")
+            SectionTitle("外观")
+        ChoiceRow(
+            title = "应用主题",
+            options = listOf("auto" to "跟随系统", "light" to "浅色", "dark" to "深色"),
+            current = ThemeState.mode,
+        ) { mode ->
+            ThemeState.set(mode)                       // 立即生效（重组 ✓）+ 持久化 ✓
+            onStatus(
+                when (mode) {
+                    "light" -> "已切换为浅色主题"
+                    "dark" -> "已切换为深色主题"
+                    else -> "主题跟随系统（浅色 / 深色自动切换）"
+                }
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+
+        SectionTitle("字幕")
+        SwitchRow("默认显示字幕（按系统语言自动选轨）", subtitleAuto) {
+            subtitleAuto = it; Settings.subtitleAutoShow = it
+            onStatus(if (it) "已开启：播放时自动按系统语言显示字幕" else "已关闭：需手动点「字幕」选择")
+        }
+
+        SectionTitle("播放")
             SwitchRow("进度记忆（退出后续播）", resume) {
                 resume = it; Settings.resumePlayback = it
                 onStatus(if (it) "已开启进度记忆" else "已关闭进度记忆")
@@ -468,6 +492,20 @@ private fun SectionTitle(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(4.dp))
+}
+
+/** 三档单选行（用于主题：跟随系统 / 浅色 / 深色）—— 与骨架里 FilterChip 的观感一致 ✓ */
+@Composable
+private fun ChoiceRow(title: String, options: List<Pair<String, String>>, current: String, onPick: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            options.forEach { (value, label) ->
+                FilterChip(selected = current == value, onClick = { onPick(value) }, label = { Text(label) })
+            }
+        }
+    }
 }
 
 @Composable

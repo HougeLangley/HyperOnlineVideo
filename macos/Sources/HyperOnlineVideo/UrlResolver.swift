@@ -20,6 +20,48 @@ final class UrlResolver {
         return ""
     }
 
+    /// 站点 cookie 文件路径（不判断存在性 —— 浏览器模式下即使文件不存在也要传给 yt-dlp 以便导出）
+    static func cookiePathFor(_ url: String) -> String {
+        let s = serviceOf(url)
+        return s.isEmpty ? "" : Config.cookiePath(s)
+    }
+
+    /// 可设置的浏览器来源（由主控制器注入）
+    static var cookiesFromBrowser = ""
+
+    /// 视频清晰度上限（0=自动不限，-1=仅音频，否则高度上限。由主控制器从设置注入）
+    static var maxHeight = 0
+
+    /// 档位 → yt-dlp 的 -f/-S 参数（**纯函数**，可单测）
+    static func formatArgs(forMaxHeight h: Int) -> [String] {
+        if h == -1 { return ["-f", "ba/b"] }                       // 仅音频
+        if h <= 0 { return ["-f", "bv*+ba/b"] }                    // 自动（保持原有行为）
+        // 上限形式：**只给视频部分设 height 上限**（音频格式没有 height，加了过滤会导致整条失配、
+        // 悄悄退回不设限的兜底 —— 实测踩过）；最后保留"拿不到该高度就退回最好"的兜底
+        let cap = "\(h)"
+        return ["-f", "bv*[height<=\(cap)]+ba/b[height<=\(cap)]/bv*+ba/b"]
+    }
+
+    static func qualityLabel(_ h: Int) -> String {
+        if h == -1 { return "仅音频" }
+        if h == 0 { return "自动" }
+        return "\(h)p"
+    }
+
+    /// cookie 相关参数（浏览器模式 + 站点文件）
+    static func cookieArgs(for url: String) -> [String] {
+        var a: [String] = []
+        if !cookiesFromBrowser.isEmpty { a += ["--cookies-from-browser", cookiesFromBrowser] }
+        let f = cookiePathFor(url)
+        if f.isEmpty { return a }
+        if cookiesFromBrowser.isEmpty {
+            if FileManager.default.fileExists(atPath: f) { a += ["--cookies", f] }   // 老行为
+        } else {
+            a += ["--cookies", f]                                                    // 无论存在与否都传 → 导出
+        }
+        return a
+    }
+
     static func cookieFileFor(_ url: String) -> String {
         let s = serviceOf(url)
         guard !s.isEmpty else { return "" }
@@ -55,11 +97,26 @@ final class UrlResolver {
     }
 
     @discardableResult
+    /// 子进程环境：**从 Finder 启动时 PATH 很干净**（只有 /usr/bin:/bin:…），
+    /// yt-dlp 会因此找不到 JS 运行时（YouTube 需要 deno/node，通常装在 /opt/homebrew/bin）
+    /// → 表现为"点了搜索结果不播放"（解析失败）。这里给子进程补上常见安装目录，
+    /// 父进程已有的 PATH 排在最前（用户自定义优先）。
+    static func childEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let inherited = env["PATH"] ?? ""
+        let extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        var parts = inherited.isEmpty ? [] : inherited.split(separator: ":").map(String.init)
+        for d in extra where !parts.contains(d) { parts.append(d) }
+        env["PATH"] = parts.joined(separator: ":")
+        return env
+    }
+
     static func runProcess(_ launch: String, _ args: [String], timeout: TimeInterval = 120) -> ProcResult {
         var res = ProcResult()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launch)
         p.arguments = args
+        p.environment = childEnvironment()      // ← 关键：否则 GUI 启动时 yt-dlp 找不到 deno/node
         let outPipe = Pipe(), errPipe = Pipe()
         p.standardOutput = outPipe
         p.standardError = errPipe
@@ -84,9 +141,8 @@ final class UrlResolver {
 
     // MARK: 解析直链
     func resolve(_ pageUrl: String) -> Stream? {
-        var args = ["-J", "--no-warnings", "--no-playlist", "-f", "bv*+ba/b"]
-        let cookies = Self.cookieFileFor(pageUrl)
-        if !cookies.isEmpty { args.append(contentsOf: ["--cookies", cookies]) }
+        var args = ["-J", "--no-warnings", "--no-playlist"] + Self.formatArgs(forMaxHeight: Self.maxHeight)
+        args += Self.cookieArgs(for: pageUrl)          // A0：支持从系统浏览器读 cookie 并导出
         args.append(pageUrl)
         guard let ytdlp = Self.findExecutable("yt-dlp") else {
             Config.log("找不到 yt-dlp（brew install yt-dlp）")
@@ -107,19 +163,67 @@ final class UrlResolver {
         s.title = (root["title"] as? String) ?? ""
         if let req = root["requested_downloads"] as? [Any], let first = req.first as? [String: Any] {
             let direct = (first["url"] as? String) ?? ""
-            if !direct.isEmpty {
-                s.videoUrl = direct
-                s.audioUrl = ""
-            } else if let fmts = first["requested_formats"] as? [Any] {
+            if let fmts = first["requested_formats"] as? [Any], !fmts.isEmpty {
                 for f in fmts {
                     guard let o = f as? [String: Any], let u = o["url"] as? String else { continue }
                     if (o["vcodec"] as? String) == "none" { s.audioUrl = u } else { s.videoUrl = u }
                 }
+            } else if !direct.isEmpty {
+                if (first["vcodec"] as? String) == "none" { s.audioUrl = direct } else { s.videoUrl = direct }
+            }
+            // ⚠️ 关键修复：`requested_downloads[0].url` 对**纯视频轨**也是非空的 ——
+            // 原实现只要它非空就 audioUrl=""，于是"竖屏/短视频"这类只选中了视频轨的情况**完全没声音**
+            //（用户实测：竖屏视频有画面、听不到声音）。这里按 acodec 判定，缺音轨就从 formats 里兜底取。
+            if !s.videoUrl.isEmpty && s.audioUrl.isEmpty,
+               (first["acodec"] as? String ?? "none") == "none",
+               (first["vcodec"] as? String ?? "none") != "none" {
+                s.audioUrl = Self.bestAudioOnlyUrl(from: root)
+                Config.log("音频兜底：所选视频轨无音轨（\(first["vcodec"] as? String ?? "-")）→ 单独取音轨"
+                           + (s.audioUrl.isEmpty ? "**失败**（这条会没声音）" : "成功"))
             }
         }
         if s.videoUrl.isEmpty { Config.log("解析结果里没有可用地址"); return nil }
+        // 客观判据：把实际选中的视频格式（分辨率/编码）记下来，便于验证"切清晰度真的生效"
+        if let req = root["requested_downloads"] as? [Any], let first = req.first as? [String: Any] {
+            let h = (first["height"] as? NSNumber)?.intValue ?? 0
+            let note = (first["format_note"] as? String) ?? ""
+            let vcodec = (first["vcodec"] as? String) ?? "-"
+            Config.log("解析档位=≤\(Self.qualityLabel(Self.maxHeight)) 实际选中=\(h)p \(note) \(vcodec)")
+        }
         Config.log("解析成功: \(s.title.isEmpty ? pageUrl : s.title)\(s.audioUrl.isEmpty ? "" : "（视频+音频分流）")")
         return s
+    }
+    /// 按系统语言决定 yt-dlp 抓哪些字幕（去重；末尾补中英各若干，保持对旧行为的兼容）
+    static func subLangsForSystem() -> String {
+        var langs: [String] = []
+        for tag in Locale.preferredLanguages {
+            let low = tag.lowercased()
+            langs.append(low)
+            let p = low.split(separator: "-").map(String.init)
+            if p.count >= 2 { langs.append(p[0] + "-" + p[1]) }
+            if let f = p.first { langs.append(f) }
+        }
+        langs += ["zh-Hans", "zh-CN", "zh", "zh-Hant", "zh-TW", "en"]
+        var seen = Set<String>()
+        let uniq = langs.filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+        return uniq.prefix(8).joined(separator: ",")
+    }
+
+
+    /// 从 yt-dlp 的 formats 里挑"最佳纯音轨"（abr 最高；没有 abr 时取最后一条 audio-only）
+    /// 用途：所选视频轨是 video-only 时兜底，避免"有画面没声音"。
+    static func bestAudioOnlyUrl(from root: [String: Any]) -> String {
+        guard let fmts = root["formats"] as? [Any] else { return "" }
+        var best = "", bestAbr = -1.0
+        for f in fmts {
+            guard let o = f as? [String: Any],
+                  (o["vcodec"] as? String) == "none",
+                  (o["acodec"] as? String ?? "none") != "none",
+                  let u = o["url"] as? String else { continue }
+            let abr = (o["abr"] as? NSNumber)?.doubleValue ?? 0
+            if abr > bestAbr || best.isEmpty { bestAbr = abr; best = u }
+        }
+        return best
     }
 
     // MARK: B站 CC（官方 API；无字幕清单 = 该视频确实没有 CC）
@@ -177,7 +281,8 @@ final class UrlResolver {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var args = ["--skip-download", "--no-warnings", "--no-playlist",
                     "--write-subs", "--write-auto-subs",
-                    "--sub-langs", "zh-Hans,zh-CN,zh,zh-Hant,zh-TW,en",
+                    // 字幕语言随**系统语言**（中文系统仍中文优先；德语系统会抓 de）
+                    "--sub-langs", Self.subLangsForSystem(),
                     "--sub-format", "srt/vtt/best",
                     "-o", dir + "/%(id)s.%(ext)s"]
         let cookies = Self.cookieFileFor(pageUrl)

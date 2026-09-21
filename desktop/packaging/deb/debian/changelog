@@ -1,0 +1,10 @@
+hov-qt (1.2.0-1) resolute; urgency=medium
+
+  * Initial Debian/Ubuntu packaging of the Linux Qt6 desktop build (v1.2.0):
+    - aggregation of YouTube / Bilibili / NetEase Cloud Music / QQ Music
+    - libmpv playback, gpu-next opt-in with render-verification guard
+    - yt-dlp based downloads, local library, storage management
+    - XDG portal driven light/dark theme following
+    - launcher wrapper handling LC_NUMERIC/libmpv locale requirement
+
+ -- Houge Langley <hougelangley@users.noreply.github.com>  Sun, 20 Sep 2026 12:00:00 +0000

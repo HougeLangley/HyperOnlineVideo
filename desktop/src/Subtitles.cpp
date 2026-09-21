@@ -1,4 +1,5 @@
 #include "Subtitles.h"
+#include <QLocale>
 
 #include <QDebug>
 #include <QDir>
@@ -306,19 +307,65 @@ QVector<SubtitleCue> Subtitles::mergeBilingual(const QVector<SubtitleCue> &main,
 
 
 // 语言优先级：中文简体 > 中文繁体 > 英文 > 其他；"再翻"（zh-Hans-en 这种带两段）排在原生之后
+QStringList Subtitles::systemLanguageHints() {
+    // QLocale::uiLanguages() 形如 ["zh-Hans-CN","zh-Hans","zh"] ✓（与 macOS 的 Locale.preferredLanguages 同构 ✓）
+    QStringList hints;
+    for (const QString &tag : QLocale::system().uiLanguages()) {
+        const QString low = tag.toLower();
+        hints << low;                                       // zh-hans-cn
+        const QStringList parts = low.split('-');
+        if (parts.size() >= 2) hints << (parts[0] + "-" + parts[1]);   // zh-hans
+        if (!parts.isEmpty()) hints << parts[0];            // zh
+    }
+    hints << "en";                                          // 兜底：英文
+    hints.removeAll(QString());
+    hints.removeDuplicates();
+    return hints;
+}
+
+QString Subtitles::subLangsForSystem() {
+    QStringList langs = systemLanguageHints();
+    langs << "zh-Hans" << "zh-CN" << "zh" << "zh-Hant" << "zh-TW" << "en";   // 兼容补足 ✓ yt-dlp 会自己取交集 ✓
+    langs.removeDuplicates();
+    while (langs.size() > 8) langs.removeLast();
+    return langs.join(',');
+}
+
 int Subtitles::languageRank(const QString &lang) {
     const QString l = lang.trimmed().toLower();
-    const int dashes = l.count('-');
-    const bool hans = l.startsWith("zh-hans") || l == "zh" || l == "zh-cn" || l == "zh-sg"
-                      || l.contains(QString::fromUtf8("简体")) || l.contains(QString::fromUtf8("中文（中国）"))
-                      || l.contains(QString::fromUtf8("中文(中国)"));
-    const bool hant = l.startsWith("zh-hant") || l == "zh-tw" || l == "zh-hk" || l == "zh-mo"
-                      || l.contains(QString::fromUtf8("繁體")) || l.contains(QString::fromUtf8("中文（台"))
-                      || l.contains(QString::fromUtf8("中文(台"));
-    if (hans) return dashes > 1 ? 1 : 0;
-    if (hant) return dashes > 1 ? 3 : 2;
-    if (l == "en" || l.startsWith("en-") || l.startsWith("english")) return dashes > 1 ? 5 : 4;
-    return 6;
+    // 字幕标签形如 "zh-Hans · SRT" / "en · SRT" / "中文（中国）· CC" → 取分隔符之前的部分做语言判定 ✓
+    const QString label = l.contains(QString::fromUtf8("·")) ? l.section(QString::fromUtf8("·"), 0, 0).trimmed() : l;
+    const QStringList hints = systemLanguageHints();
+    const bool sysZh = std::any_of(hints.cbegin(), hints.cend(),
+                                   [](const QString &h) { return h.startsWith("zh"); });
+
+    // ① 系统语言驱动：**按 hint 下标打分**（下标越小越优先 ✓ 不能压成 0/1 ✗ 否则英文与中文同级 ✗）
+    for (int idx = 0; idx < hints.size(); ++idx) {
+        const QString h = hints.at(idx);
+        if (h.size() < 2) continue;
+        if (label == h || label.startsWith(h + "-") || label.startsWith(h)) return idx;
+    }
+    // ② 中文轨可能写成自然语言（简体/繁體/中文（中国））→ 视为命中系统语言 ✓
+    if (sysZh) {
+        const bool hans = label.contains(QString::fromUtf8("简体"))
+                          || label.contains(QString::fromUtf8("中文（中国）")) || label.contains(QString::fromUtf8("中文(中国)"));
+        const bool hant = label.contains(QString::fromUtf8("繁體"))
+                          || label.contains(QString::fromUtf8("中文（台")) || label.contains(QString::fromUtf8("中文(台"));
+        if (hans || hant) {
+            const bool sysHant = hints.first().startsWith("zh-hant");
+            return (sysHant == hant) ? 0 : 1;
+        }
+    }
+    // ③ 都未命中：排在所有 hints 之后（英文优先 ✓；中文系统再保留"简体优先"的原有观感 ✓）
+    const int base = hints.size();
+    if (label == "en" || label.startsWith("en-") || label.startsWith("english")) return base;
+    if (sysZh) {
+        const bool hans = label.startsWith("zh-hans") || label == "zh" || label == "zh-cn" || label == "zh-sg";
+        const bool hant = label.startsWith("zh-hant") || label == "zh-tw" || label == "zh-hk" || label == "zh-mo";
+        if (hans) return base + 1;
+        if (hant) return base + 2;
+    }
+    return base + 3;
 }
 
 // ---------------- 逐字歌词（YRC / QRC）----------------

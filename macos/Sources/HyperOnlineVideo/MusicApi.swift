@@ -6,7 +6,7 @@ final class NetEaseApi {
         var id = "", name = "", artist = "", album = ""
         var durationMs = 0
     }
-    struct StreamInfo { var url = "", br = 0, type = "", error = "" }
+    struct StreamInfo { var url = "", br = 0, type = "", level = "", error = "" }
 
     static func cookieHeader() -> String {
         // Netscape cookie 文件 → Cookie 头（与另两端一致；没有文件则匿名）
@@ -60,11 +60,19 @@ final class NetEaseApi {
     /// 取播放地址（level → br 映射；返回的真实码率由服务端决定）
     func songUrl(_ songId: String, level: String) -> StreamInfo {
         var info = StreamInfo()
-        var br = 320_000
-        if level == "standard" { br = 128_000 } else if level == "lossless" { br = 999_000 }
-        let body = "ids=[\(songId)]&br=\(br)"
-        let r = Http.post("https://music.163.com/api/song/enhance/player/url", body: body.data(using: .utf8)!,
+        // 新版 v1 接口：明确用 level 语义（standard/exhigh/lossless）。
+        // 旧接口 br=999000 请求无损时会**静默降级**、响应里也看不出原因（用户实测"切无损没反应/失败"）。
+        let enc = (level == "lossless") ? "flac" : "mp3"
+        var r = Http.get("https://music.163.com/api/song/enhance/player/url/v1?ids=[\(songId)]&level=\(level)&encodeType=\(enc)",
+                         headers: Self.headers())
+        if !r.ok || ((r.json()["data"] as? [Any])?.isEmpty ?? true) {          // v1 不可用 → 退回旧接口
+            var br = 320_000
+            if level == "standard" { br = 128_000 } else if level == "lossless" { br = 999_000 }
+            let body = "ids=[\(songId)]&br=\(br)"
+            Config.log("网易云取流：v1 接口无数据，退回旧接口（br=\(br)）")
+            r = Http.post("https://music.163.com/api/song/enhance/player/url", body: body.data(using: .utf8)!,
                           headers: Self.headers())
+        }
         guard r.ok else { info.error = r.error.isEmpty ? "HTTP \(r.status)" : r.error; return info }
         guard let arr = r.json()["data"] as? [Any], let first = arr.first as? [String: Any] else {
             info.error = "返回为空"; return info
@@ -72,10 +80,12 @@ final class NetEaseApi {
         info.url = (first["url"] as? String) ?? ""
         info.br = (first["br"] as? NSNumber)?.intValue ?? 0
         info.type = (first["type"] as? String) ?? ""
+        info.level = (first["level"] as? String) ?? ""          // 服务端**实际**给的档位（可能低于请求值）
         if info.url.isEmpty {
             info.error = "无可用地址（code=\((first["code"] as? NSNumber)?.intValue ?? 0)，可能需要登录或版权受限）"
         } else {
-            Config.log("网易云取流: 请求档位=\(level) 返回码率=\(info.br) 格式=\(info.type)")
+            Config.log("网易云取流: 请求档位=\(level) 实际档位=\(info.level.isEmpty ? "?" : info.level) 返回码率=\(info.br) 格式=\(info.type)"
+                      + (info.level.isEmpty || info.level == level ? "" : "  ← 被服务端降级（该曲/该账号无此音质）"))
         }
         return info
     }
@@ -89,6 +99,22 @@ final class NetEaseApi {
         return ((root["lrc"] as? [String: Any])?["lyric"] as? String ?? "",
                 (root["tlyric"] as? [String: Any])?["lyric"] as? String ?? "",
                 (root["yrc"] as? [String: Any])?["lyric"] as? String ?? "")
+    }
+
+    /// 批量取封面：一次请求拿多首（搜索接口只给 picId，列表要显示封面就得补这一步）
+    func coverUrls(ids: [String]) -> [String: String] {
+        guard !ids.isEmpty else { return [:] }
+        let body = "ids=[" + ids.joined(separator: ",") + "]"
+        let r = Http.post("https://music.163.com/api/song/detail", body: body.data(using: .utf8)!,
+                          headers: Self.headers())
+        guard r.ok, let songs = r.json()["songs"] as? [[String: Any]] else { return [:] }
+        var out: [String: String] = [:]
+        for s in songs {
+            let id = (s["id"] as? NSNumber)?.stringValue ?? (s["id"] as? String) ?? ""
+            let url = (s["album"] as? [String: Any])?["picUrl"] as? String ?? ""
+            if !id.isEmpty, !url.isEmpty { out[id] = url }
+        }
+        return out
     }
 
     /// 专辑封面（搜索接口只给 picId，必须走 song/detail）

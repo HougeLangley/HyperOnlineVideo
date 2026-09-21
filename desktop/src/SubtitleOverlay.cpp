@@ -45,7 +45,7 @@ void SubtitleOverlay::paint(QPainter &p, const QRect &area) const {
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
     QFont f = p.font();
-    f.setPixelSize(int(qBound(18, area.height() / 16, 44) * fontScale_));   // 字号随画面高度自适应 × 设置倍数
+    f.setPixelSize(fontPxFor(area.height(), fontScale_));   // 与 macOS 同基准（画面高 3.5%，下限 14px）
     f.setBold(true);
     p.setFont(f);
 
@@ -55,7 +55,7 @@ void SubtitleOverlay::paint(QPainter &p, const QRect &area) const {
     // 延迟校准角标（非 0 时显示，便于用户知道当前偏移）
     if (qAbs(delay_) > 0.01) {
         QFont sf = f;
-        sf.setPixelSize(qBound(12, area.height() / 34, 22));
+        sf.setPixelSize(qMax(11, fontPxFor(area.height(), fontScale_) * 2 / 3));
         sf.setBold(false);
         p.setFont(sf);
         p.setPen(QColor(255, 214, 102));

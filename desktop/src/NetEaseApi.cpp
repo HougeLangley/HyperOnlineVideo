@@ -64,7 +64,10 @@ QNetworkRequest NetEaseApi::makeRequest(const QString &url) const {
     r.setRawHeader("Referer", "https://music.163.com/");
     r.setRawHeader("User-Agent", kUserAgent);
     const QString cookie = cookieHeader();
-    if (!cookie.isEmpty()) r.setRawHeader("Cookie", cookie.toUtf8());
+    if (!cookie.isEmpty()) {
+        r.setRawHeader("Cookie", cookie.toUtf8());
+        qInfo() << "[cookie] 网易云请求附带 cookie（" << cookie.size() << "字节，来自 netease.txt）";
+    }
     return r;
 }
 

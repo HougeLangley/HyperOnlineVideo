@@ -51,9 +51,20 @@ class PlayQueueTest {
     }
 
     @Test
+    fun `列表循环：自动续播到底回到第一项 手动切歌不绕回`() {
+        PlayQueue.setList(listOf(item(1), item(2)), "netease", 0)
+        PlayQueue.cycleMode(); PlayQueue.cycleMode(); PlayQueue.cycleMode()   // → REPEAT_ALL
+        assertEquals(PlayQueue.Mode.REPEAT_ALL, PlayQueue.mode.value)
+        PlayQueue.jumpTo(1)
+        assertEquals("曲目1", PlayQueue.peekNext(auto = true)?.item?.title)     // 自动：回到开头
+        assertNull(PlayQueue.peekNext(auto = false))                           // 手动：不绕回
+    }
+
+    @Test
     fun `模式循环切换 与 队列清空`() {
         PlayQueue.cycleMode(); assertEquals(PlayQueue.Mode.REPEAT_ONE, PlayQueue.mode.value)
         PlayQueue.cycleMode(); assertEquals(PlayQueue.Mode.SHUFFLE, PlayQueue.mode.value)
+        PlayQueue.cycleMode(); assertEquals(PlayQueue.Mode.REPEAT_ALL, PlayQueue.mode.value)
         PlayQueue.cycleMode(); assertEquals(PlayQueue.Mode.SEQUENTIAL, PlayQueue.mode.value)
         PlayQueue.setList(listOf(item(1)), "youtube", 0)
         assertEquals(1, PlayQueue.size)

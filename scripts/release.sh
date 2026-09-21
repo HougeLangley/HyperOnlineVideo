@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${HOV_VERSION:-1.1.0}"
+VERSION="${HOV_VERSION:-1.2.0}"
 TAG="v${VERSION}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 CONFIRM="${HOV_RELEASE_CONFIRM:-0}"

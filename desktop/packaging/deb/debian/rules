@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+# ── Hyper Online Video（Linux Qt6 桌面端）Debian 打包规则 ─────────────────────
+# 源码树是多平台单仓库；本包只构建 desktop/ 子目录 → --sourcedir=desktop。
+# debian/ 目录位于源码树根部（标准布局 ✓）。
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --sourcedir=desktop --buildsystem=cmake
+
+# 显式指定 Release + 打开 QtWebEngine（与仓库 PKGBUILD 的 depends 保持一致：
+# 那边 depends 含 qt6-webengine，故本包同样构建为"含内嵌登录窗口"的版本）
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DHOV_WEBENGINE=ON
+
+# debian/docs 里列的 LICENSE 位于**源码树根**（本仓库是单仓库多平台，桌面端在 desktop/），
+# 而 --sourcedir=desktop 会使 dh_installdocs 只在 desktop/ 下找 → 故仅对这一步改回源码树根。
+override_dh_installdocs:
+	dh_installdocs --sourcedir=.
+
+# debhelper compat 13 起，dh_missing 默认把"源码树里存在、但没装进任何包"的文件视为**错误**。
+# 本仓库是**单仓库多平台**（Android/macOS/Linux-Qt6 同仓）✓ → desktop/ 下的
+# CMakeLists.txt、src/*.cpp、packaging/* 等**构建输入**天然不会被安装 ✗ → 该检查在此形态下属**误报**。
+# debhelper 官方给出的开关是 --list-missing（只列出、不中止 ✓），
+# 同时用 debian/not-installed 显式记录"有意不安装"的类别 ✓（见该文件注释 ✓）。
+override_dh_missing:
+	dh_missing --list-missing
+
+# 同上：debian/manpages 里列的是源码树根下的 debian/*.1，
+# 而 --sourcedir=desktop 会让 dh_installman 去 desktop/ 下找 → 仅这一步改回源码树根。
+override_dh_installman:
+	# 手册的**唯一真相**是 desktop/packaging/man/hov-qt.1（deb 与 rpm 共用 ✓ 防两端漂移 ✗）
+	# 两个可执行文件各要一份 man → 此处从同一份复制出 hov-qt-bin.1 ✓
+	cp -f desktop/packaging/man/hov-qt.1 debian/hov-qt-bin.1
+	dh_installman --sourcedir=.

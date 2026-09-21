@@ -13,13 +13,21 @@ enum Http {
         }
     }
 
+    /// 共享会话：原来**每个请求都 new 一个 URLSession**（既浪费 TLS 握手，又会随请求数泄漏会话）
+    private static let session: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.httpMaximumConnectionsPerHost = 6
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        cfg.waitsForConnectivity = true
+        return URLSession(configuration: cfg)
+    }()
+
     private static func run(_ req: URLRequest, timeout: TimeInterval) -> Reply {
         var out = Reply()
         let sem = DispatchSemaphore(value: 0)
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.timeoutIntervalForRequest = timeout
-        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let task = URLSession(configuration: cfg).dataTask(with: req) { data, resp, err in
+        var r = req
+        r.timeoutInterval = timeout                    // 超时按请求设（会话是共享的）
+        let task = session.dataTask(with: r) { data, resp, err in
             if let e = err { out.error = e.localizedDescription }
             if let h = resp as? HTTPURLResponse { out.status = h.statusCode }
             out.data = data ?? Data()

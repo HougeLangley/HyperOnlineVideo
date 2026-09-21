@@ -16,6 +16,7 @@ object PlayQueue {
         SEQUENTIAL("顺序"),
         REPEAT_ONE("单曲"),
         SHUFFLE("随机"),
+        REPEAT_ALL("列表循环"),          // 与 macOS 对齐：顺序 → 单曲 → 随机 → 列表循环
     }
 
     data class Entry(val item: VideoItem, val platform: String)
@@ -53,7 +54,8 @@ object PlayQueue {
         _mode.value = when (_mode.value) {
             Mode.SEQUENTIAL -> Mode.REPEAT_ONE
             Mode.REPEAT_ONE -> Mode.SHUFFLE
-            Mode.SHUFFLE -> Mode.SEQUENTIAL
+            Mode.SHUFFLE -> Mode.REPEAT_ALL
+            Mode.REPEAT_ALL -> Mode.SEQUENTIAL
         }
     }
 
@@ -72,6 +74,8 @@ object PlayQueue {
                 else -> list[randomOtherIndex(list.size, i)]
             }
             Mode.SEQUENTIAL -> list.getOrNull(i + 1)
+            Mode.REPEAT_ALL -> if (i + 1 < list.size) list[i + 1]
+                                 else if (auto) list[0] else null
         }
     }
 

@@ -8,8 +8,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCryptographicHash>
+#include <cstdio>
+#include <QTimer>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QEventLoop>
 #include <QNetworkAccessManager>
 #include <QNetworkProxy>
 #include <QNetworkReply>
@@ -63,7 +66,10 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     const QString cookies = cookieFileFor(pageUrl);
     if (status_) {
         status_(QString("解析中…（%1）").arg(service.isEmpty() ? "未知站点" : service));
-        if (!service.isEmpty()) {
+        if (!cookiesFromBrowser_.isEmpty()) {
+            status_(QString("使用系统浏览器 cookie（%1），并会回写到 %2.txt")
+                        .arg(cookiesFromBrowser_, service.isEmpty() ? QString("cookies") : service));
+        } else if (!service.isEmpty()) {
             status_(cookies.isEmpty()
                         ? QString("未找到 cookie 文件：%1/cookies/%2.txt，按匿名解析").arg(configDir(), service)
                         : QString("使用 cookie：%1").arg(QFileInfo(cookies).fileName()));
@@ -71,19 +77,54 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     }
 
     auto *p = new QProcess(this);
-    QStringList args{"-J", "--no-warnings", "--no-playlist", "-f", "bv*+ba/b"};
-    if (!cookies.isEmpty()) args << "--cookies" << cookies;
+    // ⚠ 超时保护（v1.2.0）：yt-dlp 在网络受限/被风控时会**长时间无任何输出** →
+    // 界面表现为"点了没反应、视频区全黑、无任何提示"（用户实测）。这里 45 秒兜底终止并提示。
+    auto *deadline = new QTimer(p);
+    deadline->setSingleShot(true);
+    deadline->setInterval(45000);
+    connect(deadline, &QTimer::timeout, this, [this, p, service] {
+        if (p->state() == QProcess::NotRunning) return;
+        p->kill();
+        std::fprintf(stderr, "[PLAY] 解析超时（45s）→ 已终止 yt-dlp\n");
+        if (status_)
+            status_(QString("解析超时（45 秒）：%1 无响应 —— 可能是网络受限或站点风控，请检查网络/登录状态")
+                        .arg(service.isEmpty() ? QString("yt-dlp") : service));
+    });
+    deadline->start();
+    connect(p, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
+        if (e != QProcess::FailedToStart) return;
+        std::fprintf(stderr, "[PLAY] yt-dlp 启动失败\n");
+        if (status_) status_("无法启动 yt-dlp（未安装或不在 PATH 中？）");
+    });
+    QStringList args{"-J", "--no-warnings", "--no-playlist"};
+    args << formatArgsFor(maxHeight_);
+    args << cookieArgsFor(pageUrl);
     args << pageUrl;
 
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [this, p, service, pageUrl](int code, QProcess::ExitStatus) {
+            [this, p, service, pageUrl, deadline](int code, QProcess::ExitStatus) {
+                deadline->stop();
                 const QByteArray out = p->readAllStandardOutput();
                 const QByteArray err = p->readAllStandardError();
+                // v1.2.0：把 yt-dlp 的 WARNING/ERROR 摘要**送到状态行**。
+                // 以前只在退出码非 0 时显示 stderr → "能解析但拿不到正常格式"（n challenge 失败、
+                // YouTube 强制 SABR、版本过期等）用户**完全看不到原因**，只看到黑屏（实测踩到）。
+                {
+                    const QStringList el = QString::fromUtf8(err).split('\n', Qt::SkipEmptyParts);
+                    for (const QString &l : el) {
+                        if (!l.contains("ERROR") && !l.contains("WARNING")) continue;
+                        const QString t = l.trimmed().left(200);
+                        if (status_) status_(QString("yt-dlp：%1").arg(t));
+                        std::fprintf(stderr, "[PLAY] yt-dlp: %s\n", t.toUtf8().constData());
+                        break;              // 只报第一条避免刷屏（完整信息仍在 yt-dlp 自身日志里）
+                    }
+                }
                 p->deleteLater();
 
                 if (code != 0) {
                     if (status_) {
                         status_(QString("解析失败（yt-dlp 退出码 %1）").arg(code));
+                        std::fprintf(stderr, "[PLAY] 解析失败 rc=%d\n", code);
                         const QString e = QString::fromUtf8(err).trimmed();
                         if (!e.isEmpty()) status_(e.left(300));
                         status_(NetPolicy::hintForFailure(service.isEmpty() ? "yt-dlp" : service));
@@ -94,6 +135,16 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                 const QJsonObject o = QJsonDocument::fromJson(out).object();
                 Stream s;
                 s.title = o.value("title").toString();
+                // 客观判据：记下实际选中的视频格式（验证"切清晰度真的生效"）
+                {
+                    const QJsonArray rd = o.value("requested_downloads").toArray();
+                    if (!rd.isEmpty()) {
+                        const QJsonObject f0 = rd.first().toObject();
+                        qInfo() << "解析档位=≤" << qualityLabel(maxHeight_) << " 实际选中="
+                                << f0.value("height").toInt() << "p" << f0.value("format_note").toString()
+                                << f0.value("vcodec").toString().left(12);
+                    }
+                }
 
                 // 取地址要分层：当选择的是「视频+音频」合并格式时，requested_downloads 的条目
                 // 只给出 format_id（如 397+251）而**没有 url**，真正的每条流在其 requested_formats 里。
@@ -137,6 +188,9 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                     return;
                 }
                 if (status_) {
+                    std::fprintf(stderr, "[PLAY] 解析成功: 视频=%s(%lld) 音频=%s(%lld)\n",
+                                 QUrl(s.videoUrl).host().toUtf8().constData(), (long long)s.videoUrl.size(),
+                                 QUrl(s.audioUrl).host().toUtf8().constData(), (long long)s.audioUrl.size());
                     status_(QString("正在播放：%1（%2）")
                                 .arg(s.title.left(60), s.audioUrl.isEmpty() ? "单流" : "视频+音频分轨"));
                 }
@@ -162,6 +216,94 @@ QNetworkRequest siteRequest(const QUrl &url, const QString &referer) {
     return req;
 }
 }   // namespace
+
+// B站搜索：接口与 Android 端一致（实测可用）；标题里的 <em> 高亮标签要去掉
+QVector<UrlResolver::BiliVideo> UrlResolver::searchBili(const QString &keyword, int pageSize) {
+    QVector<BiliVideo> out;
+    if (keyword.trimmed().isEmpty()) return out;
+    applyProxy();
+    const QString enc = QString::fromUtf8(QUrl::toPercentEncoding(keyword));
+    const QUrl u(QString("https://api.bilibili.com/x/web-interface/search/type?search_type=video"
+                         "&keyword=%1&page=1&page_size=%2").arg(enc).arg(pageSize));
+    QNetworkRequest req = siteRequest(u, "https://www.bilibili.com/");
+    const QString ck = cookieHeaderFor("bilibili");
+    if (!ck.isEmpty()) req.setRawHeader("Cookie", ck.toUtf8());
+    QEventLoop loop;
+    QNetworkReply *r = net_->get(req);
+    connect(r, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    r->deleteLater();
+    const QJsonObject root = QJsonDocument::fromJson(r->readAll()).object();
+    const int code = root.value("code").toInt(-1);
+    if (code != 0) {
+        qInfo() << "B站搜索返回 code=" << code;
+        return out;
+    }
+    for (const auto &v : root.value("data").toObject().value("result").toArray()) {
+        const QJsonObject o = v.toObject();
+        BiliVideo b;
+        b.bvid = o.value("bvid").toString();
+        b.title = o.value("title").toString();
+        b.title.remove(QRegularExpression("<[^>]+>"));      // 去掉 <em class="keyword">
+        b.author = o.value("author").toString();
+        b.duration = o.value("duration").toString();
+        b.pic = o.value("pic").toString();
+        if (b.pic.startsWith("//")) b.pic.prepend("https:");
+        if (!b.bvid.isEmpty() && !b.title.isEmpty()) out.append(b);
+    }
+    qInfo() << "B站搜索:" << keyword << "→" << out.size() << "条";
+    return out;
+}
+
+// 站点 cookie 文件 → Cookie 头（音乐 API 与 B站搜索共用）
+QString UrlResolver::cookieHeaderFor(const QString &site) const {
+    const QString path = configDir() + "/cookies/" + site + ".txt";
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return QString();
+    QStringList pairs;
+    for (const QString &line : QString::fromUtf8(f.readAll()).split(QRegularExpression("\r?\n"))) {
+        const QString t = line.trimmed();
+        if (t.isEmpty() || t.startsWith('#')) continue;
+        const QStringList parts = t.split('\t');
+        if (parts.size() >= 7) pairs << parts.at(5) + "=" + parts.at(6);
+    }
+    return pairs.join("; ");
+}
+
+QStringList UrlResolver::formatArgsFor(int maxHeight) {
+    if (maxHeight == -1) return {"-f", "ba/b"};                       // 仅音频
+    if (maxHeight <= 0) return {"-f", "bv*+ba/b"};                    // 自动
+    // 只给**视频部分**设 height 上限：音频格式没有 height，加了过滤会让整条失配、
+    // 悄悄退回不设限的兜底（macOS 端实测踩到，两端统一修正）
+    const QString cap = QString::number(maxHeight);
+    // 同一个 %1 出现两次：只传一个参数（Qt 会替换所有 %1）。传两个会触发
+    // "1 argument(s) missing" 警告——因为字符串里并没有 %2。
+    return {"-f", QString("bv*[height<=%1]+ba/b[height<=%1]/bv*+ba/b").arg(cap)};
+}
+
+QString UrlResolver::qualityLabel(int h) {
+    if (h == -1) return "仅音频";
+    if (h <= 0) return "自动";
+    return QString("%1p").arg(h);
+}
+
+QString UrlResolver::cookiePathFor(const QString &pageUrl) {
+    const QString s = serviceOf(pageUrl);
+    return s.isEmpty() ? QString() : configDir() + "/cookies/" + s + ".txt";
+}
+
+QStringList UrlResolver::cookieArgsFor(const QString &pageUrl) const {
+    QStringList a;
+    if (!cookiesFromBrowser_.isEmpty()) a << "--cookies-from-browser" << cookiesFromBrowser_;
+    const QString f = cookiePathFor(pageUrl);
+    if (f.isEmpty()) return a;
+    if (cookiesFromBrowser_.isEmpty()) {
+        if (QFile::exists(f)) a << "--cookies" << f;      // 老行为：有文件才传
+    } else {
+        a << "--cookies" << f;                            // 浏览器模式：无论存在与否都传 → yt-dlp 落盘导出
+    }
+    return a;
+}
 
 void UrlResolver::applyProxy() {
     if (!net_) net_ = new QNetworkAccessManager(this);
@@ -247,7 +389,7 @@ void UrlResolver::fetchBiliCc(const QString &pageUrl,
                     continue;
                 }
                 QNetworkReply *r3 = net_->get(siteRequest(QUrl(url), "https://www.bilibili.com"));
-                connect(r3, &QNetworkReply::finished, this, [this, r3, tracks, label, pending, done] {
+                connect(r3, &QNetworkReply::finished, this, [r3, tracks, label, pending, done] {
                     r3->deleteLater();
                     const QVector<SubtitleCue> cues =
                         Subtitles::parseJson(QString::fromUtf8(r3->readAll()));
@@ -283,15 +425,15 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
     auto *p = new QProcess(this);
     QStringList args{"--skip-download", "--no-warnings", "--no-playlist",
                      "--write-subs", "--write-auto-subs",
-                     "--sub-langs", "zh-Hans,zh-CN,zh,zh-Hant,zh-TW,en",
+                     // 字幕语言随**系统语言**（中文系统仍中文优先 ✓ 德语系统会抓 de ✓ 与另两端一致 ✓）
+                     "--sub-langs", Subtitles::subLangsForSystem(),
                      "--sub-format", "srt/vtt/best",
                      "-o", dir + "/%(id)s.%(ext)s", pageUrl};
-    const QString cookies = cookieFileFor(pageUrl);
-    if (!cookies.isEmpty()) args << "--cookies" << cookies;
+    args << cookieArgsFor(pageUrl);
     qInfo() << "在线字幕：yt-dlp 抓取（" << args.size() << "个参数）→" << dir;
 
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [this, p, dir, done](int code, QProcess::ExitStatus) {
+            [p, dir, done](int code, QProcess::ExitStatus) {
                 const QString errText = QString::fromUtf8(p->readAllStandardError()).trimmed();
                 p->deleteLater();
                 // 扫描落地文件：<id>.<lang>.<ext>
@@ -324,7 +466,7 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
                     done({}, QString("字幕获取失败（exit=%1）%2").arg(code).arg(tail.left(160)));
                 }
             });
-    connect(p, &QProcess::errorOccurred, this, [this, p, done](QProcess::ProcessError) {
+    connect(p, &QProcess::errorOccurred, this, [p, done](QProcess::ProcessError) {
         p->deleteLater();
         done({}, "字幕获取失败：yt-dlp 无法启动");
     });

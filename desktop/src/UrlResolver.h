@@ -38,6 +38,14 @@ public:
     static QString cookieFileFor(const QString &pageUrl);
     /** 站点标识：youtube / bilibili / netease / qqmusic / 空 */
     static QString serviceOf(const QString &pageUrl);
+    /** B站搜索结果条目 */
+    struct BiliVideo {
+        QString bvid, title, author, duration, pic;   // pic：缩略图（//i0.hdslb.com/…）
+        QString url() const { return "https://www.bilibili.com/video/" + bvid; }
+    };
+    /** B站搜索（官方 search/type 接口；带 cookie 更稳，yt-dlp 的 bilisearch 会被 412 拦） */
+    QVector<BiliVideo> searchBili(const QString &keyword, int pageSize = 20);
+
     /** 是否已是可直接播放的媒体地址（本地文件或 CDN 直链） */
     static bool isDirectMedia(const QString &url);
 
@@ -45,6 +53,23 @@ public:
     void setStatusHandler(std::function<void(const QString &)> h) { status_ = std::move(h); }
     /** 国内服务是否显式绕过代理（设置项 network.forceDirectDomestic，与音乐 API 一致） */
     void setForceDirect(bool b) { forceDirect_ = b; }
+    /** 视频清晰度上限（0=自动，-1=仅音频，否则高度上限） */
+    void setMaxHeight(int h) { maxHeight_ = h; }
+    int maxHeight() const { return maxHeight_; }
+    /** 档位 → yt-dlp 的 -f 参数（**纯函数**，可单测） */
+    static QStringList formatArgsFor(int maxHeight);
+    /** 档位标签 */
+    static QString qualityLabel(int h);
+
+    /** 站点 cookie 文件 → Cookie 头（音乐 API 与 B站搜索共用） */
+    QString cookieHeaderFor(const QString &site) const;
+    /** 从系统浏览器读 cookie（A0 登录方案；空 = 关闭）。开启后 yt-dlp 会把合并 jar 写回站点 cookie 文件 */
+    void setCookiesFromBrowser(const QString &b) { cookiesFromBrowser_ = b.trimmed(); }
+    QString cookiesFromBrowser() const { return cookiesFromBrowser_; }
+    /** 站点 cookie 文件路径（不判断存在性——浏览器模式下即使文件还不存在也要传给 yt-dlp 以便导出） */
+    static QString cookiePathFor(const QString &pageUrl);
+    /** 组装 cookie 相关参数（浏览器模式 + 站点文件） */
+    QStringList cookieArgsFor(const QString &pageUrl) const;
 
     /** 解析并播放；已经是直链时直接交给播放器 */
     void resolveAndPlay(const QString &pageUrl);
@@ -62,6 +87,8 @@ private:
     std::function<void(const QString &)> status_;
     QNetworkAccessManager *net_ = nullptr;
     bool forceDirect_ = false;
+    QString cookiesFromBrowser_;
+    int maxHeight_ = 0;
 
 public:
     /**

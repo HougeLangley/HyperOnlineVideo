@@ -4,11 +4,71 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QPalette>
+#include <cstdio>
 #include <QStringList>
+
+bool Theme::s_glass = false;   // 定义（头文件里声明）
+Theme::Mode Theme::s_mode = Theme::Mode::Dark;
 
 namespace {
 
 // 深空底 + 电蓝主色，与 App 图标同色系
+// 玻璃模式（ui.glassWindow=on）：只替换"大面积底色"那几处，控件配色不动 —— 保证文字对比度
+static QString glassify(QString q)
+{
+    q.replace("QWidget { background: #121212; color: #eaeaea; font-size: 14px; }",
+              "QWidget { background: transparent; color: #eaeaea; font-size: 14px; }\n"
+              // ⚠️ 关键：QOpenGLWidget（mpv 画面）**必须显式给不透明背景** ——
+              // 它继承 QWidget 的 transparent 后，Wayland 下 GL 层会被合成器整层丢弃
+              //（实测：封面/磨砂底/视频画面全部消失，只剩 App 层文字）。
+              "QOpenGLWidget { background: #101216; }");
+    // 窗口：竖向渐变（上亮下暗）—— 玻璃材质的"体"（纯色半透明会像"透明窟窿"）
+    q.replace("QMainWindow, QDialog { background: #121212; }",
+              "QMainWindow { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+              " stop:0 rgba(30, 34, 42, 0.82), stop:1 rgba(10, 11, 15, 0.70)); }\n"
+              "QDialog { background: #121212; }");
+    // 卡片：半透明 + 上亮下暗 + 亮边框（"面"的立体感，macOS 材质同法）
+    q.replace("QFrame#card, QWidget#card { background: #1a1a1a; border: 1px solid #262626; border-radius: 10px; }",
+              "QFrame#card, QWidget#card { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+              " stop:0 rgba(52, 57, 68, 0.62), stop:1 rgba(26, 28, 34, 0.58));"
+              " border: 1px solid rgba(255, 255, 255, 0.11); border-radius: 10px; }");
+    q.replace("background: #161616; border: 1px solid #262626; border-radius: 10px; outline: none;",
+              "background: rgba(18, 20, 25, 0.46); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; outline: none;");
+    q.replace("background: #1e1e1e; border: 1px solid #2e2e2e; border-radius: 8px;",
+              "background: rgba(40, 44, 52, 0.58); border: 1px solid rgba(255,255,255,0.10); border-radius: 8px;");
+    q.replace("background: #1e1e1e; border: 1px solid #2e2e2e; selection-background-color: #2b4a86;",
+              "background: rgba(30, 32, 38, 0.62); border: 1px solid rgba(255,255,255,0.08); selection-background-color: #2b4a86;");
+    return q;
+}
+
+// 浅色化：只做**颜色替换**（几何/间距/圆角/字号一律不动 ✗ 避免"换主题就变形"）
+static QString lightify(QString q)
+{
+    struct Pair { const char *from, *to; };
+    static const Pair kMap[] = {
+        { "#121212", "#f4f5f7" },   // 画布/窗口
+        { "#161616", "#ffffff" },   // 列表
+        { "#1a1a1a", "#ffffff" },   // 卡片
+        { "#1e1e1e", "#ffffff" },   // 输入/按钮
+        { "#222222", "#eef0f3" },   // hover
+        { "#232323", "#ffffff" },   // 按钮
+        { "#262626", "#dcdee3" },   // 边框
+        { "#2b2b2b", "#e8eaee" },   // 按钮 hover
+        { "#2c2c2c", "#d7dae0" },   // 滑轨
+        { "#2e2e2e", "#d3d6db" },   // 边框
+        { "#333333", "#c9cdd4" },
+        { "#3a3a3a", "#c9cdd4" },
+        { "#3d3d3d", "#c2c6cd" },
+        { "#454545", "#b8bcc4" },
+        { "#8b93a3", "#5b6169" },   // 次要文字
+        { "#9aa0a6", "#5b6169" },
+        { "#e0e0e0", "#24262b" },
+        { "#eaeaea", "#1b1d21" },   // 主文字
+    };
+    for (const auto &p : kMap) q.replace(QLatin1String(p.from), QLatin1String(p.to));
+    return q;   // 强调色 #4c8dff / 选中底 #2b4a86 / 纯白文字保持不动 ✓
+}
+
 const char *kQss = R"QSS(
 * { font-family: "Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", "Noto Sans", sans-serif; }
 
@@ -88,22 +148,39 @@ QLabel { background: transparent; }
 
 }  // namespace
 
-void Theme::apply(QApplication &app) {
+void Theme::apply(QApplication &app, Mode m) {
+    s_mode = m;
+    std::fprintf(stderr, "[THEME] apply(mode=%s glass=%d)\n", m == Mode::Light ? "light" : "dark", s_glass ? 1 : 0);
     app.setStyle("Fusion");   // 统一各平台控件绘制，避免系统主题差异
 
     QPalette pal;
-    pal.setColor(QPalette::Window, QColor(18, 18, 18));
-    pal.setColor(QPalette::WindowText, QColor(234, 234, 234));
-    pal.setColor(QPalette::Base, QColor(22, 22, 22));
-    pal.setColor(QPalette::AlternateBase, QColor(26, 26, 26));
-    pal.setColor(QPalette::Text, QColor(234, 234, 234));
-    pal.setColor(QPalette::Button, QColor(35, 35, 35));
-    pal.setColor(QPalette::ButtonText, QColor(234, 234, 234));
-    pal.setColor(QPalette::Highlight, QColor(76, 141, 255));
-    pal.setColor(QPalette::HighlightedText, Qt::white);
-    pal.setColor(QPalette::ToolTipBase, QColor(38, 38, 38));
-    pal.setColor(QPalette::ToolTipText, QColor(234, 234, 234));
-    pal.setColor(QPalette::PlaceholderText, QColor(140, 140, 140));
+    if (m == Mode::Light) {
+        pal.setColor(QPalette::Window, QColor(244, 245, 247));
+        pal.setColor(QPalette::WindowText, QColor(27, 29, 33));
+        pal.setColor(QPalette::Base, QColor(255, 255, 255));
+        pal.setColor(QPalette::AlternateBase, QColor(248, 249, 251));
+        pal.setColor(QPalette::Text, QColor(27, 29, 33));
+        pal.setColor(QPalette::Button, QColor(255, 255, 255));
+        pal.setColor(QPalette::ButtonText, QColor(27, 29, 33));
+        pal.setColor(QPalette::Highlight, QColor(76, 141, 255));
+        pal.setColor(QPalette::HighlightedText, Qt::white);
+        pal.setColor(QPalette::ToolTipBase, QColor(255, 255, 255));
+        pal.setColor(QPalette::ToolTipText, QColor(27, 29, 33));
+        pal.setColor(QPalette::PlaceholderText, QColor(120, 126, 136));
+    } else {
+        pal.setColor(QPalette::Window, QColor(18, 18, 18));
+        pal.setColor(QPalette::WindowText, QColor(234, 234, 234));
+        pal.setColor(QPalette::Base, QColor(22, 22, 22));
+        pal.setColor(QPalette::AlternateBase, QColor(26, 26, 26));
+        pal.setColor(QPalette::Text, QColor(234, 234, 234));
+        pal.setColor(QPalette::Button, QColor(35, 35, 35));
+        pal.setColor(QPalette::ButtonText, QColor(234, 234, 234));
+        pal.setColor(QPalette::Highlight, QColor(76, 141, 255));
+        pal.setColor(QPalette::HighlightedText, Qt::white);
+        pal.setColor(QPalette::ToolTipBase, QColor(38, 38, 38));
+        pal.setColor(QPalette::ToolTipText, QColor(234, 234, 234));
+        pal.setColor(QPalette::PlaceholderText, QColor(140, 140, 140));
+    }
     app.setPalette(pal);
 
     if (!app.font().family().isEmpty()) {
@@ -111,5 +188,33 @@ void Theme::apply(QApplication &app) {
         f.setPointSizeF(10.5);
         app.setFont(f);
     }
-    app.setStyleSheet(QString::fromUtf8(kQss));
+
+    // ⚠️ 样式表必须**单点决定**（这次踩的坑 ✗）：
+    //    原来浅色分支里 setStyleSheet(lightify(...)) 后 return ✓，但紧接着构造里又调 Theme::setGlass(true)
+    //    → glassify() 里的**深色 rgba(...)** 把 lightify 的结果又盖回去 ✗ → 于是"浅色模式下背景仍是深色" ✗✓
+    //    正解：浅色 = lightify（不套玻璃 ✓ 浅色玻璃是另一套设计，暂不做 ✗）；深色 = 可选 glassify ✓
+    const QString base = QString::fromUtf8(kQss);
+    const QString qss = (m == Mode::Light) ? lightify(base) : (s_glass ? glassify(base) : base);
+    app.setStyleSheet(qss);
 }
+
+void Theme::setMode(Mode m)
+{
+    s_mode = m;
+    if (auto *app = qobject_cast<QApplication *>(QCoreApplication::instance())) apply(*app, m);
+}
+
+bool Theme::parseMode(const QString &name, Mode *out)
+{
+    const QString n = name.trimmed().toLower();
+    if (n == "dark") { if (out) *out = Mode::Dark; return true; }
+    if (n == "light") { if (out) *out = Mode::Light; return true; }
+    return false;   // auto 由调用方处理（不在本函数的语义内 ✓）
+}
+void Theme::setGlass(bool on)
+{
+    s_glass = on;
+    // 重放"当前模式 + 当前玻璃开关"（不要只重刷玻璃 ✗ 那样会把浅色主题盖回深色 —— 本次踩到的坑 ✓）
+    if (auto *app = qobject_cast<QApplication *>(QCoreApplication::instance())) apply(*app, s_mode);
+}
+

@@ -5,6 +5,18 @@
 Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **libmpv** 播放、**yt-dlp** 下载，
 支持在线看、离线存、后台听、队列连播、歌词、字幕、画中画。
 
+---
+
+### 📌 当前发布状态（v1.2.0）
+
+| 平台 | 状态 | 说明 |
+|---|---|---|
+| **Android** | ✅ **v1.2.0 正式发布** | 真机验证通过（含 gpu-next 渲染后端崩溃修复） |
+| **macOS** | ✅ **v1.2.0 正式发布** | Apple Silicon（arm64）DMG，源码可见、可自行从零构建 |
+| **Linux**（Arch / Debian / Fedora） | 🚧 **建设中** | **明确不在 v1.2.0 发布范围**；各发行版打包链路已跑通，功能与打包统一后随 **v1.2.1** 发布 |
+
+> Linux 侧的 Fedora Copr 渠道**已开放测试**，但**当前不稳定**，详见下文「从零构建 · Linux」第 4 节。
+
 <p align="center">
   <img src="docs/screenshots/01-home-screen.png" width="300" alt="主界面"/>
 </p>
@@ -67,13 +79,13 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 | | Android | Linux（Qt6） | macOS（AppKit + SPM） |
 |---|---|---|---|
-| 源码 | `app/` + `core/`(KMP) | `desktop/src/`（C++，37 文件 / 5900 行） | `macos/Sources/`（Swift，21 文件 / 3100 行） |
+| 源码 | `app/` + `core/`(KMP) | `desktop/src/`（C++，41 文件 / 8072 行） | `macos/Sources/`（Swift，26 文件 / 7597 行） |
 | 播放引擎 | libmpv（`MpvWidget`） | libmpv render API（`MpvWidget`） | libmpv render API（`NSOpenGLView` + `MpvView`） |
 | 构建 | `gradle :app:assembleDebug` | `cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build` | `cd macos && swift build -c release`（**无需 Xcode**） |
 | 运行 | 安装 APK | `./build/hov-qt [--open <地址>]` | `./build/HyperOnlineVideo [--open <地址>]`；打包后双击 `.app` |
-| 打包 | APK（R8 混淆 + 资源压缩） | AppImage 88.7MB / Arch 包 498KB / Flatpak 40.4MB | `.app`（自包含 48 动态库）+ DMG 29MB |
-| 自动化自检 | 单元测试 16 项 | `--queue-selftest` 52 项 | `--selftest-logic` 41 项 |
-| 登录 | 内置 WebView | QtWebEngine（AppImage/Flatpak 降级为 cookie 导入） | WKWebView（cookie 自动落盘） |
+| 打包 | APK（R8 混淆 + 资源压缩） | **Arch 包（用户指定唯一 Linux 形态）**；AppImage / Flatpak 暂缓 | `.app`（自包含 48 动态库）+ DMG 30.9MB |
+| 自动化自检 | 单元测试（PlayQueue 等） | `--queue-selftest` **105 项** | `--selftest-logic` **102 项** |
+| 登录 | 内置 WebView | QtWebEngine；**无 WebEngine 的产物包走"系统浏览器登录 + cookie 导入"** | WKWebView（cookie 自动落盘）+ 同一套 cookie 导入 |
 | 媒体控制 | MediaSession（通知栏/锁屏） | MPRIS（媒体键/playerctl） | `MPRemoteCommandCenter`（控制中心/键盘媒体键） |
 
 ### 三端能力差异（如实说明）
@@ -81,13 +93,22 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 | 能力 | Android | Linux | macOS |
 |---|---|---|---|
 | 流量强制直连（无视 VPN 代理） | ✅ VpnService 内绕过 | ✅ 设置项（仅对环境变量代理生效） | ✅ 设置项 |
-| 手势（亮度/音量/双击快进退） | ✅ | —（桌面用键鼠） | — |
-| 画中画 / 全屏铺满 | ✅ | 全屏有，铺满未做 | 全屏有，铺满未做 |
-| 下载管理 | ✅（2 并发/仅 WiFi/2GB LRU） | ✅（2 并发/重试/LRU） | ⏳ 未实现 |
+| 画中画 | ✅ 系统级 PiP | ✅ 置顶小窗（Wayland 下"置顶"由合成器决定） | ✅ 浮动小窗（`window.level = .floating`） |
+| 全屏铺满（裁切黑边） | ✅ 全屏时 `panscan=1` | ✅ 同左（键 `Z` / 控制条「铺满」） | ✅ 同左（键 `Z` / 设置面板勾选） |
+| 下载管理 | ✅（2 并发/仅 WiFi/2GB LRU） | ✅（2 并发/重试/LRU） | ✅（2 并发/重试/标签写入/LRU） |
+| 播放中切清晰度/音质 | ✅ | ✅（`V`/`Q` 键） | ✅（`V`/`Q` 键） |
 | 本地库 | ✅ | ✅ | ✅ |
 | 在线字幕 | ✅ B站 CC / YouTube | ✅ B站 CC（官方 API）/ YouTube | ✅ 同左 |
 | 逐字歌词 | ✅ | ✅ YRC/QRC | ✅ YRC/QRC |
-| 歌曲标签/封面 | ✅ 下载时写入 | ✅ 下载时写入 | ⏳ 封面显示有，写入待做 |
+| 歌曲标签/封面 | ✅ 下载时写入 | ✅ 下载时写入 | ✅ 下载时写入（B3） |
+| **手机专属（桌面端不适用）** | | | |
+| 手势（亮度/音量/双击快进退） | ✅ | 不适用（桌面用键鼠） | 不适用 |
+| 仅 WiFi 下载 / 流量提醒 | ✅ | 不适用（桌面无蜂窝流量） | 不适用 |
+| 系统级画中画（可脱离 App 窗口） | ✅ | 不适用（桌面为应用内小窗） | 不适用 |
+| 竖屏手势锁 / 自动横屏 | ✅ | 不适用（桌面窗口自由缩放） | 不适用 |
+
+> 说明：桌面端不是"未实现"，而是**移动端特有的交互在国内桌面环境没有对应物**，故标注"不适用"。
+> 桌面端用等价能力覆盖：手势 → 快捷键（空格/←→/↑↓/`V`/`Q`/`Z`/`F`/`P`）、仅 WiFi → 无此需求、系统画中画 → 应用内置顶小窗。
 
 ### 配置文件（三端共用）
 
@@ -107,6 +128,12 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 | 网易云：封面 + 逐字歌词 | 本地库 |
 |---|---|
 | ![linux-1](docs/screenshots/linux/01-netease-cover-lyrics.png) | ![linux-2](docs/screenshots/linux/02-local-library.png) |
+
+### Linux v1.2.0（clang + full-LTO + PGO 优化构建）
+
+| 本地视频播放（进度由属性快照驱动） | 打包产物实际运行（历史归档） |
+|---|---|
+| ![linux-4](docs/screenshots/linux/04-playback-local.png) | ![linux-5](docs/screenshots/linux/05-appimage-playback.png) |
 
 ### macOS（AppKit + SPM）
 
@@ -133,7 +160,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 |---|---|---|
 | ![library](docs/screenshots/08-library.png) | ![settings](docs/screenshots/09-settings.png) | ![storage](docs/screenshots/10-storage.png) |
 
-## 从零构建（完整流程）
+## 从零构建 · Android
 
 ### 1. 环境要求
 
@@ -230,6 +257,133 @@ keyPassword=你的密码
 | Release 包启动闪退 | 若自行修改了依赖，注意为新引入的"静态初始化里反射扫类"的库补 R8 keep 规则 |
 
 ---
+
+## 从零构建 · macOS（AppKit + Swift Package Manager，**不需要 Xcode**）
+
+### 1. 环境要求
+
+| 组件 | 要求 | 说明 |
+|---|---|---|
+| macOS | **13 Ventura 或更高** | 代码中 `platforms: [.macOS(.v13)]` |
+| Swift 工具链 | **只需 Command Line Tools**，**无需完整 Xcode** ✓ | `xcode-select --install`（自带 `swiftc`；本项目实测 Swift 6.4，路径 `/Library/Developer/CommandLineTools`） |
+| libmpv | `brew install mpv`（实测 0.41.0） | 通过 `pkgConfig: "mpv"` 接入（`Cmpv` 系统库目标） |
+| 出 DMG（可选） | `brew install create-dmg` | 只有打包 DMG 时才需要 |
+
+### 2. 构建与打包
+
+```bash
+brew install mpv create-dmg
+cd macos
+swift build -c release                    # 编译（纯 SPM）
+bash packaging/build-app.sh               # 组装 .app + 收集依赖 + ad-hoc 签名 + 出 DMG
+# 产物：macos/build/HyperOnlineVideo.app
+#       macos/build/HyperOnlineVideo-<版本>-arm64.dmg
+bash packaging/build-app.sh --no-dmg      # 只要 .app、跳过 DMG
+```
+
+`build-app.sh` 的 6 个步骤（**多数坑都在这里**）：
+
+1. `swift build -c release`；
+2. 组装 `.app` 骨架（`Info.plist` / 图标 / 可执行文件）；
+3. **递归收集 libmpv 的全部非系统依赖**到 `Contents/Frameworks` 并**重写 `install_name`** ——
+   不做这一步，DMG 换一台机器就打不开（依赖 Homebrew 路径）；
+4. **ad-hoc 签名** —— Apple Silicon 上被改动过的二进制不签名无法运行；
+5. `create-dmg` 出包（附「去隔离」使用说明）。
+
+### 3. 首次运行被系统拦下
+
+「系统设置 → 隐私与安全性 → **仍要打开**」。应用未做公证（notarization），这是如实说明的现状。
+
+---
+
+## 从零构建 · Linux（Qt6 桌面端）
+
+Linux 端源码在 `desktop/`；**一套源码、多发行版打包**。
+
+### 1. 依赖一览
+
+| 用途 | Arch | Debian / Ubuntu | Fedora |
+|---|---|---|---|
+| Qt 6（Widgets / Network / DBus / OpenGLWidgets） | `qt6-base` | `qt6-base-dev` | `qt6-qtbase-devel` |
+| Qt QML/Quick | `qt6-declarative` | `qt6-declarative-dev` | `qt6-qtdeclarative-devel` |
+| 内嵌登录窗口（QtWebEngine，**可选**） | `qt6-webengine` | `qt6-webengine-dev` | `qt6-qtwebengine-devel` |
+| 播放内核 | `mpv`（含 libmpv） | `libmpv-dev` | **`mpv-devel`** |
+| 下载 / 混流 | `yt-dlp` `ffmpeg` | 同左 | `yt-dlp` + `ffmpeg-free`（自带，**无需第三方源**） |
+| 构建 | `cmake ninja clang lld` | `cmake ninja-build pkgconf` | `cmake ninja-build pkgconf-pkg-config gcc-c++` |
+
+> ⚠️ Fedora 上 libmpv 头文件在 **`mpv-devel`**（不存在 `mpv-libs-devel`）；
+> 可用 `dnf provides '*/mpv/client.h'` 自行查证。
+
+### 2. 直接编译（不打发行包）
+
+```bash
+cd desktop
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+# 产物：desktop/build/hov-qt
+```
+
+> **必须经由启动器运行**：`packaging/hov-qt-launcher.sh.in` 会在 exec 前设置 `LC_NUMERIC=C`
+> 并调整 fd 上限 —— libmpv（ffmpeg 系代码）在非 C 数值 locale 下**会在动态库加载阶段直接终止**，
+> 进程内 `setlocale` 来不及修。安装后的布局是 `/usr/bin/hov-qt`（脚本）+ `/usr/bin/hov-qt-bin`（真实二进制）。
+
+可选构建开关：`-DHOV_LTO=ON`（clang + lld，full-LTO）、`-DHOV_PGO=use`、`-DHOV_WEBENGINE=OFF`（无 WebEngine 环境）。
+
+### 3. 发行版打包（三条链路均已实测跑通）
+
+**Arch Linux** —— `desktop/packaging/PKGBUILD`（**打包脚本的单一真相**）
+
+```bash
+cd desktop && makepkg -f
+# → hov-qt-<版本>-<pkgrel>-<架构>.pkg.tar.zst
+```
+
+**Debian / Ubuntu** —— 标准 `debian/` 目录 + `dpkg-buildpackage`，**建议在容器内隔离构建**
+（这样能真正校验 `Build-Depends` 是否完整）：
+
+```bash
+sudo apt-get install -y debootstrap systemd-container
+sudo debootstrap --arch=amd64 --variant=buildd resolute /var/lib/machines/hov https://<镜像>/ubuntu/
+sudo systemd-nspawn -D /var/lib/machines/hov --resolv-conf=copy-host \
+     --bind="$PWD:/build" -M hov-build
+# ── 容器内 ──
+apt-get install -y build-essential debhelper cmake ninja-build pkgconf \
+    qt6-base-dev qt6-declarative-dev qt6-webengine-dev libmpv-dev lintian
+cd /build/<源码目录> && dpkg-checkbuilddeps && dpkg-buildpackage -us -uc
+# 产物：.deb / .dsc / .debian.tar.xz / .buildinfo / -dbgsym.ddeb
+```
+
+**Fedora** —— `desktop/packaging/rpm/hov-qt.spec` + `mock` 隔离 buildroot：
+
+```bash
+# 1) 出 SRPM
+rpmbuild --define "_topdir $HOME/hov-rpm" -bs SPECS/hov-qt.spec
+# 2) mock 隔离构建（用后即销毁）
+mock -r fedora-44-x86_64 --rebuild <SRPM> && mock -r fedora-44-x86_64 --scrub=all
+# 项目脚本（自动串起上面两步）：desktop/packaging/rpm/build-rpm.sh <含 tarball 与 spec 的目录>
+```
+
+> ⚠️ **spec 的注释里绝不能出现宏名**（如 `%cmake`）—— RPM 会展开注释中的宏，
+> 会产生 `Unknown tag` 之类难以理解的报错。写完先 `rpmspec -q <spec>` 预检。
+
+### 4. Fedora Copr 第三方源（⚠️ **测试渠道 · 当前不稳定**）
+
+```bash
+sudo dnf copr enable houge/hov-qt
+sudo dnf install hov-qt
+```
+
+> ⚠️ **请务必注意**：
+> - 这是 **测试渠道**，**当前不稳定**；Linux 端的功能与打包**仍在调整**，统一工作将在 **v1.2.1** 完成；
+> - Linux 端**不属于 v1.2.0 的正式发布内容**；
+> - 遇到问题欢迎到 **GitHub Issues** 反馈；
+> - 仓库地址：<https://copr.fedorainfracloud.org/coprs/houge/hov-qt/>
+
+### 5. 运行与配置文件
+
+- 安装后从应用菜单启动「聚合视频」，或命令行 `hov-qt`；
+- **三端共用配置**：`~/.config/hov/settings.json`、`queue.json`（覆盖升级不丢设置/数据）；
+- 无显示环境（容器 / CI）跑自检：`QT_QPA_PLATFORM=offscreen hov-qt --queue-selftest`。
 
 ## 技术栈
 

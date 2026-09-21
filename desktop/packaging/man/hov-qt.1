@@ -1,0 +1,146 @@
+.TH HOV-QT 1 "2026-09-20" "Hyper Online Video 1.2.0" "用户命令"
+.SH 名称
+hov-qt \- 聚合在线视频与音乐的 Qt6 桌面客户端
+.SH 概要
+.B hov-qt
+[\\fI选项\\fR]...
+.SH 描述
+.B hov-qt
+聚合 YouTube、哔哩哔哩、网易云音乐与 QQ 音乐，提供搜索聚合、本地媒体库、
+离线下载与无广告播放。播放使用 libmpv（可选 gpu-next/libplacebo），
+在线地址解析与下载使用 yt-dlp 与 ffmpeg。
+.PP
+.B 注意
+：本程序**不接受位置参数**；要直接打开本地文件或网址请用
+.BR --open 。
+.PP
+实际可执行文件为
+.BR hov-qt-bin ；
+/usr/bin/hov-qt
+是启动包装脚本，负责在启动前修正 libmpv 所需的数值本地化设置
+（LC_NUMERIC=C）、绕开 Qt 6.10+ 的 GLib 事件分发器崩溃路径并抬高文件描述符上限。
+请优先直接运行
+.BR hov-qt 。
+.SH 打开与播放
+.TP
+.BI \-\-open " 文件|网址 " ...
+打开若干本地文件或网址（可跟多个，直到遇到下一个以 -- 开头的参数）。
+.TP
+.B \-\-autoplay
+打开后自动开始播放。
+.TP
+.B \-\-fullscreen
+启动后进入全屏。
+.TP
+.B \-\-fill\-screen ", " \-\-no\-fill\-screen
+强制开启/关闭"填充屏幕"显示模式（画面按窗口铺满）。
+.TP
+.BI \-\-speed " 倍速"
+设置播放倍速（0.25–4.0）。
+.TP
+.BI \-\-quality " 档位" ", " \-\-video\-quality " 档位"
+指定视频清晰度档位（可用档位见应用内菜单）。
+.TP
+.B \-\-no\-resume
+忽略进度记忆，从头播放。
+.SH 字幕
+.TP
+.BI \-\-sub\-track " 序号"
+选择字幕轨（\-1 表示关闭字幕）。
+.TP
+.BI \-\-sub\-delay " 秒"
+设置字幕延迟（可为负值）。
+.TP
+.BI \-\-subs\-url " 网址"
+加载外部字幕文件网址。
+.SH 内容源与登录
+.TP
+.B \-\-music ", " \-\-yt ", " \-\-bili ", " \-\-qqmusic
+限定/切换内容源：网易云音乐、YouTube、哔哩哔哩、QQ 音乐。
+.TP
+.B \-\-local
+打开本地媒体库。
+.TP
+.B \-\-login
+打开登录窗口（需构建时启用 QtWebEngine）。
+.TP
+.B \-\-import\-cookies
+从浏览器导入 Cookie（需选择浏览器）。
+.TP
+.B \-\-settings ", " \-\-show\-settings
+打开设置面板。
+.SH 下载与库管理
+.TP
+.BI \-\-download " " \fR[\fI网址\fR] ", " \-\-download\-music
+下载当前（或指定）视频 / 音乐。
+.TP
+.BI \-\-download\-count " 数量" ", " \-\-max\-total\-mb " 兆字节"
+批量下载的条数上限与总大小上限。
+.TP
+.B \-\-progress\-show ", " \-\-progress\-clear
+显示 / 清除播放进度记忆。
+.TP
+.B \-\-cleanup\-downloads
+清理下载目录中的残留文件。
+.TP
+.BI \-\-rename\-selected " 名称"
+重命名当前选中的库项目。
+.SH 自动化与诊断选项
+（面向脚本化验收与故障排查，一般用户无需使用。）
+.TP
+.B \-\-selftest
+运行内置自检。
+.TP
+.B \-\-queue\-selftest
+运行播放队列/收藏逻辑自检（不触网、不改动真实收藏文件）。
+.TP
+.BI \-\-load\-more " 次数"
+连续触发"加载更多"以排查分页与资源泄漏。
+.TP
+.BI \-\-fs\-probe
+验证全屏浮出侧栏的状态机（输出状态迁移记录）。
+.TP
+.BI \-\-play\-storm " 次数"
+连续触发播放/停止以排查播放器资源泄漏。
+.TP
+.BI \-\-fullscreen\-after " 秒" ", " \-\-pip\-after " 秒"
+在指定延时后进入全屏 / 画中画。
+.TP
+.BI \-\-cycle\-video\-quality\-after " 秒"
+在指定延时后循环切换清晰度档位。
+.TP
+.BI \-\-exit\-after " 秒"
+在指定延时后退出（自动化收尾用）。
+.TP
+.BI \-\-cycle\-quality\-after " 秒"
+在指定延时后循环切换音乐音质档位。
+.TP
+.B \-\-demo
+演示模式（使用内置示例数据，便于无网络验收）。
+.SH 环境
+.TP
+.B LC_NUMERIC
+由启动包装脚本强制设为
+.BR C ；
+libmpv/ffmpeg 在非 C 的数值本地化下会在动态库加载阶段终止。
+.TP
+.B QT_NO_GLIB
+由包装脚本设为 1，绕开 Qt 6.10+ 的 GLib 事件分发器崩溃路径。
+.TP
+.B QT_QPA_PLATFORM
+无显示环境（容器/CI）可设为
+.B offscreen
+或以 xvfb-run 运行，用于非交互自检。
+.SH 文件
+.TP
+.I ~/.config/HyperOnlineVideo/settings.json
+用户设置。
+.TP
+.I ~/.local/share/HyperOnlineVideo/
+本地库、下载与进度记录。
+.SH 另见
+.BR mpv (1),
+.BR yt-dlp (1),
+.BR ffmpeg (1)
+.SH 作者
+Houge Langley <hougelangley@users.noreply.github.com>

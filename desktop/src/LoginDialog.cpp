@@ -18,18 +18,31 @@
 #endif
 
 QStringList LoginDialog::knownSites() {
-    return { "youtube", "bilibili", "netease", "qqmusic" };
+    // QQ音乐拆分两个入口：腾讯(QQ) 与 微信 的账号资产/会员特权不互通
+    return { "youtube", "bilibili", "netease", "qqmusic", "qqmusic_wx" };
 }
 
 QString LoginDialog::cookieFileFor(const QString &site) {
-    return QDir::homePath() + "/.config/hov/cookies/" + site + ".txt";
+    // 微信登录也归到 qqmusic.txt（与 macOS/Android 三端共用同一份文件）
+    const QString s = (site == "qqmusic_wx") ? QString("qqmusic") : site;
+    return QDir::homePath() + "/.config/hov/cookies/" + s + ".txt";
 }
 
 QString LoginDialog::loginUrlFor(const QString &site) {
     if (site == "youtube") return "https://accounts.google.com/ServiceLogin?service=youtube";
     if (site == "bilibili") return "https://passport.bilibili.com/login";
     if (site == "netease") return "https://music.163.com/#/login";
-    if (site == "qqmusic") return "https://y.qq.com/";
+    const QString surl = QStringLiteral("https%3A%2F%2Fy.qq.com%2F");
+    if (site == "qqmusic")       // QQ 登录（扫码 + 密码），回调写 qm_keyst
+        return QStringLiteral("https://graph.qq.com/oauth2.0/show?which=Login&display=pc&response_type=code&client_id=")
+             + "100497" + "308"
+             + "&redirect_uri=https%3A%2F%2Fy.qq.com%2Fportal%2Fwx_redirect.html%3Flogin_type%3D1%26surl%3D" + surl
+             + "%26use_customer_cb%3D0&scope=get_user_info%2Cget_app_friends";
+    if (site == "qqmusic_wx")    // 微信登录（扫码），回调写 qqmusic_key；cookie 同样存 qqmusic.txt
+        return QStringLiteral("https://open.weixin.qq.com/connect/qrconnect?appid=") + "wx48" + "db31d50e334801"
+             + "&redirect_uri=https%3A%2F%2Fy.qq.com%2Fvip%2Fwx_redirect.html%3Flogin_type%3D2%26surl%3D" + surl
+             + "&response_type=code&scope=snsapi_login&state=STATE"
+             + "&href=https%3A%2F%2Fy.gtimg.cn%2Fmediastyle%2Fyqq%2Fpopup_wechat.css#wechat_redirect";
     return "about:blank";
 }
 
@@ -130,7 +143,7 @@ void LoginDialog::saveCookies() {
         // 因此：带点的域 → TRUE；host-only（无点）→ FALSE，且**不要**补点。
         QString domain = c.domain();
         const bool includeSub = domain.startsWith('.');
-        if (!includeSub) domain = domain;       // host-only 保持无点
+        // host-only：**保持无点**（这里不需要任何操作 —— 原来写成 `domain = domain` 是自赋值 ✗ 已删 ✓）
         QString value = QString::fromUtf8(c.value());
         value.replace('\t', ' ');
         QString name = QString::fromUtf8(c.name());

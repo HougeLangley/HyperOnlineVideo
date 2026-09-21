@@ -1,0 +1,30 @@
+Source: hov-qt
+Section: video
+Priority: optional
+Maintainer: Houge Langley <hougelangley@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               ninja-build,
+               pkgconf,
+               qt6-base-dev,
+               qt6-declarative-dev,
+               qt6-webengine-dev,
+               libmpv-dev
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/HougeLangley/HyperOnlineVideo
+Vcs-Git: https://github.com/HougeLangley/HyperOnlineVideo.git
+Vcs-Browser: https://github.com/HougeLangley/HyperOnlineVideo
+
+Package: hov-qt
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, yt-dlp, ffmpeg
+Recommends: qt6-wayland
+Description: Hyper Online Video - aggregated online video/music client (Qt6 desktop)
+ Hyper Online Video aggregates YouTube, Bilibili, NetEase Cloud Music and
+ QQ Music into a single client, with library management, offline downloads
+ and ad-free playback. This package provides the Linux Qt6 desktop build.
+ .
+ Playback uses libmpv (optionally gpu-next/libplacebo). Downloads and stream
+ resolution use yt-dlp/ffmpeg. An in-app QtWebEngine window is used for
+ account login where the platform requires it.

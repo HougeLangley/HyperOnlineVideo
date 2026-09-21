@@ -1,4 +1,5 @@
 #pragma once
+#include <QtGlobal>
 #include <QString>
 
 #include "Subtitles.h"
@@ -38,6 +39,13 @@ public:
     bool forceHidden() const { return hidden_; }
 
     /** 歌词模式（卡拉OK）：居中成面板，当前行按行内进度左→右高亮，并显示上下相邻行 */
+    /// 字幕主字号（像素）—— **与 macOS 同一基准**：画面高的 2.8%（下限 13px），再乘用户倍数。
+    /// 历史坑：Linux 曾用 height/16（= 6.25%）→ 比 macOS 大近 1.8 倍，用户截图实测"字幕太大"✗。
+    static int fontPxFor(int areaHeight, double scale) {
+        const double s = qBound(0.5, scale, 2.0);
+        return qMax(13, int(double(areaHeight) * 0.028 * s));   // 2.8%：用户反馈"还可以再小" → 向 macOS 观感靠拢
+    }
+
     void setKaraokeMode(bool on) { karaoke_ = on; }
     /** 字号倍数（设置页 0.5~2.0），绘制时统一乘上去 */
     void setFontScale(double s) { fontScale_ = (s < 0.5) ? 0.5 : (s > 2.0 ? 2.0 : s); }

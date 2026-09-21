@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "DownloadManager.h"
 
 #include <QDebug>
@@ -47,11 +48,14 @@ int DownloadManager::activeCount() const {
 }
 
 QString DownloadManager::enqueue(const QString &url, const QString &title, const QString &fileNameHint,
-                                 const QString &artist, const QString &album, const QString &coverUrl) {
+                                 const QString &artist, const QString &album, const QString &coverUrl,
+                               const QString &audioUrl, const QString &lyrics) {
     if (url.isEmpty()) return QString();
     Job j;
     j.id = QString("dl%1").arg(++seq_);
     j.url = url;
+    j.audioUrl = audioUrl;
+    j.lyrics = lyrics;
     j.title = title.isEmpty() ? QFileInfo(QUrl(url).path()).fileName() : title;
 
     // 文件名：优先用调用方给的提示，否则从 URL 路径猜；都拿不到就用 id
@@ -92,14 +96,7 @@ void DownloadManager::start(const QString &id) {
         if (progress_) progress_(j);
 
         QNetworkRequest req{QUrl(j.url)};
-        req.setRawHeader("User-Agent",
-                         "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                         "Chrome/120.0.0.0 Safari/537.36");
-        // 音乐 CDN（网易云/QQ）对 Referer 敏感，统一带上可提高成功率
-        if (j.url.contains("126.net") || j.url.contains("music.163.com"))
-            req.setRawHeader("Referer", "https://music.163.com/");
-        else if (j.url.contains("qq.com"))
-            req.setRawHeader("Referer", "https://y.qq.com/");
+        applyHeaders(req, j.url);
 
         auto *reply = net_->get(req);
         running_.insert(id, reply);
@@ -148,11 +145,14 @@ void DownloadManager::start(const QString &id) {
             } else {
                 for (auto &j : jobs_)
                     if (j.id == id) {
-                        j.state = State::Done;
-                        if (embedTags(j)) qInfo() << "已嵌入音乐标签:" << j.title << "/" << j.artist;
-                        qInfo() << "下载完成:" << j.filePath << j.bytesDone << "字节";
-                        if (maxTotalMb_ > 0) cleanupLru(static_cast<qint64>(maxTotalMb_) * 1024 * 1024);
-                        if (progress_) progress_(j);
+                        if (!j.audioUrl.isEmpty()) {
+                            // ③ 视频任务：yt-dlp 把音视频拆成两路，这里先混流再报完成（否则下载下来**没有声音**）
+                            j.state = State::Running;
+                            if (progress_) progress_(j);
+                            startAudioPhase(j.id);          // ② 先把音轨下到本地，再本地混流
+                        } else {
+                            finishJob(j);
+                        }
                     }
             }
             pump();
@@ -196,6 +196,136 @@ DownloadManager::CleanResult DownloadManager::cleanupLru(qint64 maxBytes) {
     qInfo() << "LRU 清理结果:" << res.beforeBytes / 1024 / 1024 << "MB →" << res.afterBytes / 1024 / 1024
             << "MB（上限" << maxBytes / 1024 / 1024 << "MB，删除" << res.removed.size() << "个）";
     return res;
+}
+
+// ③ 收尾：写 .lrc 侧车 + 只对音频嵌标签 + 置完成（视频**绝不**走 embedTags）
+void DownloadManager::finishJob(Job &j) {
+    if (writeLyrics(j)) qInfo() << "已写出歌词侧车:" << (j.filePath + ".lrc");
+    const QString suffix = QFileInfo(j.filePath).suffix().toLower();
+    static const QStringList kVideoSuffix{ "mp4", "mkv", "webm", "mov", "flv", "ts", "m4v" };
+    if (kVideoSuffix.contains(suffix)) {
+        qInfo() << "跳过音乐标签嵌入（视频文件）:" << suffix;   // macOS 端踩过：把视频当音频处理会毁文件
+    } else if (embedTags(j)) {
+        qInfo() << "已嵌入音乐标签:" << j.title << "/" << j.artist;
+    }
+    j.state = State::Done;
+    qInfo() << "下载完成:" << j.filePath << j.bytesDone << "字节"
+            << (j.error.isEmpty() ? "" : QString("（警告：%1）").arg(j.error));
+    if (maxTotalMb_ > 0) cleanupLru(static_cast<qint64>(maxTotalMb_) * 1024 * 1024);
+    if (progress_) progress_(j);
+}
+
+// 统一请求头：UA + 各站 Referer（B 站/YouTube 的 CDN 不认空 Referer，会 403 —— macOS 端实测踩过）
+void DownloadManager::applyHeaders(QNetworkRequest &req, const QString &url) {
+    req.setRawHeader("User-Agent",
+                     "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                     "Chrome/120.0.0.0 Safari/537.36");
+    if (url.contains("bilivideo") || url.contains("bilibili.com"))
+        req.setRawHeader("Referer", "https://www.bilibili.com/");
+    else if (url.contains("googlevideo") || url.contains("youtube.com"))
+        req.setRawHeader("Referer", "https://www.youtube.com/");
+    else if (url.contains("126.net") || url.contains("music.163.com"))
+        req.setRawHeader("Referer", "https://music.163.com/");
+    else if (url.contains("qq.com"))
+        req.setRawHeader("Referer", "https://y.qq.com/");
+}
+
+// ② 第 2 阶段：独立音轨先下到本地临时文件，再由 ffmpeg **本地**混流。
+//    原来是让 ffmpeg 自己去拉音轨直链 —— 没有请求头（B 站 403）、没有并发、进度不可见，
+//    用户实测"下载很慢"。改成两路都用本下载器（带请求头 + 进度 + 失败可退避）。
+void DownloadManager::startAudioPhase(const QString &id) {
+    Job *jp = mutableFind(id);
+    if (!jp) return;
+    const QString au = jp->audioUrl;
+    if (au.isEmpty()) { startMux(id); return; }
+    jp->videoBytes = jp->bytesDone;              // 视频段字节数（音轨进度以它为基数叠加）
+    jp->audioPath = jp->filePath + ".audio.part";
+    QNetworkRequest req{QUrl(au)};
+    applyHeaders(req, au);
+    auto *reply = net_->get(req);
+    auto *f = new QFile(jp->audioPath, this);
+    if (!f->open(QIODevice::WriteOnly)) {
+        f->deleteLater();
+        reply->abort(); reply->deleteLater();
+        jp->audioPath.clear();                   // 退回到"让 ffmpeg 自己拉"的老路径（保底）
+        std::fprintf(stderr, "[DL] 音轨临时文件不可写，退回 ffmpeg 直连拉流\n");
+        startMux(id);
+        return;
+    }
+    std::fprintf(stderr, "[DL] 开始下载独立音轨（第 2 路）: %s\n", au.left(70).toUtf8().constData());
+    connect(reply, &QNetworkReply::readyRead, f, [f, reply] { f->write(reply->readAll()); });
+    connect(reply, &QNetworkReply::downloadProgress, this, [this, id](qint64 got, qint64 total) {
+        for (auto &j : jobs_) {
+            if (j.id != id) continue;
+            j.bytesDone = j.videoBytes + got;
+            j.bytesTotal = total > 0 ? j.videoBytes + total : j.bytesTotal;
+            if (progress_) progress_(j);
+            break;
+        }
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, id, reply, f] {
+        const auto err = reply->error();
+        f->write(reply->readAll());
+        f->close(); f->deleteLater(); reply->deleteLater();
+        Job *j = mutableFind(id);
+        if (!j) return;
+        const bool ok = (err == QNetworkReply::NoError) && QFileInfo(j->audioPath).size() > 0;
+        if (!ok) {
+            std::fprintf(stderr, "[DL] 音轨下载失败（%d），退回让 ffmpeg 直连拉流\n", int(err));
+            QFile::remove(j->audioPath);
+            j->audioPath.clear();                    // 保底路径：ffmpeg 用远端 URL
+        }
+        startMux(id);
+    });
+}
+
+// ③ 混流：ffmpeg -c copy（不重编码，秒级完成）把独立音轨并进视频，成功则替换原文件
+void DownloadManager::startMux(const QString &id) {
+    Job *jp = mutableFind(id);
+    if (!jp) return;
+    const QString video = jp->filePath;
+    // ② 第 2 阶段：本地音轨优先（已下好）；没有则退回让 ffmpeg 直连拉远端（保底不失败）
+    const bool hasLocal = !jp->audioPath.isEmpty() && QFile::exists(jp->audioPath);
+    const QString audio = hasLocal ? jp->audioPath : jp->audioUrl;
+    const QString out = video + ".muxing.mp4";
+    QStringList args{ "-y", "-hide_banner", "-loglevel", "error", "-i", video, "-i", audio,
+                      "-c", "copy", "-movflags", "+faststart", out };
+    auto *p = new QProcess(this);
+    std::fprintf(stderr, "[MUX] 开始混流（视频 + %s）: %s\n", hasLocal ? "本地音轨" : "远端音轨直连", video.toUtf8().constData());
+    connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, p, id, video, out, hasLocal](int code, QProcess::ExitStatus) {
+                p->deleteLater();
+                Job *j = mutableFind(id);
+                if (!j) return;
+                const bool ok = (code == 0) && QFile::exists(out) && QFileInfo(out).size() > 0;
+                if (ok && QFile::remove(video) && QFile::rename(out, video)) {
+                    j->bytesDone = QFileInfo(video).size();
+                    qInfo() << "[MUX] 混流完成:" << video << j->bytesDone << "字节";
+                } else {
+                    j->error = "音轨合并失败（视频已保留，可能无声）";
+                    qInfo() << "[MUX] 混流失败 rc=" << code << "→ 保留原视频（可能无声音）";
+                    QFile::remove(out);
+                }
+                if (hasLocal) QFile::remove(j->audioPath);      // ② 混完就删临时音轨，不占空间
+                finishJob(*j);
+            });
+    p->start("ffmpeg", args);
+    if (!p->waitForStarted(5000)) {
+        p->deleteLater();
+        jp->error = "无法启动 ffmpeg（音轨未合并，视频可能无声）";
+        qInfo() << "[MUX] ffmpeg 启动失败（未安装？）";
+        finishJob(*jp);
+    }
+}
+
+// ③ 歌词侧车：与媒体同名 .lrc（UTF-8），多数播放器可直接显示
+bool DownloadManager::writeLyrics(const Job &j) {
+    if (j.lyrics.trimmed().isEmpty()) return false;
+    QFile f(j.filePath + ".lrc");
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    f.write(j.lyrics.toUtf8());
+    f.close();
+    return true;
 }
 
 bool DownloadManager::embedTags(Job &j) {

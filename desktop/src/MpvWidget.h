@@ -1,6 +1,10 @@
 #pragma once
+#include <mutex>
+#include <thread>
+#include <atomic>
 #include <QOpenGLWidget>
 #include <QOpenGLContext>
+#include <QByteArray>
 #include <mpv/client.h>
 #include <mpv/render.h>
 #include <mpv/render_gl.h>
@@ -13,13 +17,29 @@ class SubtitleOverlay;
 class QTimer;
 
 // libmpv render API 播放部件（Wayland 下唯一可行的嵌入方式；Spike A 已验证）
+#include "ColorTheme.h"
+#include <functional>
+
 class MpvWidget : public QOpenGLWidget {
 public:
     explicit MpvWidget(QWidget *parent = nullptr);
     ~MpvWidget() override;
     void playUrl(const QString &url);
+    /** ② 缓存策略按来源区分（网络大缓存 / 本地关闭缓存）；必须在 loadfile 前调用 */
+    void prepareCacheOptions(bool isNetwork);
     // 播放控制（对应 Android 版播放器控件）
     void togglePause();
+    // ── 属性快照（关键：GUI 线程绝不直接读 mpv 属性）──
+    // mpv 的属性读取要拿核心锁，**流媒体加载期间**该锁可能被长期持有（网络 demux 阻塞）；
+    // 而界面每 0.5 秒就要读一次 time-pos/duration → 起播时会出现"界面冻结数秒"（macOS 侧实测 5 秒×5，看门狗抓到）。
+    // 这里由**后台线程**定时采集全部属性到 Snapshot（互斥锁保护），GUI 只读快照（纯内存拷贝，永不阻塞）。
+    struct Snapshot {
+        double duration = 0, position = 0, panscan = 0, speed = 1, volume = 100;
+        bool paused = false, eof = false;
+        int width = 0, height = 0;
+        QString title;
+    };
+    Snapshot snapshot() const { std::lock_guard<std::mutex> lk(snapMutex_); return snap_; }
     bool paused();
     double positionSec();
     double durationSec();
@@ -29,6 +49,10 @@ public:
     int volume();
     bool eofReached(int *out);
     void setSpeed(double sp);   // 倍速（mpv speed 属性）
+    void setPanscan(double v);  // B7 全屏铺满：**同步**版（仅 mpv 就绪后调用；就绪前会阻塞 GUI 线程）
+    void setPanscanAsync(double v);  // B7：异步下发（推荐；不会阻塞 GUI 线程）
+    bool renderReady() const { return renderReady_; }   // 渲染上下文就绪（就绪前禁止碰 mpv 属性）
+    double panscan() const;     // 回读（取证：确认 mpv 真的接受了）
     double speed();
     void setVolume(int v);
     // ADR-002：显式选流后播放（视频先播，音轨延迟挂载）
@@ -44,6 +68,14 @@ public:
     void setSubtitleCues(const QVector<SubtitleCue> &cues, const QString &label, bool karaoke = false);
     /** 专辑封面（音乐场景；传空地址 = 清除） */
     void setCoverArt(const QString &url, const QString &title, const QString &artist);
+    /// 玻璃质感开关（设置键 ui.glass，默认开；关闭后完全回到纯色背景，零残留）
+    void setGlassEnabled(bool on) { glassOn_ = on; update(); }
+    bool glassEnabled() const { return glassOn_; }
+    /// gpu-next 守卫：无硬件 GL 的环境下 gpu-next 会"创建成功但输出全黑"（实测 ✗）
+    /// → 检测到全黑就回调（主窗口据此提示 + 本次会话切回 libmpv ✓ 不擅自改用户设置 ✓）
+    std::function<void()> onGpuNextUnusable;
+    /// 4 秒后自检是否真的在渲染（墙钟触发 ✓ 不依赖帧回调 ✓）
+    void verifyGpuNextRendering();
     /** 字幕/歌词字号倍数（设置页） */
     void setSubtitleFontScale(double s) { subs_.setFontScale(s); }
     void cycleSubtitleTrack();                       // C 键：在「关 → 轨 1 → 轨 2 → … → 关」间循环
@@ -55,6 +87,21 @@ protected:
     void initializeGL() override;
     void paintGL() override;
 private:
+    // ── 玻璃质感（v1.2.0，设置键 ui.glass）──
+    ColorTheme glass_;               // 按封面 URL 缓存的主题（取色 + 磨砂底 + 渐变）
+    QString    glassKey_;            // 已算主题对应的封面 URL（换了才算）
+    QString    coverUrl_;            // 当前封面 URL（空 = 视频/无封面 → 不画玻璃）
+    bool       glassOn_ = true;      // 默认开；关闭后零残留
+    bool       gpuNext_ = false;     // video.gpuNext：渲染后端（true=gpu-next/libplacebo）+ 失败回退标记
+    bool       gpuNextVerified_ = false;  // 是否已做过"真的在渲染"自检（只做一次 ✓）
+    bool renderReady_ = false;
+    // 属性快照：后台线程写入、GUI 线程读取
+    mutable std::mutex snapMutex_;
+    Snapshot snap_;
+    std::atomic<bool> snapStop_{false};
+    std::thread snapThread_;
+    void startSnapshotter();
+    void captureSnapshot();   // B7：渲染上下文就绪（就绪前禁止读写 mpv 属性，否则挂 GUI 线程）
     void loadSidecarSubtitles(const QString &mediaPath);
     void clearSubtitles();
     void applySubtitleTrack(int index);               // -1 = 关闭字幕
@@ -66,4 +113,26 @@ private:
     QVector<SubtitleTrack> tracks_;
     int trackIndex_ = -1;
     int preferredTrack_ = -2;   // -2=未指定，-1=关闭，>=0=指定轨序号
+
+    // ── glFenceSync 泄漏防护（fd 泄漏真凶，见 fd 排查报告）──
+    // mpv ≤0.41 的 libmpv GL 渲染模式：ra_gl_ctx_submit_frame 每帧 glFenceSync 入队 vsync_fences，
+    // 而清理（ClientWaitSync+DeleteSync）只在 vo=gpu 的 ra_gl_ctx_swap_buffers 里做；libmpv 模式由宿主
+    // （本类）swap，该函数永不被调 → GLsync 无限累积。virgl 等驱动下每个 GLsync 持有一个 sync_file fd
+    // （flush 时 execbuffer FENCE_FD_OUT 创建，DeleteSync 才 close）→ 每渲染一帧泄一个 fd（实测 ~26/s），
+    // 数小时后打满 fd 上限 → Qt 事件分发器/mpv 建 fd 失败 → abort（此前崩溃真因）。
+    // 上游已修：mpv f74adc4 "opengl/context: require swap_buffers param for FenceSync"（issue #17217，
+    // 将随 0.42 发布）；但本包动态链接系统 libmpv 0.41，只能在应用侧兜底——mpv 的 GL 函数全部经由我们
+    // 提供的 get_proc_address 取得，故在此处包装 glFenceSync/glDeleteSync 做"谁创建谁释放"记账：
+    // mpv 自己 DeleteSync 的（如 PBO 上传路径）原样放行并从登记簿移除；被遗弃超过 kSyncGraceFrames 帧的
+    // 由我们代为 DeleteSync（与 vo=gpu swapchain_depth 修剪等价）。
+    void *mpvGlProc(const char *name);
+    static void *fenceSyncShim(unsigned int condition, unsigned int flags);
+    static void deleteSyncShim(void *sync);
+    using FenceSyncFn = void *(*)(unsigned int, unsigned int);
+    using DeleteSyncFn = void (*)(void *);
+    FenceSyncFn realFenceSync_ = nullptr;
+    DeleteSyncFn realDeleteSync_ = nullptr;
+    QVector<QPair<void *, qint64>> pendingSyncs_;   // 登记簿：（GLsync, 创建时的帧序号）
+    qint64 syncFrame_ = 0;
+    static constexpr int kSyncGraceFrames = 8;      // 宽限窗口（vo=gpu 的 swapchain_depth 默认为 3）
 };

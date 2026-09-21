@@ -36,11 +36,31 @@ const QueueEntry *PlayQueue::at(int i) const {
     return &entries_.at(i);
 }
 
+bool PlayQueue::autoNext() {
+    if (entries_.isEmpty()) return false;
+    switch (mode_) {
+    case Mode::RepeatOne:
+        return true;                                   // 索引不动 → 调用方重播当前曲
+    case Mode::Shuffle:
+        return next();
+    case Mode::RepeatAll:
+        index_ = (index_ + 1) % entries_.size();       // 列表循环：到底回到第一项
+        return true;
+    case Mode::Sequential:
+    default:
+        if (index_ + 1 >= entries_.size()) return false;   // 顺序播放：到底停止（与 macOS/Android 一致）
+        ++index_;
+        return true;
+    }
+}
+
 bool PlayQueue::next() {
     if (entries_.isEmpty()) return false;
     switch (mode_) {
     case Mode::RepeatOne:
-        return false;                    // 单曲循环：由调用方重播当前曲
+        // 手动切歌不受单曲循环限制（只有"播完自动续播"才重播本曲）——与 macOS/Android 语义一致
+        index_ = (index_ + 1) % entries_.size();
+        return true;
     case Mode::Shuffle: {
         if (entries_.size() == 1) return false;
         int n = index_;
@@ -82,16 +102,18 @@ void PlayQueue::cycleMode() {
     switch (mode_) {
     case Mode::Sequential: mode_ = Mode::RepeatOne; break;
     case Mode::RepeatOne: mode_ = Mode::Shuffle; break;
-    case Mode::Shuffle: mode_ = Mode::Sequential; break;
+    case Mode::Shuffle:    mode_ = Mode::RepeatAll; break;
+    case Mode::RepeatAll:  mode_ = Mode::Sequential; break;
     }
 }
 
 QString PlayQueue::modeLabel() const {
     switch (mode_) {
-    case Mode::RepeatOne: return "单曲";
-    case Mode::Shuffle: return "随机";
+    case Mode::RepeatOne: return "单曲循环";
+    case Mode::Shuffle: return "随机播放";
+    case Mode::RepeatAll: return "列表循环";
     case Mode::Sequential:
-    default: return "顺序";
+    default: return "顺序播放";
     }
 }
 
@@ -141,7 +163,12 @@ bool PlayQueue::loadFromPath(const QString &path) {
     entries_ = entries;
     index_ = qBound(0, root.value("index").toInt(0), entries_.size() - 1);
     const int m = root.value("mode").toInt(0);
-    mode_ = (m == 1) ? Mode::RepeatOne : (m == 2) ? Mode::Shuffle : Mode::Sequential;   // 越界值回落顺序
+    // 注意：新增播放模式后必须在这里同步映射，否则**重启后静默变回顺序播放**（本轮实测踩到：
+    // 加了 RepeatAll(=3) 但这里只认 0/1/2 → 列表循环保存再加载就丢了）。越界值一律回落顺序。
+    mode_ = (m == 1) ? Mode::RepeatOne
+          : (m == 2) ? Mode::Shuffle
+          : (m == 3) ? Mode::RepeatAll
+                     : Mode::Sequential;
     return true;
 }
 

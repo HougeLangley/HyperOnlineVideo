@@ -7,6 +7,7 @@
 #include <functional>
 
 class QNetworkAccessManager;
+class QNetworkRequest;
 class QNetworkReply;
 class QFile;
 
@@ -38,6 +39,10 @@ public:
         QString artist;
         QString album;
         QString coverUrl;
+        QString audioUrl;      // ③ 视频任务的独立音轨（yt-dlp 的 bv*+ba 会把音视频拆成两路）
+        QString lyrics;        // ③ 歌词原文（LRC 文本）→ 下载后写同名 .lrc 侧车
+        QString audioPath;     // ②(第2阶段) 独立音轨先落到本地临时文件，再由 ffmpeg 本地混流
+        qint64  videoBytes = 0;// ② 视频段已完成字节数（音轨段进度叠加在它之上）
     };
 
     explicit DownloadManager(QObject *parent = nullptr);
@@ -51,7 +56,9 @@ public:
     /** 入队一个直链下载；返回任务 id（空串表示参数不合法） */
     QString enqueue(const QString &url, const QString &title, const QString &fileNameHint = QString(),
                     const QString &artist = QString(), const QString &album = QString(),
-                    const QString &coverUrl = QString());
+                    const QString &coverUrl = QString(),
+                    const QString &audioUrl = QString(),   // ③ 视频任务：独立音轨直链（空=无）
+                    const QString &lyrics = QString());    // ③ 歌词 LRC 文本（空=无）
 
     /** 进度/状态变化回调（在 GUI 线程调用；UI 自行节流） */
     void setProgressHandler(std::function<void(const Job &)> h) { progress_ = std::move(h); }
@@ -87,6 +94,11 @@ private:
     void update(const QString &id);
     /** 音乐标签嵌入：写临时文件 → ffprobe 读回校验 → 替换；任一步失败都保留原文件 */
     bool embedTags(Job &j);
+    void finishJob(Job &j);                 // ③ 收尾：写歌词侧车 + 音频才嵌标签 + 置 Done + 日志
+    void startMux(const QString &id);       // ③ ffmpeg 把独立音轨混进视频（无音轨任务不走这里）
+    void startAudioPhase(const QString &id); // ②(第2阶段) 先把独立音轨下到本地（不再让 ffmpeg 自己去拉流）
+    static void applyHeaders(QNetworkRequest &req, const QString &url);   // 统一请求头（含各站 Referer）
+    bool writeLyrics(const Job &j);         // ③ 写同名 .lrc（UTF-8）
 
     QNetworkAccessManager *net_ = nullptr;
     QVector<Job> jobs_;

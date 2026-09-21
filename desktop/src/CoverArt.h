@@ -22,6 +22,8 @@ public:
 
     /** 载入封面（url 为空 = 清除）；标题/艺术家用于封面下方文字 */
     void load(const QString &url, const QString &title, const QString &artist);
+    /// 已下载完成的封面图（null = 还没有）；玻璃主题（ColorTheme）据此取色/做磨砂底
+    const QImage &image() const { return img_; }
     void clear();
     bool hasImage() const { return !img_.isNull(); }
 

@@ -13,14 +13,16 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.hougelangley.hyperonlinevideo"
+    // compileSdk 保持 37：**依赖元数据要求**（实测降到 36 会让 checkDebugAarMetadata 失败 ✗）。
+    // 真正修掉的是下面 targetSdk：它曾误填 34（比 minSdk 35 还小 ✗）。
     compileSdk = 37
 
     defaultConfig {
         applicationId = "com.hougelangley.hov"
         minSdk = 35
-        targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        targetSdk = 36
+        versionCode = 3
+        versionName = "1.2.0"
 
         ndk {
             abiFilters += "arm64-v8a"   // 只带 arm64，砍掉模拟器 ABI 体积

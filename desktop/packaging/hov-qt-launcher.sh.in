@@ -1,0 +1,27 @@
+#!/bin/sh
+# ── Hyper Online Video 启动器 ────────────────────────────────────────────────
+# 为什么需要它：libmpv（内含 ffmpeg 系代码）要求 **LC_NUMERIC = C**，否则进程在
+# **动态库加载阶段**就段错误（rc=139），报错为
+#   "Non-C locale detected. This is not supported. Call 'setlocale(LC_NUMERIC, "C");'"
+# 该检查早于程序 main()，进程内 setlocale / 构造函数都来不及 → 必须在**启动前**设好环境。
+# 只改数值类别：界面语言、日期/货币仍按你的系统 locale 走。
+# 注意：LC_ALL 的优先级**高于**所有单项 LC_* → 必须先清掉它，否则下面的设置不生效
+#（实测踩到：直接 export LC_NUMERIC=C 被 LC_ALL=zh_CN.UTF-8 覆盖，依然段错误）
+# Qt 6.10+/6.11 的 GLib 事件分发器回归：任意线程新建 QEventDispatcherGlib 时，
+# glib 内部 g_log(ERROR) 会直接 abort（用户侧 coredump 实证：Thread(pooled) → g_main_context_new_with_flags → abort）。
+# 用 Qt 自带的 UNIX 事件分发器替代，绕开该路径；若该开关在此 Qt 版本已无效则无副作用。
+# 媒体播放会大量占用文件描述符（mpv 网络缓存 + Qt + WebEngine）。
+# 系统默认 1024 在长时间播放后会被打满，而**两条事件分发器路径**恰好在"创建线程唤醒管道"时失败：
+#   glib：g_wakeup_new 失败 → g_log(ERROR) → abort
+#   Qt ：QEventDispatcherUNIXPrivate 管道创建失败 → qFatal → abort
+# 用户侧 coredump 两种形态都出现过，故这里直接抬高上限（若受硬盘限制则忽略）。
+ulimit -n 65535 2>/dev/null || true
+
+QT_NO_GLIB=1
+export QT_NO_GLIB
+unset LC_ALL
+LC_NUMERIC=C
+export LC_NUMERIC
+# 真实二进制与本脚本同目录（命名 hov-qt-bin），这样安装到 /usr/bin 或 AppImage 内都可定位
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+exec "$dir/hov-qt-bin" "$@"

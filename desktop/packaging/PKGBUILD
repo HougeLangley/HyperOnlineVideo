@@ -1,37 +1,60 @@
 # Maintainer: HougeLangley <HougeLangley@users.noreply.github.com>
 # Arch Linux 打包脚本（aarch64 / x86_64 通用）
+#
+# ⚠️ 打包纪律（踩坑 #144 第 2 条，已犯三次）：
+#   本文件以**仓库里这一份为准**，改动后 `tar | ssh` 同步到构建机；
+#   **绝不允许**反向用构建机之外的旧副本覆盖构建机 —— 那会把 pkgrel/源码源/兜底参数全部冲掉。
 pkgname=hov-qt
-pkgver=1.1.0
-pkgrel=1
+pkgver=1.2.0
+pkgrel=37
 pkgdesc="聚合视频 Hyper Online Video —— YouTube/Bilibili/网易云/QQ音乐 播放器（Qt6 桌面版）"
 arch=('aarch64' 'x86_64')
 url="https://github.com/HougeLangley/HyperOnlineVideo"
 license=('GPL-3.0-only')
-depends=('qt6-base' 'qt6-declarative' 'mpv' 'ffmpeg' 'yt-dlp')
-makedepends=('cmake' 'ninja' 'pkgconf')
-optdepends=('qt6-webengine: App 内登录窗口（不装则改为手动放置 cookie 文件）')
-options=('!strip')
-# 正式发布（远端已有 v$pkgver tag）时启用下面这行网络源：
+depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'mpv' 'ffmpeg' 'yt-dlp')
+# 玻璃质感用到的 KWindowSystem 是**可选**依赖（CMake 找不到就降级），故不进 depends
+makedepends=('cmake' 'ninja' 'pkgconf' 'clang' 'lld')
+# 正式发布（远端已有 v$pkgver tag）时改用网络源：
 # source=("$pkgname-$pkgver.tar.gz::https://github.com/HougeLangley/HyperOnlineVideo/archive/refs/tags/v$pkgver.tar.gz")
-# sha256sums=('SKIP')   # 发布正式版时填入真实校验值
-#
-# 本地源码模式：直接从仓库工作区构建（适用于尚未推送的开发阶段）
-source=("HyperOnlineVideo::git+file:///home/houge/HyperOnlineVideo/.git")
+# 开发阶段：本地源码 tarball + 真实校验和（比 git 源可复现：包含未提交改动，且 sha256 固定）
+source=("hov-qt-$pkgver-src.tar.gz")
 sha256sums=('SKIP')
-# 本地模式下的 srcdir 名固定为 HyperOnlineVideo（git clone 目标名）
 
 build() {
-  cd "$srcdir/HyperOnlineVideo/desktop"
-  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+  cd "$srcdir/HyperOnlineVideo-$pkgver/desktop"
+  local optflags=()
+  if [ "${HOV_OPTIMIZED:-0}" = "1" ]; then
+    optflags+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DHOV_LTO=ON)
+    prof="${HOV_PROFDATA:-/tmp/hovpgo/hov.profdata}"
+    if [ -f "$prof" ]; then
+      optflags+=(-DHOV_PGO=use -DHOV_PROFDATA="$prof")
+      echo "==> 优化构建：clang + full-LTO + PGO（$prof）"
+    else
+      echo "==> 优化构建：clang + full-LTO（未找到 profdata，跳过 PGO）"
+    fi
+  fi
+  # ⚠️ makepkg 会净化环境（清掉大量变量），此时 CMake 的 FindOpenGL 取不到 glvnd 的两条库
+  #（实测报 "Could NOT find OpenGL (missing: OPENGL_opengl_LIBRARY OPENGL_glx_LIBRARY)" →
+  #  Qt6 的 find_package 连锁失败，整包构建中止）。同样的参数在源码树手跑却能找到 → 这里显式兜底。
+  if [ -e /usr/lib/libOpenGL.so ]; then
+    optflags+=(-DOPENGL_opengl_LIBRARY=/usr/lib/libOpenGL.so -DOPENGL_glx_LIBRARY=/usr/lib/libGLX.so)
+  fi
+  # 同类问题第二层：净化环境里 Qt6 的组件目录也搜不到（实测报 Could NOT find Qt6OpenGL (missing: Qt6OpenGL_DIR)）
+  # → 逐个把存在的组件目录显式喂给 CMake（幂等；存在才加）
+  for c in /usr/lib/cmake/Qt6*; do
+    [ -d "$c" ] && optflags+=("-D$(basename "$c")_DIR=$c")
+  done
+  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr "${optflags[@]}"
   cmake --build build
 }
 
 package() {
-  cd "$srcdir/HyperOnlineVideo/desktop"
+  cd "$srcdir/HyperOnlineVideo-$pkgver/desktop"
   DESTDIR="$pkgdir" cmake --install build
   install -Dm644 ../LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
 # 说明：
-# 1) 桌面版目前依赖系统 libmpv（Arch 的 mpv 包同时提供 libmpv 与头文件）
-# 2) 若日后接入 KMP 共享核心，需把 hovcore 的产物一并打包（见 packaging/README.md）
+# 1) 桌面版依赖系统 libmpv（Arch 的 mpv 包同时提供 libmpv 与头文件）
+# 2) 安装布局：/usr/bin/hov-qt（启动器，负责 unset LC_ALL + LC_NUMERIC=C 等）+ /usr/bin/hov-qt-bin（真正的二进制）
+#    —— 由 desktop/CMakeLists.txt 的 install(PROGRAMS ... RENAME) 负责，勿在 PKGBUILD 里重复安装

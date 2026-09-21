@@ -45,7 +45,7 @@ void SubtitleOverlay::paint(QPainter &p, const QRect &area) const {
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
     QFont f = p.font();
-    f.setPixelSize(fontPxFor(area.height(), fontScale_));   // 与 macOS 同基准（画面高 3.5%，下限 14px）
+    f.setPixelSize(fontPxFor(area.height(), fontScale_));   // 画面高 2.8%、下限 13px（原注释写 3.5%/14px 已过期 ✗）
     f.setBold(true);
     p.setFont(f);
 

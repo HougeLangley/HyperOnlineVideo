@@ -17,11 +17,6 @@
 #include <QWebEngineView>
 #endif
 
-QStringList LoginDialog::knownSites() {
-    // QQ音乐拆分两个入口：腾讯(QQ) 与 微信 的账号资产/会员特权不互通
-    return { "youtube", "bilibili", "netease", "qqmusic", "qqmusic_wx" };
-}
-
 QString LoginDialog::cookieFileFor(const QString &site) {
     // 微信登录也归到 qqmusic.txt（与 macOS/Android 三端共用同一份文件）
     const QString s = (site == "qqmusic_wx") ? QString("qqmusic") : site;

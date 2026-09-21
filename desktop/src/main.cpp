@@ -2302,8 +2302,13 @@ protected:
         case Qt::Key_P:      togglePiP(); break;                          // P=画中画（小窗+收起界面）
         case Qt::Key_O:      lib_.cycleSort(); showLocalLibrary(); break;   // O=本地库排序（名称/时间/大小）
         case Qt::Key_R:      renameSelectedLocal(); break;           // R=重命名选中的本地库文件
-        case Qt::Key_Escape: if (videoFull_) exitVideoFullscreen();
-                             else if (isFullScreen()) showNormal(); break;      // Esc=退出视频全屏
+        case Qt::Key_Escape:                                            // Esc=退出视频全屏
+            if (videoFull_) {
+                exitVideoFullscreen();
+            } else if (isFullScreen()) {
+                showNormal();
+            }
+            break;
         default: QMainWindow::keyPressEvent(e); return;
         }
         e->accept();

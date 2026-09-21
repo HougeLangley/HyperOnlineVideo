@@ -33,7 +33,6 @@ public:
 
     static QString cookieFileFor(const QString &site);
     static QString loginUrlFor(const QString &site);
-    static QStringList knownSites();
     /** 是否具备内置浏览器组件（编译期决定） */
     static bool available();
 

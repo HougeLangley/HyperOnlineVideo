@@ -383,6 +383,24 @@ fun HyperApp() {
                 enter = fadeIn() + slideInVertically { it / 2 },
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // W4 ✓ 「取消全部」（用户指定：三端都要 ✓）—— 仅当有排队/下载中的任务时出现 ✓
+                    val activeCount = downloads.count {
+                        it.state == DownloadTask.State.RUNNING || it.state == DownloadTask.State.QUEUED
+                    }
+                    if (activeCount > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "进行中 $activeCount 项",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { Repo.cancelAllDownloads() }) { Text("取消全部") }
+                        }
+                    }
                     downloads.forEach { task ->
                         DownloadCard(
                             task = task,
@@ -656,15 +674,15 @@ private fun DownloadCard(task: DownloadTask, onCancel: () -> Unit, onRetry: () -
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary,
                             )
-                            IconButton(onClick = onCancel) {
-                                Icon(Icons.Filled.Close, contentDescription = "取消", modifier = Modifier.size(18.dp))
-                            }
+                            TextButton(onClick = onCancel, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                  Text("取消", style = MaterialTheme.typography.labelMedium)
+                              }
                         }
                         DownloadTask.State.QUEUED -> {
                             Text("排队中", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                            IconButton(onClick = onCancel) {
-                                Icon(Icons.Filled.Close, contentDescription = "取消排队", modifier = Modifier.size(18.dp))
-                            }
+                            TextButton(onClick = onCancel, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                  Text("取消", style = MaterialTheme.typography.labelMedium)
+                              }
                         }
                         DownloadTask.State.DONE -> {
                             Text("完成", color = Color(0xFF81C995), style = MaterialTheme.typography.bodyMedium)
@@ -674,9 +692,9 @@ private fun DownloadCard(task: DownloadTask, onCancel: () -> Unit, onRetry: () -
                             IconButton(onClick = onRetry) {
                                 Icon(Icons.Filled.Refresh, contentDescription = "重试", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                             }
-                            IconButton(onClick = onCancel) {
-                                Icon(Icons.Filled.Close, contentDescription = "关闭", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                            }
+                            TextButton(onClick = onCancel, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                  Text("取消", style = MaterialTheme.typography.labelMedium)
+                              }
                         }
                         DownloadTask.State.CANCELED -> {
                             Text("已取消", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)

@@ -11,7 +11,7 @@ enum CliDecision {
 enum Cli {
     /// 纯 CLI 路径也必须有设置上下文（否则 --resolve 永远用默认档位/匿名 cookie —— 实测踩过）
     private static func loadSettingsContext() {
-        let st = Settings()
+        let st = Settings.shared
         st.load()
         UrlResolver.cookiesFromBrowser = st.string("network.cookiesFromBrowser")
         UrlResolver.maxHeight = Int(st.number("video.maxHeight", 0))
@@ -27,7 +27,7 @@ enum Cli {
         }
         // 设置：--show-settings / --set k=v
         if args.contains("--show-settings") {
-            let s = Settings()
+            let s = Settings.shared
             s.load()
             print("---- settings (\(Config.settingsPath)) ----")
             print(s.dump())
@@ -37,7 +37,7 @@ enum Cli {
             let kv = args[i + 1]
             guard let eq = kv.firstIndex(of: "=") else { return .exit(2) }
             let key = String(kv[..<eq]), value = String(kv[kv.index(after: eq)...])
-            let s = Settings()
+            let s = Settings.shared
             s.load()
             let (ok, msg) = s.apply(key: key, value: value)
             print(ok ? "[set]    \(key) = \(value)" : "[reject] \(key) = \(value)：\(msg)")
@@ -95,7 +95,7 @@ enum Cli {
     }
 
     private static func musicTest(keyword: String, qq: Bool, args: [String]) -> CliDecision {
-        let settings = Settings()
+        let settings = Settings.shared
         settings.load()
         var quality = "exhigh"
         if let i = args.firstIndex(of: "--quality"), i + 1 < args.count { quality = args[i + 1] }

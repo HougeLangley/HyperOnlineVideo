@@ -5,7 +5,7 @@ import Foundation
 /// 核心语义：并发 2 + 失败重试 2 + 进度节流 10% + 文件名净化 + 下载完成后写标签/封面 + LRU 清理。
 /// 落盘：设置 `download.dir`（默认 ~/Downloads/hov）。
 final class DownloadManager {
-    enum State: String { case queued = "排队", running = "下载中", done = "完成", failed = "失败" }
+    enum State: String { case queued = "排队", running = "下载中", done = "完成", failed = "失败", canceled = "已取消" }
 
     struct Job {
         var id = UUID().uuidString
@@ -44,11 +44,16 @@ final class DownloadManager {
     }()
     var log: ((String) -> Void)?
     private var active: [String: URLSessionDownloadTask] = [:]
+    /// W4 ✓ 混流进程句柄 + 进度定时器（取消时要能杀掉 ✗ 原来用 `UrlResolver.runProcess` 拿不到句柄 → 取消不掉 ✓）
+    private var muxProcs: [String: Process] = [:]
+    private var muxTimers: [String: Timer] = [:]
+    /// W2 ✓ 进度采样定时器（0.3s；active 清空后自停 ✓）
+    private var progressTimer: Timer?
     private var dirOverride = ""
 
     func setDir(_ d: String) { dirOverride = d }
     func dir() -> String {
-        let d = dirOverride.isEmpty ? (Settings().string("download.dir")) : dirOverride
+        let d = dirOverride.isEmpty ? (Settings.shared.string("download.dir")) : dirOverride
         let path = d.isEmpty ? Config.downloadDir : d
         try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         return path
@@ -155,6 +160,40 @@ final class DownloadManager {
         }
         active[id] = task
         task.resume()
+        startProgressSampling()      // W2 ✓ 开始采样增量进度（面板进度条靠它 ✓）
+    }
+
+    // MARK: - W2 增量进度采样
+    //
+    /// 用户口径（2026-09-23）：「macOS 和 Linux 端的下载面板都缺下载进度显示」。
+    /// 根因：本实现用 downloadTask 的**完成回调** → 全程拿不到 bytesDone/bytesTotal ✗
+    ///   （实测面板里只能显示“进行中”，大小列空白 ✗）。
+    /// 为何不用 `URLSessionDownloadDelegate`：它的 `didFinishDownloadingTo` 是**必选** ✗，
+    ///   一旦实现，临时文件就必须由代理搬走（否则被系统删除），与现有完成回调的落盘逻辑冲突 ✗ 风险高。
+    /// 采用 `URLSessionTask.progress`（Foundation 自带 ✓）定期采样：**零侵入** ✓ 不改任何下载/落盘路径 ✓
+    private func startProgressSampling() {
+        guard progressTimer == nil else { return }
+        // 主 RunLoop 定时器 ✓ → 回调在主线程 → 与 jobs 的“仅主线程访问”约束一致 ✓
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            self?.sampleProgress()
+        }
+    }
+
+    private func sampleProgress() {
+        guard !active.isEmpty else { progressTimer?.invalidate(); progressTimer = nil; return }
+        for (id, task) in active {
+            guard let i = jobs.firstIndex(where: { $0.id == id }) else { continue }
+            // ⚠️ 用 countOfBytesReceived/Expected ✗ **不是** task.progress：
+            //    实测（独立小脚本 6 秒采样）progress 是 0~100 的**归一化值**且滞后（t=6s 仍 0/100 ✗），
+            //    而 countOfBytes* 是真实字节（262144 / 41943040 ✓✓）
+            let done = task.countOfBytesReceived
+            let total = task.countOfBytesExpectedToReceive
+            if done <= 0 && total <= 0 { continue }                  // 还没开始收字节
+            if jobs[i].bytesDone == done && (total <= 0 || jobs[i].bytesTotal == total) { continue }
+            jobs[i].bytesDone = done
+            if total > 0 { jobs[i].bytesTotal = total }
+            onUpdate?(jobs[i])                                        // → 面板 update(job:) → 进度条前进 ✓
+        }
     }
 
     // MARK: - 公共收尾（消除"直链下载"与"ffmpeg 混流"两条路径的重复代码）
@@ -198,7 +237,7 @@ final class DownloadManager {
                     self.onUpdate?(self.jobs[i])
                     self.finish(id)
                     // LRU 清理同样下后台：目录大/刚下完大文件时，遍历+删除在主线程会卡
-                    let mb = Settings().number("download.maxSizeMb", 2048)
+                    let mb = Settings.shared.number("download.maxSizeMb", 2048)
                     if mb > 0 {
                         DispatchQueue.global(qos: .utility).async { _ = self.cleanupLru(maxBytes: Int64(mb) * 1024 * 1024) }
                     }
@@ -216,34 +255,90 @@ final class DownloadManager {
         onUpdate?(jobs[idx])
         let j = jobs[idx]
         let dst = j.filePath
+        // W4 ✓ 进度：ffmpeg 全程不报字节 ✗ → ① HEAD 两路拿总长 ✓ ② 0.5s 轮询输出文件大小 ✓
+        //   （用户口径：macOS 面板“没有下载的文件大小显示” ✗ Linux 能显示 `9.6 MB / 108.9 MB` ✓ → 两端对齐 ✓）
+        startMuxProgress(id: id, urls: [video, audio], outPath: dst)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
             guard let ffmpeg = UrlResolver.findExecutable("ffmpeg") else {
-                DispatchQueue.main.async { self.fail(id, "找不到 ffmpeg（合并视频与音轨需要它）"); self.finish(id) }
+                DispatchQueue.main.async { self.stopMuxProgress(id); self.fail(id, "找不到 ffmpeg（合并视频与音轨需要它）"); self.finish(id) }
                 return
             }
             try? FileManager.default.removeItem(atPath: dst)
-            let r = UrlResolver.runProcess(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error",
-                                                    "-i", video, "-i", audio,
-                                                    "-c", "copy", "-movflags", "+faststart", dst],
-                                           timeout: 3600)
+            // ⚠️ 自己起 Process（而不是 `UrlResolver.runProcess` ✗）：**需要句柄才能取消** ✗→✓
+            //    （旧实现拿不到句柄 → “取消全部/取消下载”对混流中的任务无效 ✗）
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: ffmpeg)
+            proc.arguments = ["-y", "-hide_banner", "-loglevel", "error",
+                              "-i", video, "-i", audio,
+                              "-c", "copy", "-movflags", "+faststart", dst]
+            let pipe = Pipe()
+            proc.standardError = pipe
+            proc.standardOutput = pipe
+            DispatchQueue.main.async { self.muxProcs[id] = proc }
+            do { try proc.run() } catch {
+                DispatchQueue.main.async {
+                    self.stopMuxProgress(id)
+                    self.muxProcs.removeValue(forKey: id)
+                    self.fail(id, "无法启动 ffmpeg：\(error.localizedDescription)")
+                    self.finish(id)
+                }
+                return
+            }
+            proc.waitUntilExit()
+            let errText = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let code = proc.terminationStatus
             let size = ((try? FileManager.default.attributesOfItem(atPath: dst))?[.size] as? Int64) ?? 0
-            let ok = r.code == 0 && size > 0
-            if ok {
-                // 成功：交给公共收尾（歌词侧车 → 嵌标签 → 主线程写状态 → LRU 清理）
-                self.finalizeDownload(id: id, filePath: dst, size: size, source: "本地混流")
-            } else {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
+            let ok = code == 0 && size > 0
+            DispatchQueue.main.async {
+                self.stopMuxProgress(id)
+                self.muxProcs.removeValue(forKey: id)
+                guard self.jobs.contains(where: { $0.id == id }) else { return }   // 已被取消（条目已移除）→ 到此为止 ✓
+                if ok {
+                    self.finalizeDownload(id: id, filePath: dst, size: size, source: "本地混流")
+                } else {
                     guard let i = self.jobs.firstIndex(where: { $0.id == id }) else { self.finish(id); return }
                     self.jobs[i].state = .failed
-                    self.jobs[i].error = "合并视频+音轨失败：\(r.err.isEmpty ? "ffmpeg 返回 \(r.code)" : String(r.err.prefix(140)))"
+                    self.jobs[i].error = "合并视频+音轨失败：\(errText.isEmpty ? "ffmpeg 返回 \(code)" : String(errText.prefix(140)))"
                     self.log?("下载失败：\(j.title) — \(self.jobs[i].error)")
                     self.onUpdate?(self.jobs[i])
                     self.finish(id)
                 }
             }
         }
+    }
+
+    /// W4 ✓ 混流进度上报（ffmpeg 不报字节 ✗）：HEAD 两路求总长 + 轮询输出文件大小
+    private func startMuxProgress(id: String, urls: [String], outPath: String) {
+        for u in urls where !u.isEmpty {
+            guard let url = URL(string: u) else { continue }
+            var req = URLRequest(url: url)
+            req.httpMethod = "HEAD"
+            req.setValue(Http.ua, forHTTPHeaderField: "User-Agent")
+            req.setValue(Self.referer(for: u), forHTTPHeaderField: "Referer")
+            URLSession.shared.dataTask(with: req) { [weak self] _, resp, _ in
+                guard let self, let n = resp?.expectedContentLength, n > 0 else { return }
+                DispatchQueue.main.async {                       // 主线程串行叠加 ✓ 无数据竞争 ✓
+                    guard let i = self.jobs.firstIndex(where: { $0.id == id }) else { return }
+                    self.jobs[i].bytesTotal = max(0, self.jobs[i].bytesTotal) + n
+                    self.onUpdate?(self.jobs[i])
+                }
+            }.resume()
+        }
+        let t = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self, let i = self.jobs.firstIndex(where: { $0.id == id }) else { return }
+            let sz = ((try? FileManager.default.attributesOfItem(atPath: outPath))?[.size] as? Int64) ?? 0
+            if sz != self.jobs[i].bytesDone {
+                self.jobs[i].bytesDone = sz
+                self.onUpdate?(self.jobs[i])
+            }
+        }
+        muxTimers[id] = t
+    }
+
+    private func stopMuxProgress(_ id: String) {
+        muxTimers[id]?.invalidate()
+        muxTimers.removeValue(forKey: id)
     }
 
     /// 结束一条任务：清 active + 继续调度队列（都在主线程）
@@ -356,10 +451,89 @@ final class DownloadManager {
             }
         }
         log?("LRU 清理结果：\(res.beforeBytes / 1024 / 1024) MB → \(res.afterBytes / 1024 / 1024) MB（上限 \(maxBytes / 1024 / 1024) MB，删除 \(res.removed.count) 个）")
+        // W4 ✓ Bug3 修复（与 Linux 同）：“清理”把文件删了，**列表里的对应条目也要消失** ✗→✓
+        //   （用户实测：点清理后已完成的内容仍留在下载面板 ✗ 因为原来只删文件、不动作业列表 ✗）
+        //   顺带把“文件已不存在”的结束态条目（失败/已取消等）一并清出列表 ✓
+        if !res.removed.isEmpty {
+            let gone = Set(res.removed)
+            jobs.removeAll { j in
+                if j.state == .running || j.state == .queued { return false }   // 进行中的绝不碰 ✓
+                return gone.contains(j.filePath) || j.filePath.isEmpty || !FileManager.default.fileExists(atPath: j.filePath)
+            }
+            Config.log("[LRU] 列表同步：清理后剩 \(jobs.count) 个条目（进行中的保留 ✓）")
+        }
         return res
     }
 
+    /// W4 ✓ 取消**单个**任务（排队/下载中/**混流中**均可 ✓）—— 与 Android “取消即划走”一致：**直接移除条目** ✓
+    /// 已完成/失败/已取消的条目会拒绝 ✗（不误删记录 ✓）
+    @discardableResult
+    func cancel(_ id: String) -> Bool {
+        var done = false
+        if Thread.isMainThread {
+            done = cancelOnMain(id)
+        } else {
+            DispatchQueue.main.sync { done = self.cancelOnMain(id) }
+        }
+        return done
+    }
+
+    private func cancelOnMain(_ id: String) -> Bool {
+        guard let i = jobs.firstIndex(where: { $0.id == id }) else { return false }
+        guard jobs[i].state == .queued || jobs[i].state == .running else { return false }
+        active[id]?.cancel()
+        active.removeValue(forKey: id)
+        if let p = muxProcs[id] { p.terminate(); muxProcs.removeValue(forKey: id) }
+        muxTimers[id]?.invalidate()
+        muxTimers.removeValue(forKey: id)
+        var removed = jobs.remove(at: i)
+        if !removed.filePath.isEmpty { try? FileManager.default.removeItem(atPath: removed.filePath) }
+        log?("已取消下载：\(removed.title)")
+        removed.state = .canceled
+        onUpdate?(removed)          // 面板找不到该 id → 整表重载 → 行消失 ✓
+        pump()                      // 让排队的下一个补位 ✓
+        return true
+    }
+
+    /// W5 ✓ 「清理」同时清列表：移除全部**已结束**条目（完成/失败/已取消 ✓ 进行中的绝不碰 ✗）
+    ///   用户口径（2026-09-23）：macOS 点「清理」后已下载内容仍留在列表 ✗ → 三端对齐 ✓
+    ///   （原实现只在“LRU 真删了文件”时才同步 ✗ → 默认 2GB 上限下几乎什么都不删 ✗ → 条目永远留着 ✗）
+    @discardableResult
+    func dropFinishedJobs() -> Int {
+        let before = jobs.count
+        jobs.removeAll { $0.state == .done || $0.state == .failed || $0.state == .canceled }
+        let n = before - jobs.count
+        if n > 0 { Config.log("[LRU] 清理列表：移除 \(n) 条已结束记录（剩 \(jobs.count) ✓）") }
+        return n
+    }
+
+    /// W4 ✓ 取消全部进行中的任务（用户指定按钮 ✓）
+    func cancelAll() {
+        let ids = jobs.filter { $0.state == .queued || $0.state == .running }.map { $0.id }
+        for id in ids { _ = cancel(id) }
+        log?("已取消全部 \(ids.count) 个任务")
+    }
+
     /// 供进度面板显示
+    /// 失败任务重试一轮（清空 retries 与 error）—— 与 Linux `DownloadManager::retryFailed` 同语义 ✓
+    /// 面板「重试失败」按钮用（用户口径：两端下载面板功能一致 ✓ 2026-09-23）
+    func retryFailed() {
+        DispatchQueue.main.async {
+            var n = 0
+            for i in self.jobs.indices where self.jobs[i].state == .failed {
+                self.jobs[i].state = .queued
+                self.jobs[i].retries = 0
+                self.jobs[i].error = ""
+                self.jobs[i].bytesDone = 0
+                self.jobs[i].bytesTotal = -1
+                self.onUpdate?(self.jobs[i])
+                n += 1
+            }
+            if n > 0 { self.pump() }
+            self.log?("重试失败任务：\(n) 个")
+        }
+    }
+
     func summary() -> [String] {
         jobs.map { j in
             let pct = j.bytesTotal > 0 ? Int(j.bytesDone * 100 / j.bytesTotal) : -1

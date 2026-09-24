@@ -63,7 +63,7 @@ final class ThemeController {
     private var observingSystem = false
 
     /// 从设置读取并应用（启动时 + 设置保存后各调用一次 ✓ 幂等 ✓）
-    /// ⚠️ 必须传**已加载的 Settings 实例** ✗ —— 新建 `Settings()` 内部是空表 ✓ 会永远读到默认 "auto" ✗✓（本次实测踩到）
+    /// ⚠️ 必须传**已加载的 Settings 实例** ✗ —— 新建 `Settings.shared` 内部是空表 ✓ 会永远读到默认 "auto" ✗✓（本次实测踩到）
     func applyFromSettings(_ settings: Settings) {
         // 优先用传入实例；但启动早期 settings 可能**还没 load** ✗（实测：日志顺序证明读到的是默认值 ✗）
         // → 只要实例里没有该键，就**直接读设置文件** ✓（不依赖调用顺序，稳 ✓ 与 Linux 端 has() 同思路 ✓）

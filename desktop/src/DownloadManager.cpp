@@ -10,6 +10,7 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStandardPaths>
 #include <QUrl>
 
@@ -195,6 +196,19 @@ DownloadManager::CleanResult DownloadManager::cleanupLru(qint64 maxBytes) {
     }
     qInfo() << "LRU 清理结果:" << res.beforeBytes / 1024 / 1024 << "MB →" << res.afterBytes / 1024 / 1024
             << "MB（上限" << maxBytes / 1024 / 1024 << "MB，删除" << res.removed.size() << "个）";
+    // W4 ✓ Bug3 修复：文件被清掉后，**列表里的对应条目也要消失** ✗→✓
+    //   （用户实测：点“清理”后已完成的内容仍留在下载面板 ✗ 因为原来只删文件、不动作业列表 ✗）
+    //   顺带把“文件已不存在”的结束态作业（失败/已取消等）也一并清出列表 ✓
+    if (!res.removed.isEmpty()) {
+        const QSet<QString> gone(res.removed.begin(), res.removed.end());
+        for (int i = jobs_.size() - 1; i >= 0; --i) {
+            const Job &j = jobs_.at(i);
+            if (j.state == State::Running || j.state == State::Queued) continue;   // 进行中的绝不碰 ✓
+            const bool fileGone = j.filePath.isEmpty() || !QFile::exists(j.filePath);
+            if (gone.contains(j.filePath) || fileGone) jobs_.remove(i);
+        }
+        std::fprintf(stderr, "[LRU] 列表同步：清理后剩 %d 个条目（进行中的保留 ✓）\n", int(jobs_.size()));
+    }
     return res;
 }
 
@@ -211,8 +225,15 @@ void DownloadManager::finishJob(Job &j) {
     j.state = State::Done;
     qInfo() << "下载完成:" << j.filePath << j.bytesDone << "字节"
             << (j.error.isEmpty() ? "" : QString("（警告：%1）").arg(j.error));
+    // ⚠️ W4 修正：cleanupLru 现在会把“已删文件”的条目从 jobs_ **移除** ✗ →
+    //    之后再用引用 `j` 就是**悬垂引用**（UB ✗）。所以：
+    //    ① 先做**值拷贝**快照 ✓ ② 通知面板“完成”（真实数据 ✓）
+    //    ③ 再清理（可能把条目移除 ✓）④ 清理后**再发一次**同一个快照 →
+    //       面板按 id 找不到该条目就整表刷新 → 行消失 ✓（用户 Bug3 的期望 ✓）
+    const Job snapshot = j;
+    if (progress_) progress_(snapshot);
     if (maxTotalMb_ > 0) cleanupLru(static_cast<qint64>(maxTotalMb_) * 1024 * 1024);
-    if (progress_) progress_(j);
+    if (progress_) progress_(snapshot);
 }
 
 // 统一请求头：UA + 各站 Referer（B 站/YouTube 的 CDN 不认空 Referer，会 403 —— macOS 端实测踩过）
@@ -291,12 +312,14 @@ void DownloadManager::startMux(const QString &id) {
     QStringList args{ "-y", "-hide_banner", "-loglevel", "error", "-i", video, "-i", audio,
                       "-c", "copy", "-movflags", "+faststart", out };
     auto *p = new QProcess(this);
+    muxProcs_.insert(id, p);                 // W4 ✓ 存句柄：取消要能杀掉混流进程 ✗（原来没存 → 取消不掉 ✓）
     std::fprintf(stderr, "[MUX] 开始混流（视频 + %s）: %s\n", hasLocal ? "本地音轨" : "远端音轨直连", video.toUtf8().constData());
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
             [this, p, id, video, out, hasLocal](int code, QProcess::ExitStatus) {
                 p->deleteLater();
+                muxProcs_.remove(id);            // W4 ✓ 正常结束就摘掉句柄（与 cancel() 的 take 互不干扰 ✓）
                 Job *j = mutableFind(id);
-                if (!j) return;
+                if (!j) return;                  // 已被取消（条目已移除）→ 到此为止 ✓
                 const bool ok = (code == 0) && QFile::exists(out) && QFileInfo(out).size() > 0;
                 if (ok && QFile::remove(video) && QFile::rename(out, video)) {
                     j->bytesDone = QFileInfo(video).size();
@@ -312,6 +335,7 @@ void DownloadManager::startMux(const QString &id) {
     p->start("ffmpeg", args);
     if (!p->waitForStarted(5000)) {
         p->deleteLater();
+        muxProcs_.remove(id);
         jp->error = "无法启动 ffmpeg（音轨未合并，视频可能无声）";
         qInfo() << "[MUX] ffmpeg 启动失败（未安装？）";
         finishJob(*jp);
@@ -396,6 +420,7 @@ bool DownloadManager::embedTags(Job &j) {
 void DownloadManager::fail(const QString &id, const QString &reason, bool retryable) {
     for (auto &j : jobs_) {
         if (j.id != id) continue;
+        if (j.state == State::Canceled) return;          // W4 ✓ 取消后的 abort 会走到这里 ✗ 绝不能当成“失败重试” ✗
         if (retryable && j.retries < kMaxRetries) {
             j.retries++;
             j.state = State::Queued;
@@ -431,8 +456,53 @@ void DownloadManager::retryFailed() {
     pump();
 }
 
+int DownloadManager::dropFinishedJobs() {
+    int n = 0;
+    for (int i = jobs_.size() - 1; i >= 0; --i) {
+        const State st = jobs_.at(i).state;
+        if (st == State::Done || st == State::Failed || st == State::Canceled) { jobs_.remove(i); ++n; }
+    }
+    if (n > 0) std::fprintf(stderr, "[LRU] 清理列表：移除 %d 条已结束记录（剩 %d ✓）\n", n, int(jobs_.size()));
+    return n;
+}
+
 void DownloadManager::cancelAll() {
-    for (auto it = running_.begin(); it != running_.end(); ++it) it.value()->abort();
-    for (auto &j : jobs_)
-        if (j.state == State::Queued) j.state = State::Canceled;
+    // W4 ✓ 改用“逐个 cancel” ✓：排队的 / 下载中的 / **混流中的** 都能停（旧实现只 abort 网络、且不杀 ffmpeg ✗）
+    QVector<QString> ids;
+    for (const Job &j : jobs_)
+        if (j.state == State::Queued || j.state == State::Running) ids.append(j.id);
+    for (const QString &id : ids) cancel(id);
+    std::fprintf(stderr, "[DL] 取消全部：%d 个任务\n", int(ids.size()));
+}
+
+bool DownloadManager::cancel(const QString &id) {
+    Job *j = mutableFind(id);
+    if (!j) return false;
+    if (j->state != State::Queued && j->state != State::Running) return false;   // 已完成/失败/已取消：不动 ✓
+    // ① 网络阶段：中断回复 ✓（finished 回调里有 OperationCanceledError 分支 ✓ 且 fail() 已加 Canceled 护栏 ✓）
+    if (QNetworkReply *r = running_.take(id)) {
+        r->abort();
+        r->deleteLater();
+    }
+    if (QFile *f = files_.take(id)) { f->close(); f->deleteLater(); }
+    // ② 混流阶段：杀掉 ffmpeg ✓ 并清掉中间产物 ✓
+    if (QProcess *p = muxProcs_.take(id)) {
+        p->kill();
+        p->waitForFinished(1500);
+        std::fprintf(stderr, "[MUX] 已终止混流进程: %s\n", qPrintable(id));
+    }
+    // ③ 清半截文件（视频本体 / 独立音轨临时文件 / 混流中间产物 ✓）
+    const QString video = j->filePath;
+    const QString audio = j->audioPath;
+    QFile::remove(video);
+    if (!audio.isEmpty()) QFile::remove(audio);
+    QFile::remove(video + ".muxing.mp4");
+    // ④ 从列表里**直接移除**条目 ✓（与 Android “取消即划走”一致 ✓ 避免列表里堆一堆已取消 ✗）
+    const QString title = j->title;
+    for (int i = 0; i < jobs_.size(); ++i)
+        if (jobs_[i].id == id) { jobs_.remove(i); break; }
+    std::fprintf(stderr, "[DL] 已取消下载：%s\n", title.toUtf8().constData());
+    if (progress_) { Job dummy; dummy.id = id; dummy.title = title; dummy.state = State::Canceled; progress_(dummy); }
+    pump();
+    return true;
 }

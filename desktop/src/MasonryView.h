@@ -23,6 +23,9 @@ public:
     static constexpr int kMetaH = 15;    // 来源行高
     static constexpr int kGap   = 8;     // 卡片间距
     explicit MasonryView(QWidget *parent = nullptr);
+    /** W1 ✓ 自由高度：画布最小高只用于**滚动范围** ✓ 不得顶住主窗口
+     *  （QScrollArea 重写了 minimumSizeHint ✗ → 策略 Ignored 无效 ✗ → 必须在此显式覆写 ✓） */
+    QSize minimumSizeHint() const override { return QSize(120, 0); }
     /** 绑定数据源（不接管所有权）；绑定后会重建 */
     void setSource(QListWidget *list);
     void rebuild();                        // 全量重建（插入/删除/模型重置后调用）

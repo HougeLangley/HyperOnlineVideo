@@ -31,3 +31,7 @@ desktop/Makefile
 desktop/build.ninja
 desktop/.ninja_deps
 desktop/.ninja_log
+
+# Python 字节码缓存（scripts/ 下的辅助脚本 ✓）
+__pycache__/
+*.pyc

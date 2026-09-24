@@ -19,6 +19,7 @@ const QVariantMap kDefaults{
     { "network.forceDirectDomestic", false },
     { "ui.showNetworkProbe", true },
     { "playback.rememberProgress", true },   // 进度记忆：续播 + 落盘
+    { "playback.autoNext", true },            // 连播：播完自动播下一条（UI-4 ✓ 与 macOS/Android 同键同默认 ✓）
     { "network.cookiesFromBrowser", "" },   // 从系统浏览器读 cookie（空=关；brave/chrome/chromium/edge/firefox/opera/safari/vivaldi/whale）
     { "video.fillScreen", true },
     { "ui.masonry", true },        // 结果区用真·瀑布流（false = 回退传统列表视图）
@@ -108,7 +109,7 @@ double Settings::number(const QString &key, double def) const {
 QStringList Settings::knownKeys() {
     return { "music.qualityCeiling", "subtitle.fontScale", "subtitle.defaultDelay",
              "subtitle.karaoke", "download.dir", "download.maxSizeMb", "network.forceDirectDomestic", "ui.showNetworkProbe",
-             "playback.rememberProgress", "network.cookiesFromBrowser", "video.maxHeight", "video.fillScreen", "video.gpuNext", "ui.masonry", "ui.glass", "ui.glassWindow", "ui.hoverReveal", "ui.theme" };
+             "playback.rememberProgress", "network.cookiesFromBrowser", "playback.autoNext", "video.maxHeight", "video.fillScreen", "ui.masonry", "ui.glass", "ui.glassWindow", "ui.hoverReveal", "ui.windowGeometry", "ui.theme" };
 }
 
 QString Settings::validate(const QString &key, const QString &valueRaw) {
@@ -144,7 +145,7 @@ QString Settings::validate(const QString &key, const QString &valueRaw) {
         bool ok = false; const double d = v.toDouble(&ok);
         if (!ok || d < 0 || d > 1048576) return "取值必须是 0 ~ 1048576 之间的数字（MB，0=不限制）";
     } else if (key == "subtitle.karaoke" || key == "network.forceDirectDomestic" || key == "ui.showNetworkProbe"
-               || key == "playback.rememberProgress" || key == "video.fillScreen" || key == "video.gpuNext" || key == "ui.masonry"
+               || key == "playback.rememberProgress" || key == "playback.autoNext" || key == "video.fillScreen" || key == "ui.masonry"
                || key == "ui.glass" || key == "ui.glassWindow" || key == "ui.hoverReveal") {
         static const QStringList ok{ "true", "false", "1", "0", "yes", "no", "on", "off" };
         if (!ok.contains(v.toLower())) return "取值必须是 true / false";

@@ -2,13 +2,15 @@ Source: hov-qt
 Section: video
 Priority: optional
 Maintainer: Houge Langley <hougelangley@users.noreply.github.com>
+# 注：Ubuntu riscv64 端口暂无 qt6-webengine-dev ✗ → 该架构自动跳过 WebEngine
+#（登录窗降级为提示 ✓ 与 AppImage/Flatpak 形态一致 ✓ CMake 用 QUIET find 自动降级不报错 ✓）
 Build-Depends: debhelper-compat (= 13),
                cmake,
                ninja-build,
                pkgconf,
                qt6-base-dev,
                qt6-declarative-dev,
-               qt6-webengine-dev,
+               qt6-webengine-dev [!riscv64],
                libmpv-dev
 Standards-Version: 4.7.0
 Rules-Requires-Root: no

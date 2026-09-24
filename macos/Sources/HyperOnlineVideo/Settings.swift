@@ -2,6 +2,16 @@ import Foundation
 
 /// 设置（键名与 Qt 端完全一致，共享 ~/.config/hov/settings.json）
 final class Settings {
+    /// 全局唯一实例（**单一真相** ✓）
+    ///
+    /// 为什么必须是单例（2026-09-21 实测 bug ✗）：
+    ///   此前 AppDelegate / SettingsPanel / DownloadManager / MpvView 各自新建 `Settings()` 实例 ✗，
+    ///   每个实例各持一份 `values` 字典 ✗ → **任何一方 save() 都会用自己那份快照覆盖整个文件** ✗
+    ///   → 表现为："保存设置 → 完全退出 → 再启动，设置丢失" ✗✓
+    ///   （已用 --fill-screen 探针复现：5 个用户键被整体重写为 18 个默认值键 ✗）
+    /// 现在：构造即 load ✓ 且 init 私有 ✗ → "未加载的实例"在类型层面不可能出现 ✓✓
+    static let shared = Settings()
+
     static let defaults: [String: Any] = [
         "music.qualityCeiling": "exhigh",
         "subtitle.fontScale": 1.0,
@@ -17,13 +27,17 @@ final class Settings {
         "playback.autoNext": true,           // 播放完成后自动播放下一条（按列表顺序）
         "network.cookiesFromBrowser": "",   // 从系统浏览器读 cookie（A0 登录方案）
         "video.fillScreen": false,   // 默认**不**裁切：上下黑边可接受，裁掉左右反而丢失画面（用户实测反馈）
-        "video.gpuNext": false,           // 视频渲染后端：false=libmpv(OpenGL 经典路径)，true=gpu-next(libplacebo)           // B7：全屏时铺满（panscan=1 裁切黑边，与 Android/桌面同键）
         "video.maxHeight": 0,               // 视频清晰度上限（0=自动不限，-1=仅音频，否则 360/480/720/1080…）
-        "ui.theme": "auto",
-        "ui.hoverReveal": true,             // 全屏时鼠标贴边缘浮出面板（与 Linux 同键 ✓）                       // auto=跟随系统 light/dark（与 Linux/Android 同键 ✓）
+"ui.theme": "auto",                        // auto=跟随系统 light/dark（与 Linux/Android 同键 ✓）
+        "ui.hoverReveal": true,             // 全屏时鼠标贴边缘浮出面板（与 Linux 同键 ✓）
+        "ui.windowFrame": "",               // W1 ✓ 窗口几何 "x,y,w,h"（空=首启 → 1180x720 并居中 ✓；退出时保存，画中画/全屏态除外 ✓）
     ]
     private var values: [String: Any] = Settings.defaults
 
+    /// 私有构造：**立即从磁盘加载** ✓（不允许存在"只有默认值"的实例 ✗）
+    private init() { load() }
+
+    /// 显式重载（一般无需调用；构造时已自动加载 ✓）
     func load() {
         values = Settings.defaults
         let raw = Config.readJSON(Config.settingsPath)
@@ -32,7 +46,11 @@ final class Settings {
     }
 
     @discardableResult
-    func save() -> Bool { Config.writeJSON(values, to: Config.settingsPath) }
+    func save() -> Bool {
+        // 保留一行写盘日志（设置丢失类问题的定位关键 ✓ 代价极小 ✓）
+        Config.log("[SETTINGS-SAVE] keys=\(values.count) thumbSize=\(values["ui.thumbSize"] ?? "nil") theme=\(values["ui.theme"] ?? "nil")")
+        return Config.writeJSON(values, to: Config.settingsPath)
+    }
 
     func string(_ key: String, _ def: String = "") -> String { (values[key] as? String) ?? def }
     func bool(_ key: String, _ def: Bool) -> Bool {
@@ -69,8 +87,6 @@ final class Settings {
             guard let d = Double(v), d >= -5.0, d <= 5.0 else { return "取值必须是 -5.0 ~ 5.0 之间的秒数" }
         case "download.maxSizeMb":
             guard let d = Double(v), d >= 0, d <= 1_048_576 else { return "取值必须是 0 ~ 1048576 之间的数字（MB，0=不限制）" }
-        case "video.gpuNext":
-            return ["true", "false"].contains(v) ? nil : "取值必须是 true 或 false"
         case "video.maxHeight":
             guard let d = Double(v) else { return "取值必须是数字（0=自动，-1=仅音频，或 360/480/720/1080…）" }
             if d == 0 || d == -1 { return nil }
@@ -103,7 +119,7 @@ final class Settings {
     func apply(key: String, value: String) -> (ok: Bool, message: String) {
         if let err = Settings.validate(key, value) { return (false, err) }
         if key == "subtitle.fontScale" || key == "subtitle.defaultDelay" || key == "download.maxSizeMb"
-            || key == "ui.thumbSize" || key == "ui.listWidth" || key == "video.gpuNext" {
+            || key == "ui.thumbSize" || key == "ui.listWidth" {
             values[key] = Double(value) ?? 0
         } else if ["subtitle.karaoke", "network.forceDirectDomestic", "ui.showNetworkProbe", "playback.rememberProgress",
                     "playback.autoNext", "ui.hoverReveal",

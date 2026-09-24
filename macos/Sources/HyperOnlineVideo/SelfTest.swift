@@ -44,7 +44,7 @@ enum SelfTest {
         check(codes[3].rawValue == 1003 && codes[4].rawValue == 1004 && codes[6].rawValue == 1006,
               "登录弹窗：返回码 = 1000 + 按钮序号")
         do {
-            let s = Settings()
+            let s = Settings.shared
             s.load()
             // 用**当前设置里的上限**断言（用户的设置文件可能改过上限，别写死 exhigh）
             let order = ["standard", "exhigh", "lossless"]
@@ -197,7 +197,7 @@ enum SelfTest {
 
         // ---- B2 音质档位（受上限裁剪 + 标签）----
         do {
-            let st = Settings()
+            let st = Settings.shared
             st.load()
             check(st.effectiveQuality("lossless") == (st.string("music.qualityCeiling", "exhigh")),
                   "音质：请求值受设置上限裁剪")

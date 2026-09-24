@@ -23,10 +23,11 @@ final class SettingsPanel: NSObject {
     private var checks: [String: NSButton] = [:]
     private var sliders: [String: NSSlider] = [:]
     private var fields: [String: NSTextField] = [:]
-    private let settings = Settings()
+    private var settings: Settings { Settings.shared }
 
     func show() {
-        settings.load()
+        // 不再重复 load ✗：settings 是**共享单例** ✓ 构造时已加载 ✓
+        // （原先面板自持实例 + 每次 show 重载 → 与 AppDelegate 实例互相覆盖，是设置丢失的直接原因 ✗）
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 560),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false       // 关键：默认 true ⇒ 关掉后窗口被释放，再打开时替换它会对已释放对象减引用 → objc_release 崩溃
@@ -97,7 +98,7 @@ final class SettingsPanel: NSObject {
                  qualityIndex(settings.number("video.maxHeight", 0)))
 
         // 应用主题（三端同键 ui.theme ✓ auto=跟随系统 / light / dark）
-        // ⚠️ 必须用**已加载的** settings ✓ —— 原来是 Settings()（空表 ✗）→ 下拉永远显示"跟随系统" ✗
+        // ⚠️ 必须用**已加载的** settings ✓ —— 原来是 Settings.shared（空表 ✗）→ 下拉永远显示"跟随系统" ✗
         //    且保存时会把用户的选择静默改回 auto ✗（与 ThemeController 踩的是同一个坑 ✓）
         addPopup("ui.theme", "应用主题", [ThemeMode.auto, .light, .dark].map { $0.label },
                  [ThemeMode.auto, .light, .dark].firstIndex(of: ThemeMode.parse(settings.string("ui.theme", "auto"))) ?? 0,
@@ -118,7 +119,6 @@ final class SettingsPanel: NSObject {
         }
         addCheck("video.fillScreen", "全屏时铺满屏幕（裁切左右黑边）", true)
         addCheck("subtitle.karaoke", "歌词用卡拉OK面板（居中 + 逐字高亮）", true)
-        addCheck("video.gpuNext", "视频用 gpu-next 渲染（libplacebo，画质更好）", false)
         addCheck("playback.rememberProgress", "记住播放进度（自动续播）", true)
         addCheck("playback.autoNext", "播完自动播下一条（按列表顺序连播）", true)
         addCheck("ui.hoverReveal", "全屏时鼠标贴边缘浮出面板（左侧列表 / 底部控制条）", true)
@@ -474,6 +474,277 @@ final class QueuePanel: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                     let mark = (i == app.queue.index) ? "▶ " : "  "
                     out += "  " + mark + "\(i + 1). " + e.label + "\n"
                 }
+        }
+        return out
+    }
+}
+
+// MARK: - 下载面板（W2 ✓ 带进度条）
+
+/// 用户口径（2026-09-23）：「macOS 和 Linux 端的下载面板都缺下载进度显示，要实现且做得美观」。
+/// 本类把原先的 `onDownloads()` NSAlert 文字摘要**升级为正式面板**，与 Linux `DownloadPanel` 逐项对齐：
+///   列：名称 / 状态 / **进度（进度条 + 百分比 ✓）** / 大小
+///   按钮：重试失败 / LRU 清理 / 打开下载目录 / 关闭
+/// 实时刷新：AppDelegate 把 `dl.onUpdate` 转发到 `update(job:)`（按 id 定位行 ✓ 整表只在增删时重建 ✓）
+final class DownloadsPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private var window: NSWindow!
+    private var table: NSTableView!
+    private var summaryLabel: NSTextField!
+    private let dl: DownloadManager
+    weak var app: AppDelegate?
+    private var jobs: [DownloadManager.Job] = []
+
+    init(dl: DownloadManager) {
+        self.dl = dl
+        super.init()
+    }
+
+    func show() {
+        jobs = dl.jobs
+        // W4 ✓ 用户实测两个问题：① 应能拖边框调整窗口 ✗→✓（原 styleMask 缺 .resizable/.miniaturizable ✗
+        //    截图里黄/绿按钮都是灰的 ✓）② 点「关闭」关不掉 ✗→✓（面板没拿焦点 → 第一次点击只激活窗口 ✗
+        //    → 下面补 NSApp.activate ✓）
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 460),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                          backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false      // 与收藏/队列面板同法：避免关掉再开时的过度释放
+        window.minSize = NSSize(width: 700, height: 380)
+        window.title = "下载（\(jobs.count) 个任务）"
+
+        let root = NSStackView()
+        root.orientation = .vertical
+        root.spacing = 10
+        root.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+
+        summaryLabel = NSTextField(labelWithString: "")
+        summaryLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        root.addArrangedSubview(summaryLabel)
+
+        table = NSTableView()
+        // 列宽合计 670 < 可用宽（780-24 边距-滚动条 ✓）——曾因合计超宽导致「大小」列被右缘裁掉（实测 ✗）
+        let cols: [(String, CGFloat, String)] = [("name", 220, "名称"), ("state", 100, "状态"),
+                                                 ("prog", 165, "进度"), ("size", 150, "大小"),
+                                                 ("act", 95, "操作")]   // W4 ✓ 取消下载 ✓（用户指定：放进度、大小后面 ✓）
+        for (tid, w, title) in cols {
+            let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(tid))
+            c.title = title
+            c.width = w
+            c.minWidth = 70
+            table.addTableColumn(c)
+        }
+        // ⚠️ 默认的自动缩放会把四列均匀拉宽 → 最后一列（大小）被挤出可视区（实测：列头在、内容看不到 ✗）
+        //    → 只让**第一列**吸收多余宽度（名称本来就需要弹性 ✓ 其余保持固定宽 ✓）
+        table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        table.dataSource = self
+        table.delegate = self
+        table.rowHeight = 30
+        table.usesAlternatingRowBackgroundColors = true
+        table.allowsEmptySelection = true
+        let scroll = NSScrollView()
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.heightAnchor.constraint(equalToConstant: 300).isActive = true
+        root.addArrangedSubview(scroll)
+
+        let retry = NSButton(title: "重试失败", target: self, action: #selector(retryFailed))
+        let cancelAll = NSButton(title: "取消全部", target: self, action: #selector(cancelAllJobs))   // W4 ✓ 用户指定 ✓
+        let clean = NSButton(title: "LRU 清理", target: self, action: #selector(cleanLru))
+        let open = NSButton(title: "打开下载目录", target: self, action: #selector(openDir))
+        let close = NSButton(title: "关闭", target: self, action: #selector(close))
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)       // 左对齐按钮 + 关闭靠右 ✓
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let btns = NSStackView(views: [retry, cancelAll, clean, open, spacer, close])
+        btns.orientation = .horizontal
+        btns.spacing = 10
+        btns.distribution = .fill
+        root.addArrangedSubview(btns)
+
+        // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
+        let glass = NSVisualEffectView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
+        glass.autoresizingMask = [.width, .height]
+        glass.material = .underWindowBackground
+        glass.blendingMode = .behindWindow
+        glass.state = .followsWindowActiveState
+        window.contentView = root
+        root.addSubview(glass, positioned: .below, relativeTo: nil)
+        Panels.activeWindow = window
+        Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
+        window.center()
+        NSApp.activate(ignoringOtherApps: true)   // W4 ✓ 先激活 App ✓ 否则窗口不 key → 点「关闭」只激活窗口 ✗
+        window.makeKeyAndOrderFront(nil)
+        refreshSummary()
+        table.reloadData()
+        Config.log("[SELFTEST] 下载面板已打开（\(jobs.count) 个任务 ✓ 含进度列 ✓）")
+    }
+
+    // MARK: 数据源 / 代理
+
+    func numberOfRows(in tableView: NSTableView) -> Int { jobs.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard row < jobs.count, let tid = tableColumn?.identifier.rawValue else { return nil }
+        let j = jobs[row]
+        switch tid {
+        case "name":
+            let l = NSTextField(labelWithString: j.title)
+            l.lineBreakMode = .byTruncatingTail
+            l.toolTip = j.filePath.isEmpty ? j.url : j.filePath
+            return l
+        case "state":
+            var st = j.state.rawValue
+            if j.state == .failed, !j.error.isEmpty { st += "：\(j.error)" }
+            let l = NSTextField(labelWithString: st)
+            l.lineBreakMode = .byTruncatingTail
+            l.textColor = j.state == .failed ? .systemRed
+                        : (j.state == .done ? .systemGreen
+                                            : (j.state == .running ? .controlAccentColor : .secondaryLabelColor))
+            l.toolTip = j.error
+            return l
+        case "prog":
+            let pct = j.bytesTotal > 0 ? Int(j.bytesDone * 100 / j.bytesTotal) : (j.state == .done ? 100 : 0)
+            let bar = NSProgressIndicator()
+            bar.isIndeterminate = false
+            bar.style = .bar
+            bar.controlSize = .small
+            bar.minValue = 0
+            bar.maxValue = 100
+            bar.doubleValue = Double(max(0, min(100, pct)))
+            bar.widthAnchor.constraint(equalToConstant: 104).isActive = true
+            let txt = (j.bytesTotal > 0 || j.state == .done)
+                ? "\(pct)%"
+                : (j.state == .running ? "进行中" : "-")            // 未知总长（如 ffmpeg 混流）不显示假的 0% ✓
+            let l = NSTextField(labelWithString: txt)
+            l.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            let h = NSStackView(views: [bar, l])
+            h.orientation = .horizontal
+            h.spacing = 6
+            return h
+        case "act":
+            // W4 ✓ 仅「排队/下载中」给取消按钮（已完成/失败/已取消 留空 ✓ 不误删记录 ✗）
+            guard j.state == .queued || j.state == .running else { return NSTextField(labelWithString: "") }
+            let b = NSButton(title: "取消下载", target: self, action: #selector(cancelRow(_:)))
+            b.bezelStyle = .rounded
+            b.controlSize = .small
+            b.identifier = NSUserInterfaceItemIdentifier(j.id)      // 用 identifier 带任务 id ✓
+            return b
+        case "size":
+            let sz: String
+            if j.state == .done { sz = Self.human(j.bytesDone) }
+            else if j.bytesTotal > 0 { sz = "\(Self.human(j.bytesDone)) / \(Self.human(j.bytesTotal))" }
+            else if j.bytesDone > 0 { sz = Self.human(j.bytesDone) }
+            else { sz = "-" }
+            let l = NSTextField(labelWithString: sz)
+            l.alignment = .right
+            l.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            return l
+        default:
+            return nil
+        }
+    }
+
+    // MARK: 实时刷新（由 AppDelegate 的 dl.onUpdate 转发 ✓）
+
+    func update(job: DownloadManager.Job) {
+        guard window != nil, window.isVisible else { return }
+        if let i = jobs.firstIndex(where: { $0.id == job.id }) {
+            // 进度没变就不刷（onUpdate 按数据块触发很密 ✓ 去抖 ✓）
+            let old = jobs[i]
+            let samePct = Self.pct(old) == Self.pct(job)
+            jobs[i] = job
+            guard !samePct || old.state != job.state else { return }
+            table.reloadData(forRowIndexes: IndexSet(integer: i),
+                             columnIndexes: IndexSet(integersIn: 0..<table.tableColumns.count))
+        } else {
+            jobs = dl.jobs
+            table.reloadData()
+        }
+        refreshSummary()
+        window.title = "下载（\(jobs.count) 个任务）"
+    }
+
+    /// 外部改动（探针/内核移除条目）后同步 UI ✓
+    func reloadFromManager() {
+        jobs = dl.jobs
+        table.reloadData()
+        refreshSummary()
+        window?.title = "下载（\(jobs.count) 个任务）"
+    }
+
+    // MARK: 动作
+
+    /// W4 ✓ 行内「取消下载」：按 identifier 里的任务 id 取消 ✓（内核会中断/杀进程 + 删半截 + 移除条目 ✓）
+    @objc private func cancelRow(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue else { return }
+        if dl.cancel(id) {
+            jobs = dl.jobs
+            table.reloadData()
+            refreshSummary(note: "已取消下载")
+        }
+    }
+
+    /// W4 ✓ 「取消全部」（用户指定按钮 ✓）
+    @objc private func cancelAllJobs() {
+        let n = jobs.filter { $0.state == .queued || $0.state == .running }.count
+        dl.cancelAll()
+        jobs = dl.jobs
+        table.reloadData()
+        refreshSummary(note: n > 0 ? "已取消全部 \(n) 个进行中的任务" : "当前没有进行中的任务")
+    }
+
+    @objc private func retryFailed() {
+        dl.retryFailed()
+        jobs = dl.jobs
+        table.reloadData()
+        refreshSummary(note: "已重试全部失败任务")
+    }
+
+    @objc func cleanLru() {          // W5 ✓ 去掉 private：探针 `--clean-list` 走同一路径 ✓
+        let mb = Int64(Settings.shared.number("download.maxSizeMb", 2048))
+        guard mb > 0 else { refreshSummary(note: "下载上限为 0（不限制）→ 无需清理"); return }
+        let r = dl.cleanupLru(maxBytes: mb * 1024 * 1024)
+        // W5 ✓ 用户口径：点「清理」后**已结束的条目也要从列表消失** ✓（原来只在“真删了文件”时才同步 ✗）
+        let dropped = dl.dropFinishedJobs()
+        jobs = dl.jobs
+        table.reloadData()
+        refreshSummary(note: "清理完成：\(r.beforeBytes / 1048576)MB → \(r.afterBytes / 1048576)MB，删除 \(r.removed.count) 个"
+                             + (dropped > 0 ? "；列表清除 \(dropped) 条已结束记录" : ""))
+    }
+
+    @objc private func openDir() { NSWorkspace.shared.open(URL(fileURLWithPath: dl.dir())) }
+    @objc private func close() { window.close() }
+
+    // MARK: 辅助
+
+    private func refreshSummary(note: String? = nil) {
+        let active = jobs.filter { $0.state == .running }.count
+        let head = "下载（\(jobs.count) 个任务\(active > 0 ? "，\(active) 个进行中" : "")）"
+        summaryLabel.stringValue = note.map { "\(head)　\($0)" } ?? head
+    }
+
+    private static func pct(_ j: DownloadManager.Job) -> Int {
+        j.bytesTotal > 0 ? Int(j.bytesDone * 100 / j.bytesTotal) : (j.state == .done ? 100 : 0)
+    }
+
+    static func human(_ b: Int64) -> String {
+        if b < 0 { return "-" }
+        var v = Double(b)
+        let units = ["B", "KB", "MB", "GB", "TB"]
+        var i = 0
+        while v >= 1024, i < 4 { v /= 1024; i += 1 }
+        return i == 0 ? "\(b) B" : String(format: "%.1f %@", v, units[i])
+    }
+
+    func dumpText() -> String {
+        var out = "下载面板（\(jobs.count) 个任务）\n"
+        for (i, j) in jobs.prefix(30).enumerated() {
+            let pct = Self.pct(j)
+            let size = j.bytesTotal > 0 ? "\(Self.human(j.bytesDone)) / \(Self.human(j.bytesTotal))" : Self.human(j.bytesDone)
+            out += "  [\(i)] [\(j.state.rawValue)] \(j.title)  \(pct)%  \(size)"
+                  + (j.error.isEmpty ? "" : "  ← \(j.error)") + "\n"
         }
         return out
     }

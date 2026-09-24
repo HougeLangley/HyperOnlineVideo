@@ -23,6 +23,26 @@ class QNetworkAccessManager;
 class UrlResolver : public QObject {
     Q_OBJECT
 public:
+    // UI-4-B ✓ 搜索过滤器（与 macOS searchSort/searchDuration、Android SearchFilters 同语义 ✓）
+    //   排序：1=相关度 2=最新 3=播放最多 ✓   时长：0=全部 1=短视频 2=中等 3=长篇 ✓
+    void setSearchFilters(int sort, int duration) { searchSort_ = sort; searchDuration_ = duration; }
+    /// B站搜索 URL 的过滤参数（供自检/自动化回读 ✓ 唯一真相 ✓）
+    QString biliFilterQuery() const {
+        QString q;
+        if (searchSort_ >= 1 && searchSort_ <= 3) {
+            const char *order = searchSort_ == 2 ? "pubdate" : (searchSort_ == 3 ? "click" : "totalrank");
+            q += QString("&order=%1").arg(order);
+        }
+        if (searchDuration_ >= 1 && searchDuration_ <= 3)
+            q += QString("&duration=%1").arg(searchDuration_ == 3 ? 4 : searchDuration_);   // 3→4 是 B站怪癖 ✓（与 macOS/Android 一致 ✓）
+        return q;
+    }
+    static QStringList sortNames() { return {"相关度", "最新", "播放最多"}; }
+    static QStringList durationNames() { return {"全部", "短视频", "中等", "长篇"}; }
+    /// 带时间范围的时长文案（macOS 原文 ✓ UiActions.swift:825 ✓ 面板专用 ✓）
+    static QStringList durationLabels() {
+        return {"全部", "短视频（<10 分钟）", "中等（10~30 分钟）", "长篇（>30 分钟）"};
+    }
     struct Stream {
         QString videoUrl;
         QString audioUrl;
@@ -75,6 +95,8 @@ public:
     void resolveAndPlay(const QString &pageUrl);
 
 private:
+    int searchSort_ = 1;        // UI-4-B ✓ 会话态（与 macOS 同：不落盘 ✓）
+    int searchDuration_ = 0;
     /** 在线字幕总入口：按站点选路线（B站走官方 CC API，YouTube 走 yt-dlp） */
     void fetchSubtitles(const QString &pageUrl, const QString &service, Stream result);
     /** B站 CC：x/web-interface/view → x/player/v2 → subtitle_url（内存轨，不落盘） */

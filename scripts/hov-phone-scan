@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""hov-phone-scan —— 无线调试「穷尽式发现」助手（hov-phone 的兜底层，可独立使用）
+
+为什么需要它 ✗→✓（2026-09-23 用户反复反馈"换网就找不到手机" ✓）：
+  * Android 11+ 的「无线调试」端口**每次开启都随机变** ✗（实测 34511 → 44693 ✓）；
+  * mDNS 广播可能被路由器（多播隔离 / 跨 VLAN / 频段隔离）挡掉 ✗ → 只靠 mDNS 必然间歇性失败 ✗；
+  * adb server 长时间运行后会卡死（报 No route to host ✗，见避坑 #229 ✓）。
+本工具提供三层可组合能力，供 hov-phone 按"最可靠 → 最兜底"调用 ✓：
+  1) mdns            —— 用 macOS 自带 Bonjour(dns-sd) 解析 _adb-tls-connect 的 ip:port
+  2) ports a b ip…   —— **限速匀速**扫描端口段（默认 350/s；实测并发爆发会触发手机 SYN 泛洪保护 ✗
+                        把"开放"端口打成"超时" —— 必须限速 ✓ 见避坑 #232）
+  3) live <base>     —— ping 撒网找活主机（供 ports 精确打击）
+
+用法：
+  hov-phone-scan mdns                                # → 192.168.50.24:44693
+  hov-phone-scan ports 30000 49999 192.168.50.24     # → 逐行输出 ip:port（开放即打印）
+  hov-phone-scan live 192.168.50                     # → 逐行输出存活主机 IP
+
+环境变量：
+  HOV_SCAN_WORKERS   并发数（默认 min(512, fd上限/4)）
+  HOV_SCAN_TIMEOUT   单端口超时秒（默认 0.7）
+  HOV_SCAN_RATE      探测速率上限 次/秒（默认 350；实测 ≤400 不触发手机 SYN 防护 ✓）
+"""
+import asyncio
+import os
+import random
+import re
+import resource
+import subprocess
+import sys
+import time
+
+
+def _run(cmd, secs):
+    """跑一条命令，最多 secs 秒（macOS 无 timeout 命令 ✗ 见避坑 #230 → 自带超时 ✓）"""
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        return ""
+    try:
+        out, _ = p.communicate(timeout=secs)
+    except subprocess.TimeoutExpired:
+        p.terminate()
+        try:
+            out, _ = p.communicate(timeout=2)
+        except Exception:
+            out = ""
+    return out or ""
+
+
+def _resolve_v4(host):
+    """主机名 → IPv4。dns-sd -L 常给 'Android.local.' ✗ 不是 IP ✓（实测 2026-09-23 ✓）"""
+    host = host.rstrip(".")
+    if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", host):
+        return host
+    try:
+        import socket
+        for info in socket.getaddrinfo(host, None, socket.AF_INET):
+            ip = info[4][0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+    out = _run(["dns-sd", "-G", "v4", host], 5)
+    m = re.search(r"\b(\d+\.\d+\.\d+\.\d+)\b", out)
+    return m.group(1) if m else None
+
+
+def mdns():
+    """Bonjour 浏览 + 解析：返回 'ip:port' 或 None（不依赖 adb 自身的 mDNS ✗ 互为兜底 ✓）"""
+    out = _run(["dns-sd", "-B", "_adb-tls-connect._tcp"], 7)
+    inst = None
+    for line in out.splitlines():
+        if "_adb-tls-connect._tcp" in line and "Add" in line:
+            inst = line.split()[-1]
+            break
+    if not inst:
+        return None
+    out = _run(["dns-sd", "-L", inst, "_adb-tls-connect._tcp"], 6)
+    m = re.search(r"can be reached at\s+(\S+?):(\d+)", out)
+    if not m:
+        return None
+    ip = _resolve_v4(m.group(1))
+    return f"{ip}:{m.group(2)}" if ip else None
+
+
+class _RateLimiter:
+    """令牌桶限速：**匀速**探测才能避开手机 SYN 泛洪保护 ✓
+    （实测 2026-09-23：并发爆发式扫描会把目标端口从"开放"打成"超时" ✗；
+      限速 ≤400/s 时目标端口 0 次被丢 ✓ 所以扫描必须限速 ✓）"""
+    def __init__(self, rate):
+        self.interval = 1.0 / max(1.0, rate)
+        self.next_t = 0.0
+
+    async def wait(self):
+        loop = asyncio.get_event_loop()
+        now = loop.time()
+        t = max(now, self.next_t)
+        self.next_t = t + self.interval
+        if t > now:
+            await asyncio.sleep(t - now)
+
+
+async def _scan_pass(ip, port_list, workers, timeout, rate=350.0, limiter=None):
+    """单轮扫描：返回 (开放端口, 无响应端口)
+
+    ⚠️ **顺序扫描是错的** ✗→✓（2026-09-23 实测）：
+    顺序从 30000 往上扫时，跑到目标端口前会触发**手机 TCP 栈的 SYN 泛洪保护**
+    → 目标端口从"开放"变成"超时" ✗（实测：顺序全段漏检 ✓ 随机化一轮命中 ✓）。
+    所以：**顺序随机化** + 只对"无响应"的端口做第二遍（拉长超时 ✓）。
+    """
+    q = asyncio.Queue()
+    for p in port_list:
+        q.put_nowait(p)
+    opened, unresolved = [], []
+    # ⚠️ 关键 ✓→✗：限速器必须**全局共享**，不能每台主机一个 ✗
+    #    实测（2026-09-23）：单机扫 350/s ✓ 命中；两台并行（各 350/s = 总 700/s）✗ 漏检。
+    #    原因：**手机按"来源 IP 的总 SYN 速率"触发防护** ✗（不分目标端口/目标主机 ✓）
+    #    → 所有主机共用同一个令牌桶 ✓ 保证 Mac 对外总速率恒定 ✓
+    if limiter is None:
+        limiter = _RateLimiter(rate)
+
+    async def worker():
+        while True:
+            try:
+                p = q.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            await limiter.wait()                      # ← 关键：匀速，避免触发 SYN 防护 ✓
+            try:
+                r, w = await asyncio.wait_for(asyncio.open_connection(ip, p), timeout=timeout)
+                w.close()
+                try:
+                    await w.wait_closed()
+                except Exception:
+                    pass
+                opened.append(p)
+                try:
+                    print(f"{ip}:{p}", flush=True)
+                except Exception:
+                    os._exit(0)
+                # ⚠️ HOV_SCAN_CONNECT=1：**发现端口立刻试 adb connect** ✓→✓
+                #   为什么下沉到这里 ✗→✓：原设计是"扫描器输出 → shell while read → adb connect"，
+                #   实测（2026-09-23）shell 退出后扫描进程仍活着并**占住输出管道** ✗ → 外层 tail 永不收尾 ✗
+                #   下沉后：连上即 os._exit(0) ✓ 无悬挂 ✓ 且省掉一层进程协作 ✓
+                if os.environ.get("HOV_SCAN_CONNECT") == "1":
+                    if adb_connect(f"{ip}:{p}"):
+                        print(f"CONNECTED {ip}:{p}", flush=True)
+                        sys.stderr.write(f"[scan] ✓ 已连接 {ip}:{p}（端口段扫描命中）\n")
+                        os._exit(0)
+            except ConnectionRefusedError:
+                pass                                  # 明确拒绝：该端口关着，不复扫 ✓
+            except Exception:
+                unresolved.append(p)                  # 超时/被丢：可能是防护 ✗ 留待第二遍 ✓
+
+    await asyncio.gather(*[asyncio.create_task(worker()) for _ in range(workers)])
+    return opened, unresolved
+
+
+async def _scan_one_host(ip, start, end, workers, timeout, rate, passes, second_max, limiter=None):
+    """单主机多遍扫描：第一遍全段，其后只复扫"无响应"端口（手机 SYN 防护会随机丢包 ✗）"""
+    first = list(range(start, end + 1))
+    random.shuffle(first)
+    opened, unresolved = await _scan_pass(ip, first, workers, timeout, rate, limiter)
+    if opened:
+        return
+    # 实测：手机 SYN 防护**随机丢弃** SYN（400/s 也丢 ✓）→ 单遍必然有漏检概率 ✗
+    # 所以对"无响应"端口做多遍复扫（超时递增 ✓），命中率大幅提升 ✓
+    per = max(1, second_max // max(1, passes - 1)) if passes > 1 else 0
+    for k in range(1, passes):
+        if not unresolved:
+            return
+        random.shuffle(unresolved)
+        subset = unresolved if per == 0 else unresolved[:per]
+        print(f"[scan] {ip} 第 {k} 遍复扫 {len(subset)}/{len(unresolved)} 个无响应端口"
+              f"（超时 {timeout * (1 + k):.1f}s）", file=sys.stderr, flush=True)
+        before = set(unresolved)
+        opened2, unresolved2 = await _scan_pass(ip, subset, workers, timeout * (1 + k), rate, limiter)
+        if opened2:
+            return
+        # 只保留仍未响应的（避免重复扫已确认关闭的 ✓）
+        rest = [p for p in unresolved if p not in set(subset)]
+        unresolved = rest + unresolved2
+
+
+def ports(start, end, hosts):
+    # 并发只影响"未响应端口"的吞吐 ✓ 真正的安全阀是下面的**限速** ✓
+    # 实测：160 并发 + 350/s 限速 → 吞吐压在限速上（安全 ✓）；纯并发爆发（6000/s）会触发防护 ✗
+    workers = int(os.environ.get("HOV_SCAN_WORKERS", "160"))
+    timeout = float(os.environ.get("HOV_SCAN_TIMEOUT", "0.5"))
+    rate = float(os.environ.get("HOV_SCAN_RATE", "600"))   # **全局**探测速率（次/秒 ✓）
+                                                          # 实测：800/s 时手机丢包率仍仅 ~0.05% ✓
+                                                          # 真正的坑不是速率，而是"复扫上限太小" ✗（见下 ✓）
+    passes = int(os.environ.get("HOV_SCAN_PASSES", "3"))                  # 复扫遍数（防随机丢包漏检 ✓）
+    # ⚠️ 复扫必须**全量** ✓→✗ 实测教训（2026-09-23）：
+    #   曾把复扫上限设为 6000 → 目标端口落在 23000 个"无响应"里，被复扫到的概率仅 ~26% ✗
+    #   → 表现为"两台主机并行就漏检"✗（我差点误判成"并行干扰" ✗ 其实是复扫没覆盖 ✓）
+    second_max = int(os.environ.get("HOV_SCAN_SECOND_MAX", "30000"))      # 复扫端口上限（默认全量 ✓）
+    budget = float(os.environ.get("HOV_SCAN_BUDGET", "420"))              # 总时间预算（秒 ✓ 到点即收工 ✓）
+
+    async def main():
+        # 全局共享限速器 ✓（关键：让 Mac 对外总 SYN 速率恒定，避免触发手机防护 ✗）
+        limiter = _RateLimiter(rate)
+        print(f"[scan] 并行扫 {len(hosts)} 台主机 × 端口 {start}-{end}"
+              f"（**全局** {rate:.0f}/s 共享限速，{passes} 遍复扫，预算 {budget:.0f}s）",
+              file=sys.stderr, flush=True)
+        tasks = [asyncio.create_task(_scan_one_host(ip, start, end, workers, timeout, rate, passes, second_max, limiter))
+                 for ip in hosts]
+        try:
+            await asyncio.wait(tasks, timeout=budget)
+        finally:
+            for t in tasks:
+                t.cancel()
+
+    asyncio.run(main())
+
+
+def _adb_devices():
+    out = _run(["adb", "devices"], 10)
+    devs = []
+    for line in out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            devs.append(parts[0])
+    return devs
+
+
+def adb_connect(addr, heal=True):
+    """连接并确认设备真的在列（adb 报 connected 不算数 ✗），失败时按 #229 自愈一次 ✓"""
+    out = _run(["adb", "connect", addr], 20)
+    time.sleep(0.8)
+    if addr in _adb_devices():
+        return True
+    if heal and "no route to host" in out.lower():
+        _run(["adb", "kill-server"], 10)
+        time.sleep(1)
+        _run(["adb", "start-server"], 15)
+        time.sleep(2)
+        _run(["adb", "connect", addr], 20)
+        time.sleep(0.8)
+        if addr in _adb_devices():
+            return True
+    return False
+
+
+def live(base):
+    """ping 撒网找活主机（并行 ✓ 只打印有回应的 ✓）"""
+    import concurrent.futures as cf
+
+    def ping(i):
+        ip = f"{base}.{i}"
+        r = subprocess.run(["ping", "-c1", "-t1", ip],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return ip if r.returncode == 0 else None
+
+    with cf.ThreadPoolExecutor(max_workers=128) as ex:
+        for r in ex.map(ping, range(1, 255)):
+            if r:
+                print(r, flush=True)
+
+
+def rank(hosts, sample=200):
+    """给候选主机**按"安卓特征"排序**（输出 `ip drop_count` ✓）
+
+    为什么需要 ✗→✓（2026-09-23 实测）：5 台主机 × 28232 端口 × 多遍在预算内扫不完 ✗；
+    但安卓对关闭端口是**防火墙 DROP**（实测 27.5% ✓），电脑/路由器/打印机是 **RST**（0% ✓）。
+    → 先用 200 个随机端口"抽样指纹"（1 秒级 ✓）排出"最像手机"的顺序 ✓，
+      再按该顺序**逐台**精扫（命中即停 ✓）——典型场景从 7 分钟缩到 ~1 分钟 ✓
+    """
+    import collections
+
+    async def probe(host, port, timeout=0.5):
+        try:
+            r, w = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+            w.close()
+            try:
+                await w.wait_closed()
+            except Exception:
+                pass
+            return "open"
+        except asyncio.TimeoutError:
+            return "drop"
+        except ConnectionRefusedError:
+            return "refuse"
+        except Exception:
+            return "other"
+
+    async def main():
+        rnd = random.Random(int(time.time() * 1000) & 0xFFFF)
+        ports = rnd.sample(range(32768, 60999), sample)
+        out = []
+        for h in hosts:
+            stats = collections.Counter()
+            sem = asyncio.Semaphore(64)
+
+            async def one(pp):
+                async with sem:
+                    stats[await probe(h, pp)] += 1
+
+            await asyncio.gather(*[one(pp) for pp in ports])
+            out.append((h, stats["drop"]))
+        out.sort(key=lambda x: -x[1])
+        for h, d in out:
+            print(f"{h} {d}")
+
+    asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "mdns":
+        a = mdns()
+        if a:
+            print(a)
+        sys.exit(0 if a else 1)
+    elif cmd == "ports" and len(sys.argv) >= 5:
+        ports(int(sys.argv[2]), int(sys.argv[3]), sys.argv[4:])
+    elif cmd == "live" and len(sys.argv) == 3:
+        live(sys.argv[2])
+    elif cmd == "rank" and len(sys.argv) >= 3:
+        rank(sys.argv[2:])
+    else:
+        print(__doc__)
+        sys.exit(2)

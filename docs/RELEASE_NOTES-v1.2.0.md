@@ -123,4 +123,4 @@
 
 - 感谢所有反馈问题的用户；
 - 问题与建议请到 **GitHub Issues**：<https://github.com/HougeLangley/HyperOnlineVideo/issues>；
-- 本项目以 GPL-3.0-or-later 开源，欢迎自行构建（README 提供三端从零构建指南）。
+- 本项目以 GPL-3.0-only 开源，欢迎自行构建（README 提供三端从零构建指南）。

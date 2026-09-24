@@ -1,0 +1,31 @@
+-------------------------------------------------------------------
+Thu Sep 24 16:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Fix license declaration: GPL-3.0-only (the LICENSE file grants
+  version 3 only; the previous "or-later" statement was an
+  over-declaration). Aligns with the Arch/AUR packaging.
+
+-------------------------------------------------------------------
+Thu Sep 24 12:30:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Add build targets: openSUSE Leap 16.0 (x86_64, aarch64) and
+  aarch64/riscv64 architectures for openSUSE Tumbleweed.
+  Note: Leap 16.0 has no official riscv64 port, so riscv64 is
+  Tumbleweed-only.
+
+-------------------------------------------------------------------
+Thu Sep 24 08:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Fix: enable QtWebEngine so the in-app login window works.
+  Tumbleweed does provide qt6-webenginewidgets-devel; the earlier
+  "not available" conclusion came from a wrong zypper query and led to
+  an unnecessary degradation. Now consistent with Arch/Fedora builds.
+
+-------------------------------------------------------------------
+Wed Sep 23 00:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Initial OBS package for openSUSE Tumbleweed (hov-qt 1.2.1)
+- Qt6 desktop client: libmpv playback / yt-dlp + ffmpeg downloads / QtWebEngine
+- WebEngine disabled in this build: Tumbleweed does not ship
+  QtWebEngineWidgets development files (login window degrades to a hint,
+  playback/downloads unaffected)

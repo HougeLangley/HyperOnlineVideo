@@ -69,8 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsPanel: SettingsPanel?      // B6
     var favoritesPanel: FavoritesPanel?    // B6
     var queuePanel: QueuePanel?            // B6
+    var downloadsPanel: DownloadsPanel?    // W2 ✓ 下载面板（带进度条 + 重试/清理/打开目录 ✓ 与 Linux 面板对齐）
     var pipActive = false
     var prePipFrame: NSRect = .zero
+    var prePipPaneWidth: CGFloat = 0       // W3 ✓ 进 PiP 前的结果区宽度（退出时显式还原 ✓ 否则 NSSplitView 重排 ✗）
     var statusLabel: NSTextField!
     var filterButton: NSButton!             // 搜索过滤器入口（排序 + 时长）
     var modeButton: NSButton!               // 播放模式按钮（顺序/单曲/随机/列表循环）
@@ -82,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var logLines: [String] = []
 
     // 逻辑层（与另两端共用配置文件）
-    let settings = Settings()
+    var settings: Settings { Settings.shared }
     let progress = ProgressStore()
     let favorites = Favorites()
     let queue = PlayQueue()
@@ -243,6 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dl.onUpdate = { [weak self] job in
             guard let self else { return }
             if job.state == .failed { self.setStatus("下载失败：\(job.title)") }
+            self.downloadsPanel?.update(job: job)     // W2 ✓ 面板开着 → 实时刷新那一行（进度条 ✓ 与 Linux 同法 ✓）
         }
         if let i = args.firstIndex(of: "--download"), i + 1 < args.count {
             let url = args[i + 1]
@@ -254,7 +257,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 (idx + 1 < args.count) ? Int64(args[idx + 1]) : nil
             } ?? Int64(settings.number("download.maxSizeMb", 2048))
             let r = dl.cleanupLru(maxBytes: mb * 1024 * 1024)
-            Config.log("[SELFTEST] 下载目录清理: \(r.beforeBytes/1048576)MB → \(r.afterBytes/1048576)MB，删除 \(r.removed.count) 个（上限 \(mb)MB）")
+            let dropped = dl.dropFinishedJobs()      // W5 ✓ CLI 与面板按钮同行为 ✓
+            Config.log("[SELFTEST] 下载目录清理: \(r.beforeBytes/1048576)MB → \(r.afterBytes/1048576)MB，删除 \(r.removed.count) 个（上限 \(mb)MB；列表清除 \(dropped) 条 ✓）")
             exit(0)
         }
         startFinishWatch()      // 抓图/自检/自动退出的统一心跳（不依赖"窗口激活"事件）
@@ -443,6 +447,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func openQueuePanel() {
         if queuePanel == nil { queuePanel = QueuePanel(); queuePanel?.app = self }
         queuePanel?.show()
+    }
+    /// W2 ✓ 下载面板（带进度条；与 Linux `--panel downloads` 同旗标同形态 ✓）
+    func openDownloadsPanel() {
+        if downloadsPanel == nil { downloadsPanel = DownloadsPanel(dl: dl); downloadsPanel?.app = self }
+        downloadsPanel?.show()
+    }
+
+    // MARK: - W1 窗口几何记忆（规则 #5：Linux 端 ui.windowGeometry 的同款能力 ✓）
+    /// 首启/恢复：解析 `ui.windowFrame`（"x,y,w,h"）—— 无/非法则返回 nil → 调用方用默认 1180x720 并居中
+    static func parseWindowFrame(_ s: String) -> NSRect? {
+        let parts = s.split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 4, parts[2] >= 400, parts[3] >= 300 else { return nil }
+        return NSRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+    }
+    /// 退出前保存窗口几何（用户口径：关闭再打开要保持关闭时的大小 ✓）
+    ///   ⚠️ 画中画/纯视频全屏态下**不保存**：那是程序化改的尺寸，存下去会把用户正常尺寸污染成 480x270
+    ///      （与 Linux closeEvent 同理；macOS 端早有“程序化重排把 ui.listWidth 误存”的历史教训 ✓）
+    func saveWindowFrameIfAppropriate() {
+        if pipActive || videoFullscreen {
+            Config.log("[W1] 跳过保存窗口几何（画中画/全屏中 ✓）")
+            return
+        }
+        let f = window.frame
+        let s = "\(Int(f.origin.x)),\(Int(f.origin.y)),\(Int(f.width)),\(Int(f.height))"
+        if Settings.shared.string("ui.windowFrame") != s {
+            _ = Settings.shared.apply(key: "ui.windowFrame", value: s)
+        }
+        Config.log("[W1] 保存窗口几何 \(Int(f.width))x\(Int(f.height)) @(\(Int(f.origin.x)),\(Int(f.origin.y)))")
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        saveWindowFrameIfAppropriate()
     }
 
     // MARK: - 主菜单（Native macOS 标准快捷键）

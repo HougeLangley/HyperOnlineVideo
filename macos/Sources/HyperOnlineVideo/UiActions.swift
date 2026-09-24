@@ -425,22 +425,12 @@ extension AppDelegate {
     }
 
     /// B3：下载面板（任务列表 + 清理）
+    /// W3 ✗→✓ **Bug1 修复**：旧实现是 **NSAlert 文字摘要** ✗（只有一行状态文字、**没有进度** ✗——用户 2026-09-23 截图实测）。
+    /// 现在改为打开正式面板 `DownloadsPanel`（进度条+百分比+大小 ✓ 与 Linux `DownloadPanel` 逐项一致 ✓）。
+    /// 两个入口都走这里（「更多」菜单 `#selector(onDownloads)` ✓ 与主菜单 ⌘⇧D → `menuDownloads()` ✓）
+    /// → 只改这一处，两个入口同时修好 ✓（无重复实现 ✓）
     @objc func onDownloads() {
-        let alert = NSAlert()
-        alert.messageText = "下载（\(dl.jobs.count) 个任务）"
-        let lines = dl.summary()
-        alert.informativeText = lines.isEmpty ? "（还没有下载任务；播放内容后点「下载」）" : lines.joined(separator: "\n")
-        alert.addButton(withTitle: "LRU 清理")
-        alert.addButton(withTitle: "打开下载目录")
-        alert.addButton(withTitle: "关闭")
-        let r = alert.runModal()
-        if r == .alertFirstButtonReturn {
-            let mb = Int64(settings.number("download.maxSizeMb", 2048))
-            let res = dl.cleanupLru(maxBytes: mb * 1024 * 1024)
-            setStatus("清理完成：\(res.beforeBytes/1048576)MB → \(res.afterBytes/1048576)MB，删除 \(res.removed.count) 个")
-        } else if r == .alertSecondButtonReturn {
-            NSWorkspace.shared.open(URL(fileURLWithPath: dl.dir()))
-        }
+        openDownloadsPanel()
     }
 
     @objc func onOpenFile() {
@@ -653,12 +643,39 @@ extension AppDelegate {
 
     @objc func onPip() { togglePip() }
 
+    /// W3 ✓ 还原左侧结果区宽度（**全屏与 PiP 共用** ✓）
+    /// 为什么必须显式还原：隐藏 NSSplitView 的子视图会让它折叠 ✗，重新显示时分割位置**不会**回到原值 ✗
+    /// （用户 2026-09-23 实测：PiP 往返后左侧列表宽度变化 ✗）
+    /// 多次兜底：窗口尺寸恢复要过一会儿才稳定，期间 setPosition 会被夹小（全屏路径实测踩到 ✓）
+    func restoreListPaneWidth(_ width: CGFloat, tag: String) {
+        guard let sv = middleSplit, width >= 100 else { return }
+        // ⚠️ 程序化 setPosition 期间必须置 restoringPaneWidth ✓ 否则 `splitViewDidResizeSubviews` 会把它当成
+        //    用户拖动 → 把测量值写回 ui.listWidth ✗（实测把 398pt 漂成 391pt ✗ 与 applySavedPaneWidth 同法 ✓）
+        // ⚠️ 也**不回写** `listPaneWidth` ✗：那是用户意图（settings 里的值 ✓），
+        //    PiP 开头的测量值可能比它小几像素 ✗ 回写会一次一点点地漂移（用户实测口径：要记住“关闭时”的宽度 ✓）
+        restoringPaneWidth = true
+        sv.setPosition(width, ofDividerAt: 0)
+        for delay in [0.1, 0.3, 0.8, 1.5, 2.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, !self.videoFullscreen, !self.pipActive, let sv2 = self.middleSplit else { return }
+                sv2.setPosition(width, ofDividerAt: 0)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) { [weak self] in
+            self?.restoringPaneWidth = false      // 兜底结束再放开“用户拖动”识别 ✓
+        }
+        Config.log("[PANE] \(tag) 恢复结果区宽度 = \(Int(width))pt")
+    }
+
     /// B5 画中画：小窗 + 置顶 + 隐藏界面（**不重挂 GL 视图** —— 换窗口会让 mpv 渲染上下文失效，
     /// 所以采用"同一视图、改变窗口形态"的方案，播放不中断、不重载）
     func togglePip() {
         pipActive.toggle()
         if pipActive {
             prePipFrame = window.frame
+            // W3 ✓ 同时记住结果区宽度：hide 会让 NSSplitView 折叠 ✗，不记就回不到原宽 ✗（用户实测）
+            prePipPaneWidth = resultsScroll.frame.width
+            if prePipPaneWidth < 100 { prePipPaneWidth = 380 }
             topBarView?.isHidden = true
             resultsScroll.isHidden = true
             controlsBarView?.isHidden = true
@@ -680,6 +697,7 @@ extension AppDelegate {
             window.level = .normal
             window.title = "聚合视频 · Hyper Online Video（macOS）"
             if prePipFrame != .zero { window.setFrame(prePipFrame, display: true) }
+            restoreListPaneWidth(prePipPaneWidth, tag: "退出画中画")   // W3 ✓ 显式还原列宽（与全屏同法 ✓）
             Config.log("[SELFTEST] 已退出画中画")
         }
     }

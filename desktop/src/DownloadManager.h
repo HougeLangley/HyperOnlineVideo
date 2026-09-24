@@ -10,6 +10,7 @@ class QNetworkAccessManager;
 class QNetworkRequest;
 class QNetworkReply;
 class QFile;
+class QProcess;
 
 /**
  * 下载管理（桌面端）
@@ -85,6 +86,14 @@ public:
 
     /** 失败任务重试一轮（清空 retries 与 error） */
     void retryFailed();
+    /** W5 ✓ 「清理」同时清列表：移除全部**已结束**条目（完成/失败/已取消 ✓ 进行中的绝不碰 ✗）
+     *  用户口径（2026-09-23）：点「清理」后已下载内容要从下载面板消失 ✓
+     *  （原实现只在“有文件被 LRU 删掉”时才同步列表 ✗ → 默认 2GB 上限下几乎不删文件 ✗ → 条目永远留着 ✗）
+     *  @return 被移除的条目数 */
+    int dropFinishedJobs();
+    /** 取消**单个**任务（排队/下载中/混流中均可 ✓）—— 同时删半截文件并把条目从列表移除 ✓
+     *  返 true = 真的取消了（对已完成/已失败/已取消的条目返 false ✓ 不误删记录 ✗） */
+    bool cancel(const QString &id);
     void cancelAll();
 
 private:
@@ -104,6 +113,7 @@ private:
     QVector<Job> jobs_;
     QHash<QString, QNetworkReply *> running_;
     QHash<QString, QFile *> files_;
+    QHash<QString, QProcess *> muxProcs_;   // W4 ✓ 混流进程句柄（取消时要能杀掉 ✗ 原来进程没存 → 取消不掉 ✓）
     QString dir_;              // 落盘目录覆盖（空=默认）
     std::function<void(const Job &)> progress_;
     int seq_ = 0;

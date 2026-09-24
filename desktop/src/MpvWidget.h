@@ -71,11 +71,6 @@ public:
     /// 玻璃质感开关（设置键 ui.glass，默认开；关闭后完全回到纯色背景，零残留）
     void setGlassEnabled(bool on) { glassOn_ = on; update(); }
     bool glassEnabled() const { return glassOn_; }
-    /// gpu-next 守卫：无硬件 GL 的环境下 gpu-next 会"创建成功但输出全黑"（实测 ✗）
-    /// → 检测到全黑就回调（主窗口据此提示 + 本次会话切回 libmpv ✓ 不擅自改用户设置 ✓）
-    std::function<void()> onGpuNextUnusable;
-    /// 4 秒后自检是否真的在渲染（墙钟触发 ✓ 不依赖帧回调 ✓）
-    void verifyGpuNextRendering();
     /** 字幕/歌词字号倍数（设置页） */
     void setSubtitleFontScale(double s) { subs_.setFontScale(s); }
     void cycleSubtitleTrack();                       // C 键：在「关 → 轨 1 → 轨 2 → … → 关」间循环
@@ -92,8 +87,6 @@ private:
     QString    glassKey_;            // 已算主题对应的封面 URL（换了才算）
     QString    coverUrl_;            // 当前封面 URL（空 = 视频/无封面 → 不画玻璃）
     bool       glassOn_ = true;      // 默认开；关闭后零残留
-    bool       gpuNext_ = false;     // video.gpuNext：渲染后端（true=gpu-next/libplacebo）+ 失败回退标记
-    bool       gpuNextVerified_ = false;  // 是否已做过"真的在渲染"自检（只做一次 ✓）
     bool renderReady_ = false;
     // 属性快照：后台线程写入、GUI 线程读取
     mutable std::mutex snapMutex_;

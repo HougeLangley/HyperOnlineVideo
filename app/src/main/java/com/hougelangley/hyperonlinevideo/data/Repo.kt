@@ -781,6 +781,15 @@ object Repo {
         _downloads.value = _downloads.value.filterNot { it.id == taskId }
     }
 
+    /** W4 ✓ 取消全部进行中的下载（用户指定：三端都要 ✓）—— 与单条取消同义：打断进程 + 划走卡片 ✓ */
+    fun cancelAllDownloads() {
+        val ids = _downloads.value.filter {
+            it.state == DownloadTask.State.RUNNING || it.state == DownloadTask.State.QUEUED
+        }.map { it.id }
+        ids.forEach { cancelDownload(it); dismissDownload(it) }
+        if (ids.isNotEmpty()) Log.i("HOV", "已取消全部 ${ids.size} 个下载任务")
+    }
+
     private fun updateTask(id: String, transform: (DownloadTask) -> DownloadTask) {
         _downloads.value = _downloads.value.map { if (it.id == id) transform(it) else it }
     }

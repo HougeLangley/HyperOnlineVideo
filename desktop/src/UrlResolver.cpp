@@ -223,8 +223,10 @@ QVector<UrlResolver::BiliVideo> UrlResolver::searchBili(const QString &keyword, 
     if (keyword.trimmed().isEmpty()) return out;
     applyProxy();
     const QString enc = QString::fromUtf8(QUrl::toPercentEncoding(keyword));
+    const QString filt = biliFilterQuery();                       // UI-4-B ✓ 过滤器参数（排序/时长 ✓）
     const QUrl u(QString("https://api.bilibili.com/x/web-interface/search/type?search_type=video"
-                         "&keyword=%1&page=1&page_size=%2").arg(enc).arg(pageSize));
+                         "&keyword=%1&page=1&page_size=%2%3").arg(enc).arg(pageSize).arg(filt));
+    qInfo() << "[过滤器] B站搜索 URL =" << u.toString();                // 自动化可判定 ✓
     QNetworkRequest req = siteRequest(u, "https://www.bilibili.com/");
     const QString ck = cookieHeaderFor("bilibili");
     if (!ck.isEmpty()) req.setRawHeader("Cookie", ck.toUtf8());

@@ -1,4 +1,7 @@
 #include "MasonryView.h"
+
+#include <QScrollBar>
+#include <cstdio>
 #include "Theme.h"
 
 #include <QAbstractItemModel>
@@ -62,6 +65,11 @@ private:
 
 MasonryView::MasonryView(QWidget *parent) : QScrollArea(parent) {
     setWidgetResizable(true);
+    // W1 ✓ 允许**窗口**缩到比"纵向 4 张卡片"更小：
+    //   画布的 setMinimumHeight 只应用于**滚动范围** ✓，但 QScrollArea 会把 widget 的最小高
+    //   透传为自己的 minimumSizeHint ✗ → 进而顶住主窗口 ✗（用户 KDE 实测：窗口顶天立地、resize 无效 ✓）
+    //   ✗ 实测：setSizePolicy(Ignored) **无效** —— QScrollArea 重写了 minimumSizeHint ✗
+    //   → 已改为在头文件里**显式覆写** minimumSizeHint() ✓（见 MasonryView.h ✓）
     setFrameShape(QFrame::NoFrame);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setFocusPolicy(Qt::StrongFocus);         // 键盘 ↑↓ 可用
@@ -145,6 +153,17 @@ void MasonryView::layout() {
     // 只设**最小高度**（决定滚动范围）；**不要**设最小宽度 ——
     // 与 setWidgetResizable(true) 会互相反馈，导致各次 layout 用的宽度不一致（实测出现卡片宽窄不一）。
     canvas_->setMinimumHeight(qMax(total + kGap, viewport()->height()));
+    // W3 探针 ✓：记录布局参数（PiP/全屏等形态切换后"卡片被横向裁切"类问题的客观判据 ✓）
+    //   只在关键值变化时打印 ✓ → 不刷屏（滚动、悬停都不会触发 ✓）
+    //   ⚠️ 只在**卡宽/列数/横向滚动**变化时打印 ✓：拖拽窗口会连续改 vw ✗ 若也打印会刷屏 ✗
+    static int lastCardW = -1, lastCols = -1, lastSX = -1;
+    const int sx = horizontalScrollBar() ? horizontalScrollBar()->value() : 0;
+    if (cardW_ != lastCardW || cols_ != lastCols || sx != lastSX) {
+        lastCardW = cardW_; lastCols = cols_; lastSX = sx;
+        std::fprintf(stderr, "[MASONRY] 布局 vw=%d cardW=%d 列=%d 画布宽=%d 视口宽=%d 横向滚动=%d 可见=%d\n",
+                     vw, cardW_, cols_, canvas_ ? canvas_->width() : 0,
+                     viewport() ? viewport()->width() : 0, sx, int(isVisible()));
+    }
 }
 
 int MasonryView::indexAt(const QPoint &p) const {

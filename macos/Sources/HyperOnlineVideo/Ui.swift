@@ -4,7 +4,13 @@ import AppKit
 extension AppDelegate {
     func buildUi() {
         window.title = "聚合视频 · Hyper Online Video（macOS）"
-        window.setContentSize(NSSize(width: 1180, height: 720))
+        // W1 ✓ 窗口几何记忆：优先恢复上次退出时的 frame ✓（规则 #5：与 Linux ui.windowGeometry 同款能力 ✓）
+        if let fr = AppDelegate.parseWindowFrame(settings.string("ui.windowFrame")) {
+            window.setFrame(fr, display: false)
+        } else {
+            window.setContentSize(NSSize(width: 1180, height: 720))   // 首启：适中（用户口径 ✓）
+            window.center()                                            // 首启居中 ✓
+        }
         window.minSize = NSSize(width: 900, height: 560)
 
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1180, height: 720))

@@ -36,8 +36,8 @@ static QString glassify(QString q)
               "background: rgba(18, 20, 25, 0.46); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; outline: none;");
     q.replace("background: #1e1e1e; border: 1px solid #2e2e2e; border-radius: 8px;",
               "background: rgba(40, 44, 52, 0.58); border: 1px solid rgba(255,255,255,0.10); border-radius: 8px;");
-    q.replace("background: #1e1e1e; border: 1px solid #2e2e2e; selection-background-color: #2b4a86;",
-              "background: rgba(30, 32, 38, 0.62); border: 1px solid rgba(255,255,255,0.08); selection-background-color: #2b4a86;");
+    q.replace("background: #1e1e1e; border: 1px solid #2e2e2e; selection-background-color: #274A94;",
+              "background: rgba(30, 32, 38, 0.62); border: 1px solid rgba(255,255,255,0.08); selection-background-color: #274A94;");
     return q;
 }
 
@@ -66,7 +66,7 @@ static QString lightify(QString q)
         { "#eaeaea", "#1b1d21" },   // 主文字
     };
     for (const auto &p : kMap) q.replace(QLatin1String(p.from), QLatin1String(p.to));
-    return q;   // 强调色 #4c8dff / 选中底 #2b4a86 / 纯白文字保持不动 ✓
+    return q;   // 强调色 #3869D3 / 选中底 #274A94 / 纯白文字保持不动 ✓
 }
 
 const char *kQss = R"QSS(
@@ -81,12 +81,11 @@ QFrame#card, QWidget#card { background: #1a1a1a; border: 1px solid #262626; bord
 /* 输入类：圆角 + 聚焦高亮 */
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     background: #1e1e1e; border: 1px solid #2e2e2e; border-radius: 8px;
-    padding: 6px 10px; selection-background-color: #4c8dff; selection-color: #ffffff;
+    padding: 6px 10px; selection-background-color: #3869D3; selection-color: #ffffff;
 }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border: 1px solid #4c8dff; }
 QComboBox::drop-down { border: none; width: 20px; }
 QComboBox QAbstractItemView {
-    background: #1e1e1e; border: 1px solid #2e2e2e; selection-background-color: #2b4a86;
+    background: #1e1e1e; border: 1px solid #2e2e2e; selection-background-color: #274A94;
     outline: none;
 }
 
@@ -97,8 +96,43 @@ QPushButton {
 }
 QPushButton:hover { background: #2b2b2b; border-color: #3d3d3d; }
 QPushButton:pressed { background: #1a1a1a; }
-QPushButton:default { background: #2b4a86; border-color: #4c8dff; }
+QPushButton:default { background: #274A94; border-color: #3869D3; }
+/* R1 ✓ 面板按钮（应用过滤器/取消）也统一胶囊（高 28 ✓）*/
+QDialog QPushButton { border-radius: 14px; padding: 2px 18px; min-height: 26px; }   /* R2 ✓ 与胶囊一致（纵向收紧 ✓） */
 QPushButton:default:hover { background: #33549a; }
+
+/* ── UI-2（文档 61 ✓）：与 macOS 对齐的三条 ★ 色值均为 macOS 截图**像素实测** ── */
+/* ① 主按钮（顶栏「搜索」）：实心 #3869D3 ✓ 白字 ✓ 圆角 ✓ */
+QPushButton#primaryBtn {
+    background: #3869D3; color: #ffffff; border: none; border-radius: 14px;
+    padding: 0px 18px; min-height: 28px; font-weight: 600;   /* R2 ✓ 纵向 0（同上原因 ✗→✓） */
+}
+QPushButton#primaryBtn:hover { background: #4474DB; }
+QPushButton#primaryBtn:pressed { background: #2C55AC; }
+/* ② 图标按钮（下载/更多/登录）：圆形 ✓（28x28 → 半径 14 ✓）透明底 + 细边框 ✓ */
+/* R1 ✓ 胶囊化（用户 2026-09-23：圆角方形 → "两端全圆"）：
+   · 图标按钮 = 正圆（28×28 半径 14 ✓ 见 #iconBtn）
+   · 带文字的按钮/下拉/输入框 = 胶囊（高 28 → 半径 14 = 两端全圆 ✓）
+   —— 全部控件统一 **高 28** ✓ 唯一来源 ✓ #135 */
+QPushButton#pillBtn, QComboBox#pillBox, QLineEdit#pillField {
+    border-radius: 14px;
+    padding: 0px 12px;            /* R2 ✓ 纵向 0：否则 6px 基础 padding + 28 固定高 → 文字上半截被切 ✗（用户截图实测） */
+    min-height: 28px;
+}
+QComboBox#pillBox::drop-down { width: 22px; border: none; }
+QComboBox#pillBox { padding-left: 10px; }
+QPushButton#iconBtn {
+    background: transparent; border: 1px solid #3d3d3d; border-radius: 14px;
+    padding: 0px; min-width: 28px; min-height: 28px;   /* R2 ✓ 圆：等宽高 ✓ */
+}
+QPushButton#iconBtn:hover { background: #2b2b2b; border-color: #4a4a4a; }
+QPushButton#iconBtn:pressed { background: #1a1a1a; }
+QPushButton#iconBtn::menu-indicator { image: none; width: 0px; }   /* 去掉 Qt 自带 ▾（图标按钮保持圆形 ✓） */
+QPushButton#iconBtn:checked { background: rgba(56, 105, 211, 0.28); border-color: #3869D3; }   /* UI-4 ✓ 开启态可见（连播/铺满 ✓） */
+QPushButton#iconBtn:checked:hover { background: rgba(56, 105, 211, 0.40); }
+/* ③ 搜索框聚焦：macOS 实测的钢蓝边框 #4B779F ✓（顶栏搜索框与全部输入框统一 ✓） */
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border: 1px solid #4B779F; }
+QLineEdit#searchField { padding-left: 6px; }
 
 /* 列表：去掉白底、条目有内边距、选中用主色 */
 QListWidget, QListView {
@@ -107,11 +141,11 @@ QListWidget, QListView {
 }
 QListWidget::item { padding: 7px 9px; border-radius: 6px; color: #e0e0e0; }
 QListWidget::item:hover { background: #222222; }
-QListWidget::item:selected { background: #2b4a86; color: #ffffff; }
+QListWidget::item:selected { background: #274A94; color: #ffffff; }
 
 /* 滑块 */
 QSlider::groove:horizontal { height: 5px; background: #2c2c2c; border-radius: 3px; }
-QSlider::sub-page:horizontal { background: #4c8dff; border-radius: 3px; }
+QSlider::sub-page:horizontal { background: #3869D3; border-radius: 3px; }
 QSlider::handle:horizontal {
     background: #eaeaea; width: 13px; margin: -5px 0; border-radius: 6px;
 }
@@ -121,11 +155,11 @@ QSlider::handle:horizontal:hover { background: #ffffff; }
 QCheckBox { spacing: 8px; }
 QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;
     border: 1px solid #3a3a3a; background: #1e1e1e; }
-QCheckBox::indicator:checked { background: #4c8dff; border-color: #4c8dff; }
+QCheckBox::indicator:checked { background: #3869D3; border-color: #3869D3; }
 
 /* 分隔条 */
 QSplitter::handle { background: #1a1a1a; width: 2px; }
-QSplitter::handle:hover { background: #4c8dff; }
+QSplitter::handle:hover { background: #3869D3; }
 
 /* 滚动条：细、深色 */
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
@@ -139,7 +173,7 @@ QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 /* 菜单与提示 */
 QMenu { background: #1e1e1e; border: 1px solid #2e2e2e; border-radius: 8px; padding: 6px; }
 QMenu::item { padding: 7px 18px; border-radius: 6px; }
-QMenu::item:selected { background: #2b4a86; }
+QMenu::item:selected { background: #274A94; }
 QToolTip { background: #262626; color: #eaeaea; border: 1px solid #3a3a3a; border-radius: 6px; padding: 6px; }
 
 /* 标签页 / 表单标签 */

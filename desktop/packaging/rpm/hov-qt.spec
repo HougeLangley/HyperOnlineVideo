@@ -4,11 +4,11 @@
 # 手册的**唯一真相**是 desktop/packaging/man/hov-qt.1（deb/rpm 共用 ✓ 防漂移 ✗）
 
 Name:           hov-qt
-Version:        1.2.0
-Release:        1%{?dist}
+Version:        1.2.1
+Release:        2%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
-License:        GPL-3.0-or-later
+License:        GPL-3.0-only
 URL:            https://github.com/HougeLangley/HyperOnlineVideo
 Source0:        %{name}-%{version}.tar.gz
 
@@ -68,5 +68,13 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
+* Thu Sep 24 2026 Houge Langley <hougelangley@users.noreply.github.com> - 1.2.1-2
+- Fix license tag: GPL-3.0-only (LICENSE grants version 3 only; the
+  earlier "or-later" statement was an over-declaration)
+
+* Thu Sep 24 2026 Houge Langley <hougelangley@users.noreply.github.com> - 1.2.1-1
+- Update to 1.2.1: download progress/cancel/retry + favorites panel,
+  window geometry persistence, PiP and subtitle fixes
+
 * Mon Sep 21 2026 Houge Langley <hougelangley@users.noreply.github.com> - 1.2.0-1
 - Initial RPM packaging for Fedora (libmpv playback / yt-dlp downloads / QtWebEngine login)

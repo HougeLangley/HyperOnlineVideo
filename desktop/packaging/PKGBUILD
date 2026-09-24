@@ -5,10 +5,10 @@
 #   本文件以**仓库里这一份为准**，改动后 `tar | ssh` 同步到构建机；
 #   **绝不允许**反向用构建机之外的旧副本覆盖构建机 —— 那会把 pkgrel/源码源/兜底参数全部冲掉。
 pkgname=hov-qt
-pkgver=1.2.0
-pkgrel=37
+pkgver=1.2.1
+pkgrel=1
 pkgdesc="聚合视频 Hyper Online Video —— YouTube/Bilibili/网易云/QQ音乐 播放器（Qt6 桌面版）"
-arch=('aarch64' 'x86_64')
+arch=('aarch64' 'x86_64' 'riscv64')
 url="https://github.com/HougeLangley/HyperOnlineVideo"
 license=('GPL-3.0-only')
 depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'mpv' 'ffmpeg' 'yt-dlp')

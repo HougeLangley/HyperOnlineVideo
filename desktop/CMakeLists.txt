@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(HyperOnlineVideo VERSION 1.2.0 LANGUAGES CXX)
+project(HyperOnlineVideo VERSION 1.2.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets Network DBus)
@@ -43,9 +43,23 @@ add_executable(hov-qt src/main.cpp src/MpvWidget.cpp
                          src/PlayQueue.cpp src/PlayQueue.h
                          src/Favorites.cpp src/Favorites.h
                          src/DownloadManager.cpp src/DownloadManager.h
+                         src/DownloadPanel.cpp src/DownloadPanel.h
+                         src/FavoritesPanel.cpp src/FavoritesPanel.h
                          src/Settings.cpp src/Settings.h
                          src/Theme.cpp src/Theme.h
                          src/ProgressStore.cpp src/ProgressStore.h
+    src/SelfTest.cpp
+    src/SettingsDialog.cpp
+    src/SearchController.cpp
+    src/VideoFullscreen.cpp
+    src/LibraryActions.cpp
+    src/Playback.cpp
+    src/PlayActions.cpp
+    src/CoverThumbs.cpp
+    src/Lyrics.cpp
+    src/UiBuild.cpp
+    src/Events.cpp
+    src/MainWindow.cpp
                          src/Mpris.cpp src/Mpris.h
                          src/CoverArt.cpp src/CoverArt.h
                          src/LocalLibrary.cpp src/LocalLibrary.h
@@ -118,3 +132,11 @@ endif()
 install(FILES packaging/hov-qt.desktop DESTINATION share/applications)
 install(FILES packaging/hov-qt.png DESTINATION share/icons/hicolor/256x256/apps RENAME hov-qt.png)
 install(FILES packaging/hov-qt-512.png DESTINATION share/icons/hicolor/512x512/apps RENAME hov-qt.png)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ⚠️ 仅对 LibraryActions.cpp 关闭 -Warray-bounds（**误报** ✓ 见文档 54）：
+#   告警点在 libstdc++ 的 std_function.h:248/324 内部 ✗ 非本仓代码 ✓；
+#   GCC 16.1.1 对"递归 lambda（shared_ptr<std::function> 自引用惯用法）"内联时误报 ✓；
+#   同一份代码搬迁前 0 告警，只因优化器上下文不同 ✓（S6 把它移入独立 TU 后触发 ✓）
+#   同文件另有**既有**小瑕疵：`*attempt` 闭包按值捕获 attempt → 自引用环 → shared_ptr 不释放 ✓（有界 ✓ 待议 ✓）
+set_source_files_properties(src/LibraryActions.cpp PROPERTIES COMPILE_OPTIONS "-Wno-array-bounds")

@@ -29,7 +29,7 @@ public:
     static void setGlass(bool on);
     static bool glass();
     /** 供其他地方复用的一组颜色（画布内绘制文字等） */
-    static QString accent() { return QStringLiteral("#4c8dff"); }
+    static QString accent() { return QStringLiteral("#3869D3"); }
     static QString text() { return isDark() ? QStringLiteral("#eaeaea") : QStringLiteral("#1b1d21"); }
     static QString textDim() { return isDark() ? QStringLiteral("#9aa0a6") : QStringLiteral("#5b6169"); }
     static QString surface() { return isDark() ? QStringLiteral("#1e1e1e") : QStringLiteral("#ffffff"); }

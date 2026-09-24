@@ -16,7 +16,7 @@ MACOS_DIR="$(pwd)"
 REPO_DIR="$(cd .. && pwd)"
 APP_NAME="HyperOnlineVideo"
 APP="$MACOS_DIR/build/$APP_NAME.app"
-VER="1.2.0"
+VER="1.2.1"
 DO_DMG=1
 [ "${1:-}" = "--no-dmg" ] && DO_DMG=0
 
@@ -47,7 +47,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.entertainment</string>
-  <key>NSHumanReadableCopyright</key><string>GPL-3.0-or-later · Hyper Online Video</string>
+  <key>NSHumanReadableCopyright</key><string>GPL-3.0-only · Hyper Online Video</string>
   <!-- 音乐/视频 CDN 大量用明文 http（网易云 m80x.music.126.net、QQ dl.stream.qqmusic.qq.com 等），
        下载走本进程 URLSession，会被 ATS 拦成 "App Transport Security policy requires the use of
        a secure connection"（用户实测：下载必失败）。mpv 走 C 层网络不受 ATS 限制，所以只有下载受影响。 -->

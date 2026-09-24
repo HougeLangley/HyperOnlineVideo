@@ -1,3 +1,24 @@
+hov-qt (1.2.1-2) resolute; urgency=medium
+
+  * License metadata fix: declare GPL-3.0-only. The repository LICENSE
+    grants version 3 of the GPL without the "or later" option; the
+    earlier or-later statement was an over-declaration. Aligns with
+    the Arch/AUR packaging.
+
+ -- Houge Langley <hougelangley@users.noreply.github.com>  Thu, 24 Sep 2026 16:00:00 +0000
+
+hov-qt (1.2.1-1) resolute; urgency=medium
+
+  * Release 1.2.1 for Ubuntu 26.04 (resolute):
+    - download panel: byte-accurate progress, per-item cancel, cancel all,
+      retry failed, open downloads folder, LRU cleanup drops finished rows
+    - favorites panel and local library parity with macOS/Linux UI
+    - window geometry persistence (first run 1200x720 centered)
+    - picture-in-picture and playback fixes (stream URL recording, mux cancel)
+    - launcher: LC_NUMERIC=C / QT_NO_GLIB=1 / ulimit -n 65535 kept intact
+
+ -- Houge Langley <hougelangley@users.noreply.github.com>  Thu, 24 Sep 2026 10:30:00 +0000
+
 hov-qt (1.2.0-1) resolute; urgency=medium
 
   * Initial Debian/Ubuntu packaging of the Linux Qt6 desktop build (v1.2.0):

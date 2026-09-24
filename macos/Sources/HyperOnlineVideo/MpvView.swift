@@ -87,11 +87,22 @@ final class MpvView: NSOpenGLView {
         mpv = handle
         // 与 Qt 端保持一致：禁用 mpv 自带的 ytdl 钩子（交给 App 层解析），字体也用 App 层画
         mpv_set_option_string(handle, "ytdl", "no")
-        // 渲染后端：默认 libmpv（OpenGL render API 经典路径）；开了 gpu-next 先试 libplacebo。
-        // （libmpv 的嵌入接口只有 opengl/sw；gpu-next 指 mpv 内部用 libplacebo 做视频处理：缩放/去色带/色调映射，
-        //   画质更好。创建失败会在下面自动回退，不会把播放搞挂。）
-        var wantNext = Settings().bool("video.gpuNext", false)
-        mpv_set_option_string(handle, "vo", wantNext ? "gpu-next" : "libmpv")
+        // 渲染后端：**macOS 上必须固定用 libmpv** ✓
+        //
+        // 为什么不能用 gpu-next（2026-09-22 实测 bug ✗ 有窗口枚举铁证 ✓）：
+        //   `vo=gpu-next` 是**窗口式 vo** —— mpv 会**自己新建一个窗口** ✗，
+        //   于是视频跑到独立窗口、主窗口播放区全黑 ✗（用户复现截图 + CGWindowList 实测：
+        //   设 gpu-next 时出现标题为 "<文件> - mpv" 的第二个窗口 ✓；设 libmpv 时只有 1 个窗口 ✓）。
+        //   而 `vo=libmpv` 才是"渲染 API / 不建窗口"的那个 vo ✓ —— 只有它能嵌进本视图 ✓。
+        // 三端实测更正（2026-09-22 二轮 ✓ 原文关于 Linux 的表述是**错的** ✗ 已改）：
+        //   Linux **也没有** --wid（实测 grep 零命中 ✓）→ 其 gpu-next 同样是窗口式 vo ✗，
+        //   且实测**偶发 SIGSEGV**（coredumpctl 栈 #2~#12 全在 libmpv.so.2 的 vo 线程 ✓）
+        //   → Linux 已同步改为固定 libmpv ✓（键保留 ✓ 见文档 46/47）。
+        //   Android 走 mpv-android 的 surface 嵌入 ✓ 是三端里唯一真正支持 gpu-next 的端 ✓（故其固定 gpu-next ✓）。
+        // 总规律 ✓：能让视频"嵌进宿主控件"的只有 **libmpv(渲染 API)** 与 **Android surface** 两条路 ✓，
+        //   窗口式 vo（gpu/gpu-next）在三端都不可用 ✗（macOS 自建窗口 / Linux 崩溃 / Android 原生崩溃 ✓）。
+        // 本端**不再提供** video.gpuNext 设置项（2026-09-22 用户决定 ✓ 全仓删除该键 ✓ 见文档 48）。
+        mpv_set_option_string(handle, "vo", "libmpv")
         mpv_set_option_string(handle, "hwdec", "auto-safe")
         mpv_set_option_string(handle, "keep-open", "yes")
         // 缓存策略在**每次加载前**按来源设置（见 prepareCacheOptions）：
@@ -131,10 +142,10 @@ final class MpvView: NSOpenGLView {
             return mpv_render_context_create(&rctx, handle, &params)
         }
         free(apiType)
-        if wantNext, apiOk < 0 || rctx == nil {          // gpu-next 起不来 → 回退 libmpv（不打扰用户）
-            Config.log("[UI] gpu-next 渲染上下文创建失败（apiOk=\(apiOk)），自动回退 libmpv")
-            wantNext = false
-            mpv_set_option_string(handle, "vo", "libmpv")
+        if apiOk < 0 || rctx == nil {                    // 渲染上下文创建失败（与 vo 无关 ✓）
+            // 注：这里**没有**可回退的 vo ✗ —— macOS 上能嵌入的只有 libmpv ✓，
+            // 创建失败意味着"本视图无法显示画面" ✗ → 明确报错，便于排查（不再假装回退 ✗）
+            Config.log("[UI] ⚠️ OpenGL 渲染上下文创建失败（apiOk=\(apiOk) rctx=\(rctx == nil ? "nil" : "ok")）→ 本视图将无画面 ✗")
         }
         guard apiOk >= 0, rctx != nil else {
             FileHandle.standardError.write("mpv_render_context_create 失败: \(apiOk)\n".data(using: .utf8)!)

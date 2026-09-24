@@ -22,6 +22,7 @@ if let i = args.firstIndex(of: "--panel"), i + 1 < args.count {
             }
         case "favorites": self.openFavoritesPanel()
         case "queue": self.openQueuePanel()
+        case "downloads": self.openDownloadsPanel()      // W2 ✓ 与 Linux `--panel downloads` 同旗标 ✓
         default: Config.log("未知面板：\(which)")
         }
     }
@@ -310,6 +311,62 @@ if let i = args.firstIndex(of: "--query"), i + 1 < args.count,
    args.contains("--pip-auto") {
     DispatchQueue.main.asyncAfter(deadline: .now() + 22) { [weak self] in
         if self?.pipActive == false { self?.togglePip() }
+    }
+}
+// 自动化：--play-first <秒> —— N 秒后播放第一条搜索结果（与 **Linux `--autoplay` 对称** ✓）
+//   为什么需要：`--download-current` 必须有“正在播放的直链”才有意义 ✗ →
+//   少了这步就没法端到端验证「视频下载（混流 + 大小/进度）」✓（本轮回归用它 ✓）
+if let i = args.firstIndex(of: "--play-first"), i + 1 < args.count,
+   let sec = Double(args[i + 1]) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + sec) { [weak self] in
+        guard let self, let r = self.rows.first(where: { !$0.key.isEmpty }) else { return }
+        Config.log("[PROBE] 自动播放第一条：\(r.text.prefix(40))")
+        self.playResult(key: r.key, label: r.text)
+    }
+}
+
+// 自动化：--cancel-all <秒> —— N 秒后取消全部进行中的下载（面板「取消全部」按钮走的是同一条内核路径 ✓）
+//   为什么用探针：macOS 点按钮需要「辅助功能」权限 ✗ 无法脚本化 → 探针覆盖 `DownloadManager.cancelAll`
+//   （而它是逐个调用 `cancel(_:)` ✓ 与行内「取消下载」按钮同一函数 ✓）
+if let i = args.firstIndex(of: "--cancel-all"), i + 1 < args.count,
+   let sec = Double(args[i + 1]) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + sec) { [weak self] in
+        Config.log("[PROBE] 取消全部下载")
+        self?.dl.cancelAll()
+        self?.downloadsPanel?.reloadFromManager()
+    }
+}
+
+// 自动化：--clean-list <秒> —— N 秒后等价于点面板「LRU 清理」按钮（**同一函数** ✓ Bug 回归用）
+//   为什么用探针：macOS 点按钮需要「辅助功能」权限 ✗ 无法脚本化 ✓
+if let i = args.firstIndex(of: "--clean-list"), i + 1 < args.count,
+   let sec = Double(args[i + 1]) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + sec) { [weak self] in
+        Config.log("[PROBE] 点「LRU 清理」（含列表清理 ✓）")
+        self?.openDownloadsPanel()
+        self?.downloadsPanel?.cleanLru()
+        self?.downloadsPanel?.reloadFromManager()
+    }
+}
+
+// 自动化：--menu-downloads <秒> —— **走菜单那条路**打开下载面板（验证入口接线 ✓ Bug1 回归用）
+//   （`--panel downloads` 是直接开面板 ✓ 覆盖不了“菜单 selector 还指向旧实现”这类问题 ✗）
+if let i = args.firstIndex(of: "--menu-downloads"), i + 1 < args.count,
+   let sec = Double(args[i + 1]) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + sec) { [weak self] in
+        Config.log("[PROBE] 菜单路径：打开下载面板")
+        self?.onDownloads()
+    }
+}
+// 自动化：--pip-after <sec>[,<sec>...] —— 与 **Linux 同名同语义**（定时 toggle 画中画 ✓）
+//   逗号多时刻 = 一次跑完"进 PiP + 退 PiP"往返 ✓（复现"退出后左侧列表宽度变化"类问题的精确手段 ✓）
+if let i = args.firstIndex(of: "--pip-after"), i + 1 < args.count {
+    for part in args[i + 1].split(separator: ",") {
+        if let sec = Double(part.trimmingCharacters(in: .whitespaces)), sec > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + sec) { [weak self] in
+                self?.togglePip()
+            }
+        }
     }
 }
 if let i = args.firstIndex(of: "--download-current"), i + 1 < args.count,

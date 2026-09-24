@@ -58,12 +58,15 @@ void *MpvWidget::mpvGlProc(const char *name) {
 
 MpvWidget::MpvWidget(QWidget *parent) : QOpenGLWidget(parent) {
     mpv_ = mpv_create();
-    // 渲染后端（video.gpuNext ✓ 与 macOS/Android 同键）：
-    //   false → vo=libmpv（经典 OpenGL 路径 ✓ 默认 ✓）
-    //   true  → vo=gpu-next（libplacebo：缩放/去色带/色调映射 ✓ 本机 mpv 已链接 libplacebo ✓ 实测可行 ✓）
-    // 构造时就要定 vo（mpv_initialize 之后不能再改 ✗）→ 用 rawBool 直读文件 ✓（不依赖实例 load ✓）
-    gpuNext_ = Settings::rawBool("video.gpuNext", false);
-    mpv_set_option_string(mpv_, "vo", gpuNext_ ? "gpu-next" : "libmpv");
+    // 渲染后端：**Linux 端固定 vo=libmpv**（2026-09-22 实测修正 ✗ 见文档 46/47）
+    // 为什么不用 gpu-next（与 macOS 同源缺陷 ✓ 但表现更严重 ✗）：
+    //   ① 嵌入矛盾：本部件走 mpv_render_context（GL 渲染 API）✓，而 `vo=gpu-next` 是**窗口式 vo** ✗
+    //   ② **会崩溃**：无硬件 GL 环境下实测 3 次里 1 次 SIGSEGV ✓ coredumpctl 栈 #2~#12 全在
+    //      libmpv.so.2 的 vo 线程 ✓（si_code=SEGV_MAPERR ✓）—— 与 Android `vo=gpu` 崩溃同族 ✓
+    //   ③ 原"起播 4 秒后抓帧算方差"的守卫**救不了崩溃** ✗（崩溃在 vo 初始化期 ✓ 进程直接没了 ✓）
+    // 本端**不再提供** video.gpuNext 设置项（2026-09-22 用户决定 ✓ 全仓删除该键 ✓ 见文档 48）；
+    // 渲染后端恒定 `vo=libmpv`（理由见上 ✓ 唯一能嵌进宿主控件的路径 ✓）。
+    mpv_set_option_string(mpv_, "vo", "libmpv");
     mpv_set_option_string(mpv_, "hwdec", "auto-safe");
     mpv_set_option_string(mpv_, "ytdl", "no");
     // 直链由 App 层解析（UrlResolver 调 yt-dlp），mpv 只负责播放：
@@ -118,25 +121,14 @@ void MpvWidget::initializeGL() {
         {MPV_RENDER_PARAM_API_TYPE, api},
         {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &ip},
         {MPV_RENDER_PARAM_INVALID, nullptr}};
-    if (mpv_render_context_create(&ctx_, mpv_, params) < 0) {
-        // 回退（照 macOS 蓝本 ✓）：gpu-next 起不来时切回 libmpv 再试一次（不打扰用户 ✓）
-        // 回退：gpu-next 起不来 → 切回 libmpv **重试一次**，然后走**同一条成功路径** ✓
-        //（不要手动调 initializeGL() ✗ Qt 虚函数不能手动调，会重复初始化 ✓）
-        if (gpuNext_) {
-            qWarning() << "gpu-next 渲染上下文创建失败 → 自动回退 libmpv";
-            std::fprintf(stderr, "[PLAY] gpu-next 失败 → 回退 libmpv\n");
-            mpv_set_property_string(mpv_, "vo", "libmpv");
-            gpuNext_ = false;
-            if (mpv_render_context_create(&ctx_, mpv_, params) < 0) {
-                qWarning() << "回退 libmpv 后仍失败";
-                return;
-            }
-            qInfo() << "回退 libmpv 成功（继续走正常初始化 ✓）";
-        } else {
-            qWarning() << "mpv_render_context_create 失败";
-            return;
-        }
-    }
+      if (mpv_render_context_create(&ctx_, mpv_, params) < 0) {
+          // 渲染上下文创建失败即**致命** ✗：本部件没有可用回退路径（vo 已恒定 libmpv ✓）
+          //（历史上这里有一段"gpu-next 失败就切回 libmpv 重试"的逻辑 ✗ —— 但 mpv 初始化后不能再改 vo ✗，
+          //  且现在 vo 恒定 libmpv ✓ → 该分支永远走不到 ✓ 已按死代码清理纪律移除 ✗ 见文档 46/47）
+          qWarning() << "mpv_render_context_create 失败（vo=libmpv）：本视图将无画面";
+          std::fprintf(stderr, "[PLAY] ✗ 渲染上下文创建失败（vo=libmpv）—— 请检查 OpenGL/EGL 环境\n");
+          return;
+      }
     mpv_render_context_set_update_callback(ctx_, [](void *p) {
         auto *w = static_cast<MpvWidget *>(p);
         QMetaObject::invokeMethod(w, [w] { w->update(); }, Qt::QueuedConnection);
@@ -166,9 +158,6 @@ void MpvWidget::paintGL() {
         mpv_render_context_render(ctx_, params);
     }
     painter.endNativePainting();
-    // ── gpu-next 守卫（本机实测踩到：无硬件 GL 时 gpu-next「创建成功但输出全黑」✗）──
-    // 起播约 3 秒后抓一次帧，算亮度方差；纯色/全黑（方差≈0）判定为"没在渲染" → 回调提示 ✓
-    // （原"按已绘帧数触发"的旧逻辑已移除 ✗ —— 全黑时根本没有帧回调 ✓ 触发改到 playUrl 的墙钟定时器 ✓）
 
     if (!subs_.forceHidden()) subs_.paint(painter, rect());   // 字幕/歌词（App 层渲染）
     // ── 玻璃质感（v1.2.0）：磨砂底（模糊封面）+ 主题色竖向渐变 + 压暗层 ──
@@ -355,40 +344,7 @@ void MpvWidget::prepareCacheOptions(bool isNetwork) {
     }
 }
 
-void MpvWidget::verifyGpuNextRendering()
-{
-    if (gpuNextVerified_ || !gpuNext_) return;
-    gpuNextVerified_ = true;                       // 只自检一次 ✓
-    const QImage img = grabFramebuffer();
-    if (img.isNull()) return;
-    const QImage sm = img.scaled(64, 36, Qt::IgnoreAspectRatio, Qt::FastTransformation)
-                         .convertToFormat(QImage::Format_RGB32);
-    double sum = 0, sum2 = 0; int n = 0;
-    for (int y = 0; y < sm.height(); ++y) {
-        const QRgb *line = reinterpret_cast<const QRgb *>(sm.constScanLine(y));
-        for (int x = 0; x < sm.width(); ++x) {
-            const double lum = qGray(line[x]);
-            sum += lum; sum2 += lum * lum; ++n;
-        }
-    }
-    const double mean = sum / qMax(1, n);
-    const double var = qMax(0.0, sum2 / qMax(1, n) - mean * mean);
-    std::fprintf(stderr, "[PLAY] gpu-next 渲染自检：亮度均值=%.1f 方差=%.1f（全黑→两者都近 0 ✓）\n", mean, var);
-    if (var < 4.0) {
-        gpuNext_ = false;
-        std::fprintf(stderr, "[PLAY] gpu-next 判定不可用（画面全黑）→ 本次会话切回 libmpv；下次播放生效 ✓\n");
-        if (onGpuNextUnusable) onGpuNextUnusable();
-    }
-}
-
 void MpvWidget::playUrl(const QString &url) {
-    // ── gpu-next 守卫（关键 ✓）：**用墙钟定时器**触发，不能用"已绘帧数" ✗ ──
-    // 本机实测：无硬件 GL 时 gpu-next「创建成功但输出全黑」✗ → 此时 mpv 不产生帧更新 →
-    // paintGL 永远不会被调用 ✗ → 挂在帧计数上的自检永远不会触发 ✓（我第一版就是这个错误 ✓ 已改）
-    if (gpuNext_) {
-        gpuNextVerified_ = false;
-        QTimer::singleShot(4000, this, [this] { verifyGpuNextRendering(); });
-    }
     { const QString u = url.isEmpty() ? QString() : url;
       const bool net = u.contains("://") && !u.startsWith("file:");
       prepareCacheOptions(net); }

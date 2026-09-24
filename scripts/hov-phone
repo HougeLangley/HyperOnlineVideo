@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# hov-phone —— 聚合视频 Android 端全链路助手（USB / Wi-Fi 双模；**五重兜底**自动发现）
+#
+# 为什么发现逻辑这么复杂 ✗→✓（2026-09-23 用户反复反馈"换网就找不到手机" ✓）：
+#   ① Android 11+「无线调试」端口**每次开启随机变** ✗（实测 34511 → 44693 ✓）；
+#   ② mDNS 广播可能被路由器挡掉（多播隔离/跨 VLAN/频段隔离 ✗）；
+#   ③ adb server 长时间运行会卡死 → 报 No route to host ✗（见避坑 #229 ✓）；
+#   ④ 脚本曾写死旧网段 ✗（见避坑 #231 ✓）。
+#   → 本脚本按「最可靠 → 最兜底」依次尝试，任一层成功即**写缓存** ✓ 下次秒连：
+#     ① HOV_PHONE 显式指定  ② 上次成功地址（缓存 ~/.hov-phone-addr）
+#     ③ adb 自带 mDNS（轮询 12s）  ④ Bonjour(dns-sd) 解析（与③互为兜底）
+#     ⑤ 同网段 :5555（USB 切过 tcpip 的情况）  ⑥ 活主机**随机端口段扫描**（hov-phone-scan）
+#
+# 用法：
+#   hov-phone                  # 显示当前连接与版本
+#   hov-phone find             # 只做发现+连接（排障用；成功会打印走了哪一层）
+#   hov-phone connect <IP:端口> # 手动指定无线调试地址（并写入缓存）
+#   hov-phone apk              # 编译 debug APK
+#   hov-phone install [路径]    # 安装（默认 build 目录 debug APK；自动 -r 覆盖）
+#   hov-phone run              # 启动主界面
+#   hov-phone log [过滤词]      # 实时 logcat（默认过滤 HOV/AndroidRuntime）
+#   hov-phone shot [名字]       # 截屏到 ~/Downloads（不点击、不操作界面）
+#   hov-phone wifi             # USB → Wi-Fi（adb tcpip 5555 + 自动连接）
+#   hov-phone usb              # 切回 USB
+# 环境变量：
+#   HOV_PHONE=<IP:端口>  显式无线调试地址（最可靠）
+#   HOV_SCAN=0           跳过"端口段扫描"层（默认开）
+#   HOV_SCAN_RANGE=a-b   端口段（默认 32768-60999 = 手机 ip_local_port_range ✓ 实测读得 ✓）
+#   HOV_SKIP_MDNS=1      跳过 mDNS 层（验证"路由器挡多播"兜底链；排障用）
+set -euo pipefail
+PKG=com.hougelangley.hov
+APK="$HOME/AndroidProjects/HyperOnlineVideo/app/build/outputs/apk/debug/app-debug.apk"
+CACHE="$HOME/.hov-phone-addr"
+SCAN="$HOME/bin/hov-phone-scan"
+HEAL_DONE=0
+TMPW="$(mktemp -d)"
+trap 'rm -rf "$TMPW"' EXIT
+
+dev_serials() { adb devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1}'; }
+has_device()  { dev_serials | grep -q .; }
+default_if()  { route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}'; }
+local_base()  { local i; i=$(default_if); [ -n "$i" ] && ipconfig getifaddr "$i" 2>/dev/null | sed 's/\.[0-9]*$//'; }
+save_addr()   { echo "$1" > "$CACHE" 2>/dev/null || true; }
+
+restart_server() {  # 清 adb server 卡死（#229 ✓）
+  echo "  … 重启 adb server（清卡死状态）" >&2
+  adb kill-server >/dev/null 2>&1 || true
+  sleep 1
+  adb start-server >/dev/null 2>&1 || true
+  sleep 2
+}
+
+try_connect() {  # $1=地址 $2=来源名 → 成功返回 0
+  local addr="$1" src="$2" out
+  [ -n "$addr" ] || return 1
+  out=$(adb connect "$addr" 2>&1 || true)
+  sleep 1
+  if dev_serials | grep -qx "$addr"; then
+    save_addr "$addr"; echo "  ✓ 已连上 ${addr}（来源：${src}）" >&2; return 0
+  fi
+  # No route to host = server 卡死（不是网络 ✗）→ 自愈一次重试（#229 ✓）
+  if echo "$out" | grep -qi "no route to host" && [ "$HEAL_DONE" = 0 ]; then
+    HEAL_DONE=1
+    restart_server
+    out=$(adb connect "$addr" 2>&1 || true); sleep 1
+    if dev_serials | grep -qx "$addr"; then
+      save_addr "$addr"; echo "  ✓ 已连上 ${addr}（来源：${src}，server 自愈后）" >&2; return 0
+    fi
+  fi
+  return 1
+}
+
+mdns_adb_poll() {  # 轮询 adb 自带 mDNS ≤ $1 秒，输出全部候选（可能多台）
+  local limit="${1:-12}" i=0 out=""
+  while [ "$i" -lt "$limit" ]; do
+    out=$(adb mdns services 2>/dev/null | awk '/_adb-tls-connect/ {print $NF}' | sort -u || true)
+    [ -n "$out" ] && { echo "$out"; return 0; }
+    sleep 1; i=$((i+1))
+  done
+  return 1
+}
+
+scan_5555() {  # 同网段扫固定端口（USB 切过 adb tcpip 5555 的情况 ✓）
+  local base; base=$(local_base); [ -n "$base" ] || return 1
+  echo "  … 扫 ${base}.0/24 的 :5555" >&2
+  local i
+  for i in $(seq 1 254); do
+    ( nc -z -G 1 "${base}.${i}" 5555 2>/dev/null && echo "${base}.${i}:5555" >> "${TMPW}/p5555" ) &
+  done
+  wait 2>/dev/null || true
+  local a
+  while read -r a; do try_connect "$a" "同网段 :5555" && return 0; done < <(sort -u "${TMPW}/p5555" 2>/dev/null || true)
+  return 1
+}
+
+scan_range() {  # 穷尽兜底：**两阶段**（先缓存主机 ✓ 再其余活主机并行 ✓）
+  #   两种模式都让**扫描器自己**在发现端口时立刻 adb connect ✓→✓
+  #   为什么下沉 ✗→✓：原设计"扫描器 stdout → shell while read → adb connect"，
+  #   实测（2026-09-23）shell 退出后扫描进程仍活着并**占住输出管道** ✗ → 外层管道永不收尾 ✗（曾挂 40 分钟 ✓）
+  #   现在：连上即扫描器 os._exit(0) ✓ 无协作层 ✓ 更快更稳 ✓
+  [ "${HOV_SCAN:-1}" = "0" ] && return 1
+  [ -f "$SCAN" ] || return 1
+  local range="${HOV_SCAN_RANGE:-32768-60999}"
+  local start="${range%-*}" end="${range#*-}"
+
+  # 阶段 1：只扫"上次成功主机"（手机 IP 通常不变 ✓ 只换端口 ✓ 单台全段 ~60s@600/s ✓）
+  if [ -s "$CACHE" ]; then
+    local cip; cip=$(cut -d: -f1 "$CACHE")
+    if [ -n "$cip" ] && ping -c1 -t1 "$cip" >/dev/null 2>&1; then
+      echo "  … 阶段1：扫上次成功主机 ${cip}（全段 ${range} ✓ 约 1 分钟 ✓ 命中即连 ✓）" >&2
+      HOV_SCAN_CONNECT=1 python3 "$SCAN" ports "$start" "$end" "$cip" >/dev/null 2>&1 || true
+      if has_device; then save_addr "$(dev_serials | head -1)"; return 0; fi
+    fi
+  fi
+
+  # 阶段 2：其余活主机并行（排除本机与网关 ✓ 实测它们只贡献假开放端口 ✗）
+  local cands=()
+  local base; base=$(local_base)
+  if [ -n "$base" ]; then
+    echo "  … ping 撒网找活主机（${base}.0/24）" >&2
+    while read -r h; do [ -n "$h" ] && cands+=("$h"); done < <(python3 "$SCAN" live "$base" 2>/dev/null || true)
+  fi
+  local self_ip gw_ip
+  self_ip=$(ipconfig getifaddr "$(default_if)" 2>/dev/null || true)
+  gw_ip=$(route -n get default 2>/dev/null | awk '/gateway:/{print $2; exit}')
+  local uniq=() seen=" "
+  for a in "${cands[@]:-}"; do
+    [ -n "$a" ] || continue
+    [ "$a" = "$self_ip" ] && continue
+    [ "$a" = "$gw_ip" ] && continue
+    case "$seen" in *" $a "*) continue;; esac
+    seen="$seen$a "; uniq+=("$a")
+  done
+  [ "${#uniq[@]}" -gt 0 ] || return 1
+  # ⚠️ 关键优化 ✓→✓（2026-09-23 实测）：5 台并行 × 28232 端口 × 多遍 = 预算内扫不完 ✗（曾 7 分钟失败 ✓）
+  #   但**安卓对关闭端口是防火墙 DROP**（实测手机 27.5% ✓），电脑/路由器/打印机是 RST（0% ✓）
+  #   → 先用 200 端口"抽样指纹"排序（<1 秒 ✓），再**逐台精扫**（手机通常排第一 ✓ 命中即停 ✓）
+  #   典型场景：7 分钟失败 → ~1.5 分钟成功 ✓
+  echo "  … 指纹排序 ${#uniq[@]} 台主机（安卓=DROPl 比例高 ✓）" >&2
+  local ranked
+  ranked=$(python3 "$SCAN" rank "${uniq[@]}" 2>/dev/null || true)
+  if [ -z "$ranked" ]; then
+    ranked=$(printf '%s 0\n' "${uniq[@]}")      # 指纹失败则退化为原始顺序 ✓
+  fi
+  while read -r h d; do
+    [ -n "$h" ] || continue
+    echo "  … 精扫 ${h}（DROP=$d ✓ 单台全段 预算 180s ✓）" >&2
+    HOV_SCAN_CONNECT=1 HOV_SCAN_BUDGET=180 python3 "$SCAN" ports "$start" "$end" "$h" >/dev/null 2>&1 || true
+    if has_device; then save_addr "$(dev_serials | head -1)"; return 0; fi
+  done < <(printf '%s\n' "$ranked")
+  return 1
+}
+
+auto_connect() {  # 五重兜底（顺序 = 可靠度降序 ✓）
+  has_device && return 0
+  local want="${HOV_PHONE:-}"; [ -n "${2:-}" ] && want="$2"
+  local a
+  # ① 显式指定
+  if [ -n "$want" ]; then try_connect "$want" "显式指定" && return 0; fi
+  # ② 缓存（上次成功地址）
+  if [ -s "$CACHE" ]; then try_connect "$(cat "$CACHE")" "上次地址缓存" && return 0; fi
+  # ③ adb 自带 mDNS（轮询：server 刚起时广播要几秒才齐 ✓）
+  #    HOV_SKIP_MDNS=1 可跳过 ③④，用于验证"路由器挡多播"时的兜底链 ✓（排障用）
+  if [ "${HOV_SKIP_MDNS:-0}" != "1" ]; then
+    if mdns_adb_poll 12 > "${TMPW}/mdns"; then
+      while read -r a; do try_connect "$a" "adb mDNS" && return 0; done < "${TMPW}/mdns"
+    fi
+    # ④ Bonjour 兜底（adb 的 mDNS 坏掉时它还能用 ✓）
+    if a=$(python3 "$SCAN" mdns 2>/dev/null || true); [ -n "$a" ]; then
+      try_connect "$a" "Bonjour(dns-sd)" && return 0
+    fi
+  fi
+  # ⑤ 同网段 :5555
+  scan_5555 && return 0
+  # ⑥ 随机端口段扫描（最兜底 ✓ 也是"换网必失败"的终极解 ✓）
+  scan_range && return 0
+  return 1
+}
+
+pick() {
+  local d
+  d=$(dev_serials | head -1)
+  if [ -z "$d" ]; then auto_connect "$@" || true; d=$(dev_serials | head -1); fi
+  if [ -z "$d" ]; then
+    local st; st=$(adb devices 2>/dev/null | awk 'NR>1 {print $1"("$2")"}' | paste -sd' ' - || true)
+    echo "✗ 没有可用设备（当前 adb 列表：${st:-空}）" >&2
+    echo "  已依次尝试：显式指定 → 地址缓存 → adb mDNS → Bonjour → :5555 → 端口段扫描" >&2
+    echo "  ① 确认手机「开发者选项 → 无线调试」是**开着**的（关着则任何手段都发现不了 ✗）" >&2
+    echo "  ② 若列表里是 unauthorized：看手机屏幕点「允许」RSA 弹窗" >&2
+    echo "  ③ 也可直接喂地址：HOV_PHONE=<IP:端口> hov-phone find" >&2
+    echo "  ④ 或插一次 USB：hov-phone wifi（自动切 tcpip 5555，之后可拔线）" >&2
+    exit 1
+  fi
+  echo "$d"
+}
+
+case "${1:-status}" in
+  find)
+    if auto_connect "$@"; then
+      echo "发现成功：$(dev_serials | head -1)"
+      echo "缓存：$(cat "$CACHE" 2>/dev/null || echo -)"
+    else
+      echo "✗ 六层全部失败（最可能是手机「无线调试」没开 ✗ 或不在同一局域网 ✗）"
+    fi
+    adb devices -l | sed 's/^/  /';;
+  connect)
+    a="${2:?用法: hov-phone connect <IP:端口>}"
+    if try_connect "$a" "手动指定"; then echo "✓ 已连接并记住（${CACHE}）"; else echo "✗ 连接失败：$a" >&2; exit 1; fi;;
+  status)
+    echo "设备：$(dev_serials | paste -sd' ' -)"
+    cur=$(pick)
+    echo "当前使用：$cur"
+    adb -s "$cur" shell "dumpsys package $PKG | grep -E 'versionName|versionCode=|lastUpdateTime'" 2>/dev/null | tr -d '\r' | sed 's/^/  /' || true;;
+  apk)
+    cd "$HOME/AndroidProjects/HyperOnlineVideo" && ./gradlew :app:assembleDebug;;
+  install)
+    f="${2:-$APK}"; s=$(pick)
+    echo "安装 $f → $s"; adb -s "$s" install -r "$f";;
+  run)
+    s=$(pick); adb -s "$s" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null && echo "已启动";;
+  log)
+    s=$(pick); shift || true
+    adb -s "$s" logcat -v time "${@:-HOV:D AndroidRuntime:E *:S}";;
+  shot)
+    s=$(pick); n="${2:-hov-$(date +%H%M%S)}"
+    # ⚠️ 不要用 `exec-out screencap -p > file`：screencap 的 stderr（多显示器警告）会混进 PNG ✗
+    #    改用"设备内落盘 + pull"（稳定，且不会有文本污染 ✓）
+    adb -s "$s" shell screencap -p /sdcard/hov-shot.png >/dev/null 2>&1
+    adb -s "$s" pull /sdcard/hov-shot.png "$HOME/Downloads/$n.png" >/dev/null 2>&1
+    adb -s "$s" shell rm -f /sdcard/hov-shot.png >/dev/null 2>&1
+    file "$HOME/Downloads/$n.png" | sed 's/^/  /';;
+  wifi)
+    s=$(pick)
+    ip=$(adb -s "$s" shell ip -f inet addr show wlan0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1)
+    [ -n "$ip" ] || { echo "✗ 读不到手机 Wi-Fi IP"; exit 1; }
+    adb -s "$s" tcpip 5555 >/dev/null; sleep 3
+    if try_connect "$ip:5555" "USB→Wi-Fi(tcpip 5555)"; then
+      echo "✓ 已切到 Wi-Fi：$ip:5555（USB 可拔）"
+    else
+      echo "✗ 切换失败（把 USB 插回再试）" >&2; exit 1
+    fi;;
+  usb)
+    s=$(pick); adb -s "$s" usb && echo "✓ 已切回 USB";;
+  *) sed -n '2,32p' "$0";;
+esac

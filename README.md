@@ -7,15 +7,20 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ---
 
-### 📌 当前发布状态（v1.2.0）
+### 📌 当前发布状态（v1.2.1 · 全平台正式发布）
 
-| 平台 | 状态 | 说明 |
+| 平台 | 状态 | 获取方式（详细步骤见 [📦 安装指南](#-安装指南小白也能看懂)）|
 |---|---|---|
-| **Android** | ✅ **v1.2.0 正式发布** | 真机验证通过（含 gpu-next 渲染后端崩溃修复） |
-| **macOS** | ✅ **v1.2.0 正式发布** | Apple Silicon（arm64）DMG，源码可见、可自行从零构建 |
-| **Linux**（Arch / Debian / Fedora） | 🚧 **建设中** | **明确不在 v1.2.0 发布范围**；各发行版打包链路已跑通，功能与打包统一后随 **v1.2.1** 发布 |
+| **Android** | ✅ v1.2.1 | [Releases](../../releases/latest) 下载 `app-release-1.2.1.apk` |
+| **macOS**（Apple 芯片）| ✅ v1.2.1 | Releases 下载 `HyperOnlineVideo-1.2.1-arm64.dmg` |
+| **Arch Linux / Manjaro** | ✅ v1.2.1 | AUR：`yay -S hov-qt` |
+| **Fedora 44 / 45** | ✅ v1.2.1 | Copr：[`houge/hov-qt`](https://copr.fedorainfracloud.org/coprs/houge/hov-qt/) · `sudo dnf copr enable houge/hov-qt` |
+| **openSUSE Tumbleweed** | ✅ v1.2.1 | OBS `home:houge`（x86_64 / aarch64 / riscv64）|
+| **openSUSE Leap 16.0** | ✅ v1.2.1 | OBS `home:houge`（x86_64 / aarch64）|
+| **NixOS** | ✅ v1.2.1 | flake：`github:HougeLangley/HyperOnlineVideo` |
+| **Ubuntu / Debian / 其它** | ✅ 源码构建 | 3 条命令、约 5 分钟（见安装指南）|
 
-> Linux 侧的 Fedora Copr 渠道**已开放测试**，但**当前不稳定**，详见下文「从零构建 · Linux」第 4 节。
+> 💡 **Linux 全系都通过官方/第三方软件源安装** ✓ 用系统包管理器一键完成 ✓ 自动更新 ✓
 
 <p align="center">
   <img src="docs/screenshots/01-home-screen.png" width="300" alt="主界面"/>
@@ -83,7 +88,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 | 播放引擎 | libmpv（`MpvWidget`） | libmpv render API（`MpvWidget`） | libmpv render API（`NSOpenGLView` + `MpvView`） |
 | 构建 | `gradle :app:assembleDebug` | `cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build` | `cd macos && swift build -c release`（**无需 Xcode**） |
 | 运行 | 安装 APK | `./build/hov-qt [--open <地址>]` | `./build/HyperOnlineVideo [--open <地址>]`；打包后双击 `.app` |
-| 打包 | APK（R8 混淆 + 资源压缩） | **Arch 包（用户指定唯一 Linux 形态）**；AppImage / Flatpak 暂缓 | `.app`（自包含 48 动态库）+ DMG 30.9MB |
+| 打包 | APK（R8 混淆 + 资源压缩） | **AUR / Fedora Copr / openSUSE OBS / Nix flake 四渠道**（见安装指南）；AppImage / Flatpak 脚本就绪 | `.app`（自包含动态库）+ DMG |
 | 自动化自检 | 单元测试（PlayQueue 等） | `--queue-selftest` **105 项** | `--selftest-logic` **102 项** |
 | 登录 | 内置 WebView | QtWebEngine；**无 WebEngine 的产物包走"系统浏览器登录 + cookie 导入"** | WKWebView（cookie 自动落盘）+ 同一套 cookie 导入 |
 | 媒体控制 | MediaSession（通知栏/锁屏） | MPRIS（媒体键/playerctl） | `MPRemoteCommandCenter`（控制中心/键盘媒体键） |
@@ -121,6 +126,152 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 └── cookies/          # youtube.txt / bilibili.txt / netease.txt / qqmusic.txt（Netscape 格式，yt-dlp 可直接用）
 ```
 
+## 📦 安装指南（小白也能看懂）
+
+> 每种系统**只需复制粘贴几条命令** ✓ 不需要懂原理 ✓
+> Linux 全系都**从软件源安装**（AUR / Copr / OBS / Nix flake）✓ —— 用系统包管理器一键完成 ✓ 随系统一起自动更新 ✓
+
+### 📱 Android（手机 / 平板）
+
+1. 打开本仓库的 **[Releases 页面](../../releases/latest)**
+2. 在 "Assets" 区域点击 **`app-release-1.2.1.apk`** 下载
+3. 在手机上打开这个文件；若提示「禁止安装未知应用」，按提示允许（安卓装非商店应用的标准流程 ✓）
+4. 安装完成后，桌面会出现「**聚合视频**」图标 ✓
+
+> 要求 **Android 15（API 35）及以上**（minSdk 35 · targetSdk 36）。
+
+### 🍎 macOS（Apple 芯片 M 系列）
+
+1. Releases 页面下载 **`HyperOnlineVideo-1.2.1-arm64.dmg`**
+2. 双击打开，把「**聚合视频**」拖进 **应用程序** 文件夹
+3. **第一次打开**会被 macOS 拦下（未做付费公证的应用都会这样 ✓ 正常现象）：
+   - **方法 A**：在「应用程序」里 **右键点图标 → 选"打开" → 再点一次"打开"**
+   - **方法 B（推荐，一劳永逸）**：打开「终端」粘贴下面这行，然后就能正常双击打开了：
+     ```bash
+     sudo xattr -dr com.apple.quarantine /Applications/HyperOnlineVideo.app
+     ```
+
+### 🐧 Linux —— 按你的发行版选一条照着复制
+
+#### Arch Linux / Manjaro / EndeavourOS（AUR）
+
+```bash
+# ① 如果你还没有 AUR 助手（已有 yay 或 paru 则跳过这步）
+sudo pacman -S --needed base-devel git
+git clone https://aur.archlinux.org/yay.git /tmp/yay && cd /tmp/yay && makepkg -si
+
+# ② 安装「聚合视频」（首次会自动编译，约 2-3 分钟）
+yay -S hov-qt
+```
+
+> 以后 `yay -Syu` 更新系统时会自动带上它 ✓
+> 支持 **x86_64 / aarch64 / riscv64** 三种架构 ✓
+
+#### Fedora 44 / 45
+
+```bash
+# ① 加入软件源（只需执行一次）
+sudo dnf copr enable houge/hov-qt
+
+# ② 安装
+sudo dnf install hov-qt
+```
+
+> 支持 **x86_64 / aarch64 / riscv64** ✓
+
+#### openSUSE Tumbleweed
+
+```bash
+# ① 加入软件源（只需执行一次）
+sudo zypper addrepo https://download.opensuse.org/repositories/home:/houge/openSUSE_Tumbleweed/ obs-houge
+
+# ② 安装
+sudo zypper install hov-qt
+```
+
+> 支持 **x86_64 / aarch64 / riscv64** ✓
+
+#### openSUSE Leap 16.0
+
+```bash
+# ① 加入软件源（只需执行一次）
+sudo zypper addrepo https://download.opensuse.org/repositories/home:/houge/openSUSE_Leap_16.0/ obs-houge-leap
+
+# ② 安装
+sudo zypper install hov-qt
+```
+
+#### NixOS（声明式 · flake）
+
+**第一步**：编辑 `/etc/nixos/flake.nix`，在 `inputs` 里加一段、在 `outputs` 参数里带上 `hov-qt`：
+
+```nix
+{
+  inputs = {
+    # …… 你现有的 nixpkgs / home-manager 等保持不动 ……
+
+    hov-qt = {                                    # ← 新增这段
+      url = "github:HougeLangley/HyperOnlineVideo";
+      inputs.nixpkgs.follows = "nixpkgs";         # 复用你现有的 nixpkgs（省下载 ✓）
+    };
+  };
+
+  outputs = { self, nixpkgs, hov-qt, ... }: {     # ← 把 hov-qt 加进参数列表
+    nixosConfigurations.<你的主机名> = nixpkgs.lib.nixosSystem {
+      # …… 你现有的配置保持不动 ……
+    };
+  };
+}
+```
+
+**第二步**：编辑 `configuration.nix`（用 home-manager 的话就是 `home.nix`，写法为 `home.packages = [ … ];`）：
+
+```nix
+environment.systemPackages = [
+  inputs.hov-qt.packages.x86_64-linux.default
+];
+```
+
+**第三步**：重建系统：
+
+```bash
+sudo nixos-rebuild switch
+```
+
+> 不想改配置、只想先试试？
+> `nix run github:HougeLangley/HyperOnlineVideo`
+> （直接从 GitHub 构建并运行 ✓ 不写入系统 ✓ 用完即走 ✓）
+
+#### Ubuntu / Debian / 其它发行版（源码构建 · 约 5 分钟）
+
+目前没有现成软件源，但构建只有三步（Ubuntu 26.04 / Debian 13 实测通过）：
+
+```bash
+# ① 安装构建依赖
+sudo apt update
+sudo apt install -y git cmake ninja-build pkgconf \
+  qt6-base-dev qt6-declarative-dev qt6-webengine-dev \
+  libmpv-dev mpv ffmpeg yt-dlp
+
+# ② 下载源码并编译
+git clone https://github.com/HougeLangley/HyperOnlineVideo.git
+cd HyperOnlineVideo/desktop
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DHOV_WEBENGINE=ON
+cmake --build build
+
+# ③ 运行
+./build/hov-qt
+```
+
+> **想安装到系统（带桌面图标、终端直接敲 `hov-qt`）**：
+> ```bash
+> sudo cmake --install build --prefix /usr/local
+> sudo update-desktop-database 2>/dev/null || true
+> ```
+> 完成后从应用菜单或终端启动 ✓
+
+---
+
 ## 截图
 
 ### Linux（Qt6 / Wayland）
@@ -129,7 +280,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 |---|---|
 | ![linux-1](docs/screenshots/linux/01-netease-cover-lyrics.png) | ![linux-2](docs/screenshots/linux/02-local-library.png) |
 
-### Linux v1.2.0（clang + full-LTO + PGO 优化构建）
+### Linux（历史截图 · clang + full-LTO + PGO 优化构建）
 
 | 本地视频播放（进度由属性快照驱动） | 打包产物实际运行（历史归档） |
 |---|---|
@@ -366,16 +517,15 @@ mock -r fedora-44-x86_64 --rebuild <SRPM> && mock -r fedora-44-x86_64 --scrub=al
 > ⚠️ **spec 的注释里绝不能出现宏名**（如 `%cmake`）—— RPM 会展开注释中的宏，
 > 会产生 `Unknown tag` 之类难以理解的报错。写完先 `rpmspec -q <spec>` 预检。
 
-### 4. Fedora Copr 第三方源（⚠️ **测试渠道 · 当前不稳定**）
+### 4. Fedora Copr 第三方源（✅ **v1.2.1 正式渠道**）
 
 ```bash
 sudo dnf copr enable houge/hov-qt
 sudo dnf install hov-qt
 ```
 
-> ⚠️ **请务必注意**：
-> - 这是 **测试渠道**，**当前不稳定**；Linux 端的功能与打包**仍在调整**，统一工作将在 **v1.2.1** 完成；
-> - Linux 端**不属于 v1.2.0 的正式发布内容**；
+> - 支持 **Fedora 44 / 45 × x86_64 / aarch64 / riscv64**（六个构建目标全部通过 ✓）；
+> - 与 **AUR / openSUSE OBS / Nix flake** 并列为 Linux 正式发布渠道（完整清单见上方 [📦 安装指南](#-安装指南小白也能看懂)）；
 > - 遇到问题欢迎到 **GitHub Issues** 反馈；
 > - 仓库地址：<https://copr.fedorainfracloud.org/coprs/houge/hov-qt/>
 

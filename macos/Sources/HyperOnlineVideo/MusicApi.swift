@@ -81,6 +81,7 @@ final class NetEaseApi {
         info.br = (first["br"] as? NSNumber)?.intValue ?? 0
         info.type = (first["type"] as? String) ?? ""
         info.level = (first["level"] as? String) ?? ""          // 服务端**实际**给的档位（可能低于请求值）
+        if !info.url.isEmpty { info.url = Self.pickWorkingNode(info.url) }   // 节点择优（"随机不播" ✓）
         if info.url.isEmpty {
             info.error = "无可用地址（code=\((first["code"] as? NSNumber)?.intValue ?? 0)，可能需要登录或版权受限）"
         } else {
@@ -88,6 +89,27 @@ final class NetEaseApi {
                       + (info.level.isEmpty || info.level == level ? "" : "  ← 被服务端降级（该曲/该账号无此音质）"))
         }
         return info
+    }
+
+    /// CDN 节点择优（2026-09-25 "随机不播"根因 ✗→✓）：网易云流 URL 随机落在 m701~m804 等节点，
+    /// 部分节点被 CDN 返回 403（实测 m704/m804 → 403；m701/m702/m703/m801 → 200；token 不绑定节点），
+    /// mpv 一次失败即弃 → 播放停在 0:00。探测替代节点取首个可用，全败回退原 URL。
+    private static func pickWorkingNode(_ url: String) -> String {
+        let pat = #"^(https?://)(m\d+)\.music\.126\.net(/.*)$"#
+        guard let re = try? NSRegularExpression(pattern: pat),
+              let m = re.firstMatch(in: url, range: NSRange(url.startIndex..<url.endIndex, in: url)),
+              let r1 = Range(m.range(at: 1), in: url),
+              let r2 = Range(m.range(at: 2), in: url),
+              let r3 = Range(m.range(at: 3), in: url) else { return url }
+        let prefix = String(url[r1]), orig = String(url[r2]), suffix = String(url[r3])
+        for node in ["m701", "m702", "m703", "m801", "m802", "m803"] where node != orig {
+            let cand = prefix + node + ".music.126.net" + suffix
+            if Http.probeOk(cand, headers: Self.headers()) {
+                Config.log("网易云节点择优: 选用 \(node).music.126.net")
+                return cand
+            }
+        }
+        return url
     }
 
     /// 歌词：原文 + 翻译 + 逐字（yrc 需登录）
@@ -154,25 +176,56 @@ final class QQMusicApi {
         return pairs.joined(separator: "; ")
     }
 
-    func search(_ keyword: String, limit: Int = 15) -> [Song] {
-        let url = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=1&n=\(limit)&w=\(NetEaseApi.percent(keyword))&format=json"
+    func search(_ keyword: String, page: Int = 1, limit: Int = 20) -> [Song] {
+        // 2026-09-25 修复①：老 soso 接口已失效（实测返回空 ✗）→ 改用 musicu.fcg 现行接口
+        // 修复②（当日傍晚 ✗ 用户实测"翻不到下一页"）：musicu **num_per_page 固定只回 15 条** ✗，
+        //   "多取后截尾"注定去重归零 ✗ → 必须用 page_num 真翻页（与 Android 对齐 ✓）
+        // （music.search.SearchCgiService / DoSearchForQQMusicMobile ✓ 与 Linux/Android 同款 ✓）
+        let body: [String: Any] = [
+            "comm": ["ct": "19", "cv": "1859", "uin": "0"],
+            "req": [
+                "module": "music.search.SearchCgiService",
+                // 2026-09-25 傍晚：换 **Desktop** 方法（真翻页 ✓ 实测 page1/2 各 50 首不同 ✓）——
+                //   grp:1 + num_per_page/page_num 用**数字** ✗（字符串会被服务端忽略 ✗ 曾"翻不到下一页"✗）
+                "method": "DoSearchForQQMusicDesktop",
+                "param": ["grp": 1, "num_per_page": limit,
+                          "page_num": page, "query": keyword, "search_type": 0],
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return [] }
         var h = ["User-Agent": Self.ua, "Referer": Self.referer]
         let ck = Self.cookieHeader()
         if !ck.isEmpty { h["Cookie"] = ck }
-        let r = Http.get(url, headers: h)
+        let r = Http.post("https://u.y.qq.com/cgi-bin/musicu.fcg", body: data,
+                          contentType: "application/json", headers: h)
         guard r.ok else {
             Config.log("QQ音乐搜索失败: \(r.error) HTTP \(r.status)")
             return []
         }
-        let list = (((r.json()["data"] as? [String: Any])?["song"] as? [String: Any])?["list"] as? [Any]) ?? []
+        var list = Self.searchList(r.json())   // Desktop 响应路径 ✓
+          if list.isEmpty && !ck.isEmpty {
+              // 登录态失效（旧 cookie → 服务端 req.code=2001 风控 ✗）→ **匿名重试**（搜索不需要登录 ✓）
+              var anonBody = body
+              anonBody["comm"] = ["ct": "19", "cv": "1859", "uin": "0"]
+              if let d2 = try? JSONSerialization.data(withJSONObject: anonBody) {
+                  let r2 = Http.post("https://u.y.qq.com/cgi-bin/musicu.fcg", body: d2,
+                                     contentType: "application/json",
+                                     headers: ["User-Agent": Self.ua, "Referer": Self.referer])
+                  if r2.ok {
+                      list = Self.searchList(r2.json())
+                      Config.log("QQ音乐搜索：带 cookie 无结果（可能登录态失效）→ 匿名重试 \(list.count) 条")
+                  }
+              }
+          }
         var out: [Song] = []
         for v in list {
             guard let o = v as? [String: Any] else { continue }
             var s = Song()
-            s.mid = (o["songmid"] as? String) ?? ""
-            s.name = (o["songname"] as? String) ?? ""
-            s.album = (o["albumname"] as? String) ?? ""
-            s.albumMid = (o["albummid"] as? String) ?? ""
+            s.mid = (o["mid"] as? String) ?? ""
+            s.name = (o["name"] as? String) ?? ""
+            let alb = o["album"] as? [String: Any]
+            s.album = (alb?["name"] as? String) ?? ""
+            s.albumMid = (alb?["mid"] as? String) ?? ""
             s.durationSec = (o["interval"] as? NSNumber)?.intValue ?? 0
             var singers: [String] = []
             for a in (o["singer"] as? [Any]) ?? [] {
@@ -189,6 +242,11 @@ final class QQMusicApi {
         if t == "lossless" { return ("F000", "flac", "无损 FLAC") }
         if t == "standard" { return ("M500", "mp3", "128k") }
         return ("M800", "mp3", "320k")
+    }
+
+    /// QQ 搜索响应 → 歌曲数组（Desktop 路径 body.song.list ✓；2026-09-26 去重：两处共用 ✓）
+    private static func searchList(_ root: [String: Any]) -> [Any] {
+        (((((root["req"] as? [String: Any])?["data"] as? [String: Any])?["body"] as? [String: Any])?["song"] as? [String: Any])?["list"] as? [Any]) ?? []
     }
 
     /// 取流：先从 cookie 的 uin 试，失败再试数字 uin（与 Qt 端同策略）

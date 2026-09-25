@@ -363,12 +363,20 @@ bool DownloadManager::embedTags(Job &j) {
 
     QStringList a{"-y", "-hide_banner", "-loglevel", "error", "-i", j.filePath};
     const bool cover = !j.coverUrl.isEmpty();
-    if (cover) a << "-i" << j.coverUrl;              // ffmpeg 直接读 HTTP 封面
+    if (cover) {
+        // 封面 CDN 可能校验 Referer（实测偶发 403 ✗）→ 按域名带上（放对应输入之前 ✓）
+        const QString cref = (j.coverUrl.contains("gtimg") || j.coverUrl.contains("qq.com"))
+                                 ? QStringLiteral("https://y.qq.com/")
+                                 : QStringLiteral("https://music.163.com/");
+        a << "-headers" << QString("Referer: %1\r\nUser-Agent: Mozilla/5.0\r\n").arg(cref);
+        a << "-i" << j.coverUrl;                      // ffmpeg 直接读 HTTP 封面
+    }
     a << "-map" << "0:a?";
     if (cover) a << "-map" << "1" << "-disposition:v:0" << "attached_pic"
                  << "-metadata:s:v" << "title=Album cover"
                  << "-metadata:s:v" << "comment=Cover (front)";
     a << "-c:a" << "copy";
+    if (cover) a << "-c:v" << "mjpeg";              // 显式 mjpeg：避免隐式转码（swscale 全图 rgb24 ✗）且跨 ffmpeg 版本稳定 ✓
     a << "-metadata" << ("title=" + j.title);
     if (!j.artist.isEmpty()) a << "-metadata" << ("artist=" + j.artist);
     if (!j.album.isEmpty()) a << "-metadata" << ("album=" + j.album);
@@ -389,6 +397,18 @@ bool DownloadManager::embedTags(Job &j) {
         return false;
     }
     // 读回校验：标题确实写进去了才替换（避免"标签没写成还把文件弄坏"）
+    // 封面读回校验（2026-09-25 ✗）：旧逻辑只查 title → 封面丢了也当成功 ✓ → 用户拿到无封面文件 ✗
+    if (cover) {
+        QProcess cprobe;
+        cprobe.start("ffprobe", QStringList{"-v", "error", "-select_streams", "v",
+                                             "-show_entries", "stream=codec_name",
+                                             "-of", "default=nw=1:nk=1", tmp});
+        if (!cprobe.waitForFinished(10000) || cprobe.readAllStandardOutput().trimmed().isEmpty()) {
+            QFile::remove(tmp);
+            qInfo() << "嵌标签失败（封面流未写入 ✗），保留原文件";
+            return false;
+        }
+    }
     QProcess probe;
     probe.start("ffprobe", QStringList{"-v", "error", "-show_entries", "format_tags=title",
                                         "-of", "default=nw=1:nk=1", tmp});

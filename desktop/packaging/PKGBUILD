@@ -5,8 +5,8 @@
 #   本文件以**仓库里这一份为准**，改动后 `tar | ssh` 同步到构建机；
 #   **绝不允许**反向用构建机之外的旧副本覆盖构建机 —— 那会把 pkgrel/源码源/兜底参数全部冲掉。
 pkgname=hov-qt
-pkgver=1.2.1
-pkgrel=1
+pkgver=1.2.2
+pkgrel=12
 pkgdesc="聚合视频 Hyper Online Video —— YouTube/Bilibili/网易云/QQ音乐 播放器（Qt6 桌面版）"
 arch=('aarch64' 'x86_64' 'riscv64')
 url="https://github.com/HougeLangley/HyperOnlineVideo"
@@ -18,7 +18,7 @@ makedepends=('cmake' 'ninja' 'pkgconf' 'clang' 'lld')
 # source=("$pkgname-$pkgver.tar.gz::https://github.com/HougeLangley/HyperOnlineVideo/archive/refs/tags/v$pkgver.tar.gz")
 # 开发阶段：本地源码 tarball + 真实校验和（比 git 源可复现：包含未提交改动，且 sha256 固定）
 source=("hov-qt-$pkgver-src.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('e7ef0f71eaa4082dfa1f01a9d242c9ac340f9c4376aeea3393a43a28862bd456')
 
 build() {
   cd "$srcdir/HyperOnlineVideo-$pkgver/desktop"

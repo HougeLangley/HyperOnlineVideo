@@ -19,7 +19,7 @@ const char *kUserAgent =
     "Chrome/120.0.0.0 Safari/537.36";
 const char *kReferer = "https://y.qq.com/";
 const char *kCgi = "https://u.y.qq.com/cgi-bin/musicu.fcg";
-const char *kSearchApi = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp";
+const char *kSearchApi = "https://u.y.qq.com/cgi-bin/musicu.fcg";   // 2026-09-25：老 soso 接口已失效 → 改用现行接口（与 Android 同款 ✓）
 const char *kGuid = "10000";
 
 // 档位 → filename 前缀 / 扩展名 / 说明
@@ -41,6 +41,30 @@ QString QQMusicApi::cookieFile() {
 
 bool QQMusicApi::hasCookie() {
     return QFile::exists(cookieFile());
+}
+
+// 文件作用域：QQ 搜索响应（Desktop 路径 body.song.list ✓）→ Song 列表
+//   2026-09-26 去重：主请求与"匿名降级重试"共用（此前两处 18 行复制 ✗ 屎山 ✓→✓）
+static QVector<QQMusicApi::Song> parseQQSearchList(const QJsonObject &root) {
+    const QJsonArray list = root.value("req").toObject().value("data").toObject()
+                                .value("body").toObject().value("song").toObject().value("list").toArray();
+    QVector<QQMusicApi::Song> out;
+    for (const auto &v : list) {
+        const QJsonObject o = v.toObject();
+        QQMusicApi::Song s;
+        s.mid = o.value("mid").toString();
+        s.name = o.value("name").toString();
+        const QJsonObject alb = o.value("album").toObject();
+        s.album = alb.value("name").toString();
+        s.albumMid = alb.value("mid").toString();
+        s.durationSec = o.value("interval").toInt();
+        QStringList names;
+        for (const auto &a : o.value("singer").toArray())
+            names << a.toObject().value("name").toString();
+        s.artist = names.join(" / ");
+        if (!s.mid.isEmpty() && !s.name.isEmpty()) out.append(s);
+    }
+    return out;
 }
 
 QQMusicApi::Cookie QQMusicApi::readCookie() const {
@@ -68,26 +92,46 @@ QQMusicApi::Cookie QQMusicApi::readCookie() const {
 }
 
 void QQMusicApi::search(const QString &keyword, int limit,
-                        std::function<void(const QVector<Song> &)> done) {
-    QUrlQuery q;
-    q.addQueryItem("p", "1");
-    q.addQueryItem("n", QString::number(limit));
-    q.addQueryItem("w", keyword);
-    q.addQueryItem("format", "json");
-    const QString url = QString("%1?%2").arg(kSearchApi, q.toString(QUrl::FullyEncoded));
+                        std::function<void(const QVector<Song> &)> done, int page) {
+    // 2026-09-25 修复：老搜索接口 c.y.qq.com/soso/fcgi-bin/client_search_cp 已失效（实测返回空 ✗
+    // 连 Android/macOS 同款的老接口也一样 ✗）。改用 y.qq.com 网页版现行的 musicu.fcg 接口
+    // （music.search.SearchCgiService / DoSearchForQQMusicMobile ✓ 与 Android 端完全同款 ✓
+    //  实测 curl 返回 item_song 列表 ✓ 字段：mid/name/interval/singer[].name/album.{name,mid} ✓）。
+    const Cookie ck = readCookie();
 
-    QNetworkRequest r{QUrl(url)};
+    QJsonObject comm;
+    comm["ct"] = "19";
+    comm["cv"] = "1859";
+    comm["uin"] = ck.uin.isEmpty() ? QString("0") : ck.uin;
+    QJsonObject param;
+    param["query"] = keyword;
+    param["grp"] = 1;
+    // 2026-09-25 傍晚：实测找到**真正支持翻页**的协议（与 2025.9 验证开源实现一致 ✓）：
+    //   DoSearchForQQMusicDesktop + grp:1，num_per_page/page_num 必须是**数字** ✗（字符串会被忽略 ✗）；
+    //   Mac 实测 page1/page2 各 50 条且内容不同 ✓（Mobile 方法的 page_num 完全无效 ✗ 已弃）。
+    param["num_per_page"] = limit;
+    param["page_num"] = page;
+    param["search_type"] = 0;
+    QJsonObject req;
+    req["module"] = "music.search.SearchCgiService";
+    req["method"] = "DoSearchForQQMusicDesktop";   // 真翻页 ✓（Mobile 的 page_num 无效 ✗）
+    req["param"] = param;
+    QJsonObject body;
+    body["comm"] = comm;
+    body["req"] = req;
+
+    QNetworkRequest r{QUrl(kSearchApi)};
+    r.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     r.setRawHeader("Referer", kReferer);
     r.setRawHeader("User-Agent", kUserAgent);
-    const Cookie ck = readCookie();
     if (!ck.header.isEmpty()) {
         r.setRawHeader("Cookie", ck.header.toUtf8());
         qInfo() << "[cookie] QQ音乐请求附带 cookie（" << ck.header.size() << "字节，来自 qqmusic.txt）";
     }
 
     if (status_) status_(hasCookie() ? "QQ音乐搜索中（已带 cookie）" : "QQ音乐搜索中（匿名）");
-    QNetworkReply *reply = net_->get(r);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, done] {
+    QNetworkReply *reply = net_->post(r, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, done, ck, body] {   // ck/body：匿名降级重试要用 ✓
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             if (status_) status_(QString("QQ音乐搜索失败：%1").arg(reply->errorString()));
@@ -95,22 +139,26 @@ void QQMusicApi::search(const QString &keyword, int limit,
             return;
         }
         const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
-        const QJsonArray list = root.value("data").toObject().value("song")
-                                    .toObject().value("list").toArray();
-        QVector<Song> out;
-        for (const auto &v : list) {
-            const QJsonObject o = v.toObject();
-            Song s;
-            s.mid = o.value("songmid").toString();
-            s.name = o.value("songname").toString();
-            s.album = o.value("albumname").toString();
-            s.albumMid = o.value("albummid").toString();
-            s.durationSec = o.value("interval").toInt();
-            QStringList names;
-            for (const auto &a : o.value("singer").toArray())
-                names << a.toObject().value("name").toString();
-            s.artist = names.join(" / ");
-            if (!s.mid.isEmpty() && !s.name.isEmpty()) out.append(s);
+        const QVector<Song> out = parseQQSearchList(root);   // 解析走公共 helper ✓
+        if (out.isEmpty() && !ck.header.isEmpty()) {
+            // 登录态失效（旧 cookie → 服务端 req.code=2001 风控 ✗）→ **匿名重试**（搜索不需要登录 ✓）
+            QJsonObject b2 = body;
+            QJsonObject c2 = b2.value("comm").toObject();
+            c2["uin"] = "0";
+            b2["comm"] = c2;
+            QNetworkRequest r2{QUrl(kSearchApi)};
+            r2.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+            r2.setRawHeader("Referer", kReferer);
+            r2.setRawHeader("User-Agent", kUserAgent);
+            QNetworkReply *rep2 = net_->post(r2, QJsonDocument(b2).toJson(QJsonDocument::Compact));
+            connect(rep2, &QNetworkReply::finished, this, [this, rep2, done] {
+                rep2->deleteLater();
+                const QJsonObject root2 = QJsonDocument::fromJson(rep2->readAll()).object();
+                const QVector<Song> out2 = parseQQSearchList(root2);
+                qInfo() << "QQ音乐搜索：带 cookie 无结果（可能登录态失效）→ 匿名重试" << out2.size() << "首";
+                done(out2);
+            });
+            return;
         }
         if (status_) status_(QString("QQ音乐返回 %1 首").arg(out.size()));
         done(out);

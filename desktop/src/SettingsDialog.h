@@ -22,6 +22,8 @@ struct Ctx {
     std::function<bool(const QString &, const QString &)> applySetting;  // 写一项设置（含校验与落盘 ✓）
     std::function<void()>                  applyThemeSettingNow;        // 主题立即生效 ✓
     std::function<void(const QString &)>   setStatusLine;               // 状态栏提示 ✓
+    /** 当前"生效中"的视频档位（会话优先 ✓）；缺省回退到 settings 值 —— 面板初值用它可避免"保存时静默改变档位"✗ */
+    std::function<int()>                   currentVideoHeight;
 };
 
 /// 打开模态设置对话框 ✓（parent 一般是 MainWindow ✓ 用于对话框归属与居中 ✓）

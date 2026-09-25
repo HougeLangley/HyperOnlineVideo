@@ -364,7 +364,9 @@ fun SettingsSheet(
     var gestures by remember { mutableStateOf(Settings.gesturesEnabled) }
     var fillScreen by remember { mutableStateOf(Settings.fillScreen) }
     var subtitleAuto by remember { mutableStateOf(Settings.subtitleAutoShow) }
+    var subScale by remember { mutableStateOf(Settings.subtitleFontScale) }   // 字幕字号缩放 0.5~2.0（与桌面端同语义 ✓）
     var quality by remember { mutableStateOf(Settings.musicQuality) }
+    var videoCap by remember { mutableStateOf(Settings.videoMaxHeight) }
     var wifiOnly by remember { mutableStateOf(Settings.wifiOnlyDownload) }
     val ytdlp by Repo.ytdlpStatus.collectAsStateWithLifecycle()
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -405,6 +407,30 @@ fun SettingsSheet(
             subtitleAuto = it; Settings.subtitleAutoShow = it
             onStatus(if (it) "已开启：播放时自动按系统语言显示字幕" else "已关闭：需手动点「字幕」选择")
         }
+        // 字幕字号缩放 ✓ 与 Linux/macOS 的 subtitle.fontScale 同语义同范围（0.5~2.0）✓
+        // 注：格式化用 Locale.US —— 中文 locale 下 %.2f 会输出逗号（避坑 #234 同类 ✓）
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("字幕字号", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    java.lang.String.format(java.util.Locale.US, "当前 %.2fx（范围 0.5~2.0）", subScale),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Slider(
+                value = subScale,
+                onValueChange = { subScale = it },
+                onValueChangeFinished = {
+                    Settings.subtitleFontScale = subScale
+                    onStatus(java.lang.String.format(java.util.Locale.US, "字幕字号已设为 %.2fx", subScale))
+                },
+                valueRange = 0.5f..2.0f,
+                steps = 5,                       // 0.75/1.0/1.25/1.5/1.75 五个中间点 ✓ 共 7 档 ✓
+                modifier = Modifier.width(170.dp),
+            )
+        }
+        Spacer(Modifier.height(4.dp))
 
         SectionTitle("播放")
             SwitchRow("进度记忆（退出后续播）", resume) {
@@ -427,6 +453,45 @@ fun SettingsSheet(
             Spacer(Modifier.height(14.dp))
 
             // ---------- 音乐 ----------
+            // ---------- 视频清晰度上限（与桌面 video.maxHeight 同语义 ✓ 仅降不升 ✓）----------
+            SectionTitle("视频清晰度上限")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf(
+                    Settings.VIDEO_CAP_AUTO to "自动",
+                    2160 to "4K",
+                    1440 to "2K",
+                    1080 to "1080P",
+                ).forEach { (v, label) ->
+                    FilterChip(
+                        selected = videoCap == v,
+                        onClick = {
+                            videoCap = v; Settings.videoMaxHeight = v
+                            onStatus("视频清晰度上限：$label")
+                        },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf(720 to "720P", 480 to "480P", 360 to "360P").forEach { (v, label) ->
+                    FilterChip(
+                        selected = videoCap == v,
+                        onClick = {
+                            videoCap = v; Settings.videoMaxHeight = v
+                            onStatus("视频清晰度上限：$label")
+                        },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "解析时选不超过该档位的最高画质（仅降不升）；播放器内可随时手动切换其它档位。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(14.dp))
+
             SectionTitle("音乐音质上限")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf(

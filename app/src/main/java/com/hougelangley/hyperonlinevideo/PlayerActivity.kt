@@ -326,7 +326,8 @@ class PlayerActivity : Activity() {
         // 字幕覆盖层（本地视频 + 同名 .srt；白字黑描边，位于控件栏上方）
         subtitleView = TextView(this).apply {
             setTextColor(0xFFFFFFFF.toInt())
-            textSize = 17f
+            // 字幕字号缩放：基准 17 不变 ✓ 乘上用户设置（0.5~2.0，与桌面端 subtitle.fontScale 同语义 ✓）
+            textSize = 17f * Settings.subtitleFontScale
             gravity = Gravity.CENTER
             setPadding(dp(16), dp(6), dp(16), dp(6))
             setShadowLayer(4f, 0f, 1f, 0xFF000000.toInt())
@@ -648,23 +649,9 @@ class PlayerActivity : Activity() {
         val lang = loc.language.lowercase()                       // zh / en / de …
         val tag = loc.toLanguageTag().lowercase()                  // zh-hans-cn / en-us …
 
-        fun key(label: String) = label.substringBefore("·").trim().lowercase()   // "zh-Hans · SRT" → "zh-hans"
-
-        fun rank(label: String): Int {
-            val k = key(label)
-            if (k.isEmpty()) return 9
-            if (tag.isNotEmpty() && (k == tag || k.startsWith(tag) || tag.startsWith(k))) return 0   // ① 精确/前缀
-            if (k == lang || k.startsWith("$lang-") || k.contains(lang)) return 1                     // ② 同主语言
-            if (lang == "zh") {                                                                       // ③ 中文自然语言标签
-                if (k.contains("简体") || k.contains("中文（中国）") || k.contains("中文(中国)")) return 0
-                if (k.contains("繁體") || k.contains("中文（台") || k.contains("中文(台")) return 2
-            }
-            if (k.startsWith("en")) return 3                                                          // ④ 英文兜底
-            return 9
-        }
-
-        val best = subtitleTracks.minByOrNull { rank(it.label) } ?: return
-        val r = rank(best.label)
+        // 排序逻辑已提为 core 纯函数（可单测 ✓ 三端语义对齐 ✓ 见 Subtitles.languageRank）
+        val best = subtitleTracks.minByOrNull { Subtitles.languageRank(it.label, tag) } ?: return
+        val r = Subtitles.languageRank(best.label, tag)
         android.util.Log.i("HOV", "[SUB] 系统语言=$tag 候选=${subtitleTracks.map { it.label }} → 选中 ${best.label}（rank=$r）")
         if (r >= 9) return                        // 没有与系统语言匹配的轨 → 不自动开 ✓
         loadOnlineSubs(best)                      // 复用既有链路（含 subsEnabled=true ✓ 显示 ✓）
@@ -794,22 +781,24 @@ class PlayerActivity : Activity() {
         if (q.url.isNotEmpty()) {
             reloadStream(q.url)              // YouTube：直链变体直接切
         } else if (isMusicPlatform(platform) && songId.isNotEmpty()) {
-            Thread {                         // 音乐：按档位重新取流（失败则回滚）
-                val s = kotlinx.coroutines.runBlocking { Repo.musicStreamAt(songId, platform, q.id) }
-                runOnUiThread {
-                    if (s == null) {
-                        currentQualityId = prevId
-                        btnQuality.text = prevLabel
-                        Toast.makeText(this, "该音质暂不可用（VIP 或版权限制）", Toast.LENGTH_SHORT).show()
-                        showControls(autoHide = true)
-                    } else {
-                        val raw = s.url
-                        // 音乐流必须经本机代理转发，保持“无视 VPN 直连”
-                        val proxied = StreamProxy.serveStream(raw) ?: raw
-                        reloadStream(proxied)
-                    }
+            // 审计 P2-6 ✓：Thread + runBlocking → 协程（对齐本文件既有 playerScope 模式 ✓
+            // 旧写法虽然不在主线程 ✗ 但“新建线程里再 runBlocking”是冗余 ✓ 且无生命周期感知 ✗
+            playerScope.launch {
+                val s = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    Repo.musicStreamAt(songId, platform, q.id)
                 }
-            }.start()
+                if (s == null) {
+                    currentQualityId = prevId
+                    btnQuality.text = prevLabel
+                    Toast.makeText(this@PlayerActivity, "该音质暂不可用（VIP 或版权限制）", Toast.LENGTH_SHORT).show()
+                    showControls(autoHide = true)
+                } else {
+                    val raw = s.url
+                    // 音乐流必须经本机代理转发，保持“无视 VPN 直连”
+                    val proxied = StreamProxy.serveStream(raw) ?: raw
+                    reloadStream(proxied)
+                }
+            }
         } else if (q.qn > 0 && progressKey.isNotEmpty()) {
             Thread {                         // B站：按 qn 重新解析
                 try {

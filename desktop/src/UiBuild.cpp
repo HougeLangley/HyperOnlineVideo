@@ -121,6 +121,9 @@ static QIcon magnifierIcon(const QColor &c = QColor(0xB4, 0xB4, 0xB4)) {
 }
 
 MainWindow::MainWindow() {
+        settings_.load();   // ⚠ 铁律（#208 家族 ✗）：必须在**一切按设置初始化的控件之前**
+                            //   历史事故：此前放在构造函数中后段 → 画质盒/自动续播框/启动 cookie 导入
+                            //   全部读到**默认值**（用户实测 2026-09-25：设置 1080p，左下角恒显示"自动"✗）
         auto *central = new QWidget(this);
         auto *root = new QVBoxLayout(central);
         root->setContentsMargins(10, 10, 10, 10);
@@ -449,6 +452,14 @@ MainWindow::MainWindow() {
         qualityBox_->setObjectName("pillBox");
         qualityBox_->setToolTip("清晰度（与设置面板共用一份档位表 — V 键也可循环切换）");
         connect(qualityBox_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
+            if (qualityBoxMusic_) {                     // 音乐内容：这个下拉是音质档（对齐 macOS B1 ✓ 用户要求 ✓）
+                const QString q = qualityBox_->itemData(i).toString();
+                applySetting("music.qualityCeiling", q);
+                results_->addItem(QString("[音质] 已设为 %1").arg(q == "lossless" ? "无损" : (q == "exhigh" ? "320k" : "128k")));
+                if (playKey_.startsWith("netease:") || playKey_.startsWith("qq:"))
+                    playItem(playKey_, playLabel_);     // 立即按新音质重取流 ✓（与 macOS 切音质行为一致 ✓）
+                return;
+            }
             const int h = qualityBox_->itemData(i).toInt();
             applySetting("video.maxHeight", QString::number(h));
             switchVideoQuality(h);                      // 立即用新档位重新解析当前视频 ✓
@@ -591,7 +602,7 @@ MainWindow::MainWindow() {
         connect(results_, &QListWidget::itemActivated, this, [this](QListWidgetItem *it) {
             playItem(it->data(Qt::UserRole).toString(), it->text());
         });
-        settings_.load();                                    // 先读设置，后面的组件都按它初始化
+        // settings_.load() 已上移至构造函数最前（#208 家族铁律 ✓ 见函数开头注释）
         // W1 ✓ 窗口几何：优先恢复上次关闭时的大小（设置键 ui.windowGeometry ✓ base64 ✓）
         //   ⚠️ 必须放在 settings_.load() **之后**：首版插在前面，读到的永远是空串
         //      → 恢复静默失效（探针实证：save 落盘 88 字节 ✓ 却恢复成 1200x720 ✗）

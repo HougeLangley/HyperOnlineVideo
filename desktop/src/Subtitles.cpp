@@ -356,6 +356,12 @@ int Subtitles::languageRank(const QString &lang) {
             return (sysHant == hant) ? 0 : 1;
         }
     }
+    // ②b 裸"中文"/"Chinese"（B站 lan_doc 常态 ✗ YouTube 英文标签 ✗）→ 视为命中中文系统 ✓
+    //     修复 2026-09-25（与 Android Subtitles.languageRank / macOS Subtitles.swift 同款 ✗）
+    if (sysZh && (label.contains(QString::fromUtf8("中文")) || label.contains("chinese"))) {
+        const bool sysHant = hints.first().startsWith("zh-hant");
+        return sysHant ? 2 : 0;   // 简体系统=最高优先；繁体系统=次之（裸标签无简繁信息 ✗）
+    }
     // ③ 都未命中：排在所有 hints 之后（英文优先 ✓；中文系统再保留"简体优先"的原有观感 ✓）
     const int base = hints.size();
     if (label == "en" || label.startsWith("en-") || label.startsWith("english")) return base;

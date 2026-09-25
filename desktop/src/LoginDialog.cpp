@@ -75,6 +75,7 @@ LoginDialog::LoginDialog(const QString &site, QWidget *parent) : QDialog(parent)
     // 收集 cookie：loadAllCookies 会把已有 cookie 逐个通过 cookieAdded 发出来
     connect(profile_->cookieStore(), &QWebEngineCookieStore::cookieAdded, this,
             [this](const QNetworkCookie &c) {
+                if (closing_) return;   // 析构中禁止入库（避坑 #268 ✓）
                 for (auto &x : cookies_)
                     if (x.name() == c.name() && x.domain() == c.domain()) { x = c; return; }
                 cookies_.append(c);
@@ -107,7 +108,21 @@ LoginDialog::LoginDialog(const QString &site, QWidget *parent) : QDialog(parent)
 
 LoginDialog::~LoginDialog() {
 #ifdef HOV_WEBENGINE
+    // 关窗顺序（避坑 #268 ✓ 实测 SEGV 修复）：
+    // profile_ 是本对象**第一个** QObject 子对象，而 deleteChildren 按创建顺序删 ✗ ——
+    // 它会先于 view_ 被销毁；而 QWebEngineProfile 析构过程中 Chromium 仍会触发
+    // OnCookieChanged → cookieAdded（栈实测 #23~#5 ✓）。若连接还在，回调会把
+    // 已释放的 QNetworkCookie 拷进 cookies_（崩在 QNetworkCookie 拷贝构造 ✓）。
+    // 因此：
+    //   ① 先置守卫 + 断开 cookieStore→this 的信号（关键 ✓）
+    //   ② 先销毁 view_（连带其 page 子对象）—— QtWebEngine 文档要求 profile 最后销毁 ✓
+    closing_ = true;
+    if (profile_ && profile_->cookieStore())
+        disconnect(profile_->cookieStore(), nullptr, this, nullptr);
+    if (autoSave_) autoSave_->stop();
     saveCookies();   // 关窗前再存一次，避免刚登录就关闭丢失
+    delete view_;    // 显式先删视图：其 children（QWebEnginePage）一并销毁 ✓
+    view_ = nullptr;
 #endif
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 #include <QImage>
+#include <QPixmap>
 #include <QString>
 #include <memory>
 
@@ -37,4 +38,9 @@ private:
     QString url_;
     QString title_;
     QString artist_;
+    // 预缩放 + 预圆角的小图缓存（paint() 为 const ✓ 故 mutable；side 或 url 变化时重算 ✓）
+    mutable QImage rounded_;
+    mutable QPixmap roundedPix_;   // drawPixmap 走 GL 原生纹理路径（drawImage 实测不显示 ✗）
+    mutable int roundedSide_ = 0;
+    mutable QString roundedUrl_;
 };

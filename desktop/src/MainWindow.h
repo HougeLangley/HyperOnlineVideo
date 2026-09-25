@@ -258,6 +258,9 @@ template <typename T>
     /** 播放内容的平台标签与"搜索源跟随"（用户反馈：源显示 YouTube 却在放 B 站 —— 下拉是搜索源，容易误读） */
     /** 当前有效视频清晰度（会话值优先，其次设置） */
     int effectiveVideoHeight() const;
+    /** 把左下角画质盒同步到"当前有效档位"（会话优先，否则设置值 ✓）——
+     *  单一数据源原则：V 键 / --video-quality / 设置面板 任何路径改档位后都调用 ✓ */
+    void syncQualityBox();
 
     /** 切清晰度：重新解析并回到原进度（视频专属；与"切音质"同一思路） */
     void switchVideoQuality(int h);
@@ -439,6 +442,8 @@ private:
     QLabel *labelInfo_   = nullptr;
     // UI-3b（文档 61 ✓）：底栏新增控件（画质/倍速下拉 + 播放模式按钮）
     QComboBox *qualityBox_ = nullptr;
+    bool qualityBoxMusic_ = false;                 // 左下角下拉当前是否"音质档"（音乐内容 ✓ 对齐 macOS B1）
+    void setQualityBoxForMusic(bool music);        // 切换下拉内容（画质档 ↔ 音质档 ✓）
     QComboBox *speedBox_   = nullptr;
     QPushButton *modeBtn_  = nullptr;  // UI-3 ✓ 底栏信息行（[来源] 标题  时间）
     QPushButton *autoNextBtn_ = nullptr;
@@ -487,6 +492,7 @@ private:
         return added;
     }
     void finishMore(int reqId, int added);
+    void prefetchNetEaseCovers(const QVector<NetEaseApi::Song> &songs);   // 第一页/翻页共用 ✓
     void fetchMorePage(int src, const QString &kw, int page);
     /** 滚到底触发：与 macOS loadMoreIfNeeded 等价 */
     void loadMore();

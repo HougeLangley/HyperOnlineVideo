@@ -10,6 +10,8 @@
 #include <QNetworkReply>
 #include <QNetworkProxy>
 #include <QNetworkRequest>
+#include <QRegularExpression>
+#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -129,6 +131,33 @@ void NetEaseApi::coverUrl(const QString &songId, std::function<void(const QStrin
     });
 }
 
+void NetEaseApi::coverUrls(const QStringList &songIds,
+                           std::function<void(const QHash<QString, QString> &)> done) {
+    // 批量版（搜索结果卡用 ✓）：与 coverUrl 同一接口，一次请求多个 id（macOS 同做法 ✓）。
+    // 搜索接口只返回 picId（实测 picUrl=None ✗）→ 必须走 song/detail 才能拿到可用的 https 图链 ✓。
+    if (songIds.isEmpty()) { done({}); return; }
+    QStringList ids;
+    for (const QString &id : songIds) {
+        if (!id.isEmpty()) ids << QString("'%1'").arg(id);   // 数字 id 加引号也安全 ✓（服务端接受）
+    }
+    QNetworkRequest req{QUrl("https://music.163.com/api/song/detail")};
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    req.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0");
+    QNetworkReply *r = net_->post(req, QByteArray("ids=[") + ids.join(',').toUtf8() + "]");
+    connect(r, &QNetworkReply::finished, this, [r, done] {
+        r->deleteLater();
+        QHash<QString, QString> out;
+        const QJsonObject root = QJsonDocument::fromJson(r->readAll()).object();
+        for (const auto &v : root.value("songs").toArray()) {
+            const QJsonObject o = v.toObject();
+            const QString id = QString::number(static_cast<qint64>(o.value("id").toDouble()));
+            const QString pic = o.value("album").toObject().value("picUrl").toString();
+            if (!id.isEmpty() && !pic.isEmpty()) out.insert(id, pic);
+        }
+        done(out);
+    });
+}
+
 void NetEaseApi::lyric(const QString &songId,
                        std::function<void(const QString &, const QString &)> done) {
     lyricFull(songId, [done](const QString &lrc, const QString &trans, const QString &) {
@@ -195,8 +224,54 @@ void NetEaseApi::songUrl(const QString &songId, const QString &level,
                         .arg(o.value("br").toInt() / 1000)
                         .arg(o.value("type").toString()));
         }
-        done(u, QString());
+        // CDN 节点择优（用户实测"随机不播"根因 ✗）：网易云把流随机分到 m701~m804 等节点，
+        //   部分节点在部分网络（代理/VPN 出口）下被 CDN 返回 403，而 mpv 一次失败即弃（loading failed ✗）。
+        //   实测证据（2026-09-25）：同一 URL 仅换节点 m701/m702/m703/m801→200 ✓，m704/m804→403 ✗
+        //   （token 不绑定节点 ✓）→ 探测首个可用节点，全败回退原 URL ✓。
+        pickWorkingNode(u, [done](const QString &picked) { done(picked, QString()); });
     });
+}
+
+void NetEaseApi::pickWorkingNode(const QString &url, std::function<void(const QString &)> done) {
+    static const QRegularExpression re(QStringLiteral(R"(^(https?://)(m\d+)\.music\.126\.net(/.*)$)"));
+    const QRegularExpressionMatch m = re.match(url);
+    if (!m.hasMatch()) { done(url); return; }                     // 非网易云 CDN 形态 → 原样
+    const QString prefix = m.captured(1), orig = m.captured(2), suffix = m.captured(3);
+    auto cands = std::make_shared<QStringList>();
+    for (const char *h : { "m701", "m702", "m703", "m801", "m802", "m803" })
+        if (orig != QLatin1String(h)) cands->append(QLatin1String(h));
+    cands->append(orig);                                          // 原节点放最后（已知坏则少等一轮 ✓）
+
+    auto idx = std::make_shared<int>(0);
+    auto self = std::make_shared<std::function<void()>>();
+    *self = [this, prefix, suffix, cands, idx, self, done]() {
+        const QString node = (*cands)[(*idx)++];
+        const QString u = prefix + node + QStringLiteral(".music.126.net") + suffix;   // 域名必须补回 ✗（曾漏 → http://m701/... → DNS 失败 ✗）
+        QNetworkRequest req = makeRequest(u);
+        req.setRawHeader("Range", "bytes=0-0");                   // Range 探测（只取头字节 ✓）
+        QNetworkReply *r = net_->get(req);
+        auto *tm = new QTimer(r);
+        tm->setSingleShot(true);
+        tm->setInterval(1200);                                    // 单节点超时 1.2s ✓
+        connect(tm, &QTimer::timeout, r, [r] { r->abort(); });
+        tm->start();
+        connect(r, &QNetworkReply::metaDataChanged, r, [r] {
+            const int c = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (c == 200 || c == 206) r->abort();                 // Range 探测：拿到状态码就断，不整首下载 ✗
+        });
+        connect(r, &QNetworkReply::finished, this, [this, r, u, cands, idx, self, done] {
+            const int c = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            r->deleteLater();
+            if (c == 200 || c == 206) {
+                qInfo() << "网易云节点择优: 选用" << QUrl(u).host() << QString("（第%1候选）").arg(*idx);
+                done(u);
+                return;
+            }
+            if (*idx < cands->size()) { (*self)(); return; }      // 换下一个候选 ✓
+            done(u);                                              // 全败：原节点兜底 ✓
+        });
+    };
+    (*self)();
 }
 
 void NetEaseApi::setForceDirect(bool on) {

@@ -1,4 +1,13 @@
 -------------------------------------------------------------------
+Fri Sep 25 22:30:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Version 1.2.2: QQ search true pagination + infinite scroll (Desktop
+  protocol); pagination covers for NetEase/QQ; embedded cover art on
+  downloads; NetEase CDN node probing; mpv event/log pump; subtitle
+  auto-track fixes; adaptive lyrics font; video max-height fix;
+  macOS thread-safety crash fix; keep-open race hardening.
+
+-------------------------------------------------------------------
 Thu Sep 24 16:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
 
 - Fix license declaration: GPL-3.0-only (the LICENSE file grants

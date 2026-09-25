@@ -56,5 +56,15 @@ enum Http {
         return run(req, timeout: timeout)
     }
 
+    /// Range 探测（网易云 CDN 节点择优用 ✓）：只拉 1 字节，200/206 视为可用
+    static func probeOk(_ url: String, headers: [String: String] = [:], timeout: TimeInterval = 3) -> Bool {
+        guard let u = URL(string: url) else { return false }
+        var req = URLRequest(url: u)
+        req.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        let r = run(req, timeout: timeout)
+        return r.status == 200 || r.status == 206
+    }
+
     static let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 }

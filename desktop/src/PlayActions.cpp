@@ -55,6 +55,13 @@ void MainWindow::beginPlayback(const QString &key, const QString &label) {
         playArtist_ = sep > 0 ? label.mid(sep + 3) : QString();
         metaSent_ = false;
         if (mpris_) mpris_->updateStatus();
+        // 左下角下拉按内容形态分流：音乐（在线网易云/QQ + 本地音频）→ 音质档；其余 → 画质档 ✓（对齐 macOS B1 ✓ 用户要求 ✓）
+        {
+            static const QStringList audioExt{"mp3", "flac", "m4a", "wav", "ape", "aac", "ogg"};
+            const bool isMusic = key.startsWith("netease:") || key.startsWith("qq:")
+                                 || audioExt.contains(QFileInfo(key).suffix().toLower());
+            setQualityBoxForMusic(isMusic);
+        }
         if (!resumeEnabled_ || !settings_.boolean("playback.rememberProgress", true)) return;
         const double p = prog_.resumePos(key);
         if (p > 0.5) {
@@ -122,16 +129,22 @@ void MainWindow::playNetEase(const QString &id, const QString &label) {
         tuneApi(api);
         api->setStatusHandler([this](const QString &m) { results_->addItem(m); });
         api->songUrl(id, effectiveQuality(), [this, api, id, label](const QString &url, const QString &err) {
-            if (url.isEmpty()) {
-                results_->addItem(QString("取播放地址失败：%1").arg(err));
+            // 起播落地（成功路径唯一出口 ✓）
+            auto go = [this, api, id, label](const QString &u) {
+                results_->addItem(QString("正在播放[%1]：%2").arg(playPlatform_.isEmpty() ? "网易云音乐" : playPlatform_, label));
+                applyCoverFor("netease:" + id, label);            // 专辑封面（详情接口）
+                lastStreamUrl_ = u; lastStreamTitle_ = label;     // 供下载按钮使用
+                lastAudioUrl_.clear();                            // 音乐无独立音轨（与 startMusicPlayback 对齐 ✓）
+                player_->playResolved(u, QString());
+                loadLyricsFor(id, label, api);   // 顺带取歌词并交给字幕层显示
+            };
+            if (!url.isEmpty()) { go(url); return; }
+            // 降级重试 standard（VIP/权益受限曲目常见 ✓ 与搜索路径的兜底一致 ✓ 2026-09-25 用户"点击不播放"）
+            api->songUrl(id, "standard", [this, api, err, go](const QString &u2, const QString &e2) {
+                if (!u2.isEmpty()) { go(u2); return; }
+                results_->addItem(QString("取播放地址失败：%1（降级 128k 亦失败：%2）").arg(err, e2));
                 api->deleteLater();
-                return;
-            }
-            results_->addItem(QString("正在播放[%1]：%2").arg(playPlatform_.isEmpty() ? "网易云音乐" : playPlatform_, label));
-            applyCoverFor("netease:" + id, label);            // 专辑封面（详情接口）
-            lastStreamUrl_ = url; lastStreamTitle_ = label;   // 供下载按钮使用
-            player_->playResolved(url, QString());
-            loadLyricsFor(id, label, api);   // 顺带取歌词并交给字幕层显示
+            });
         });
 }
 
@@ -162,6 +175,7 @@ void MainWindow::playQQ(const QString &mid, const QString &label) {
 
 void MainWindow::switchVideoQuality(int h) {
         sessionVideoHeight_ = h;
+        syncQualityBox();                           // 任何路径（V 键 / CLI / 下拉）改档位 → 盒子跟随 ✓
         const QString label = UrlResolver::qualityLabel(h);
         results_->addItem(QString("[清晰度] 已切到 %1").arg(label));
         qInfo() << "[清晰度] 已切到" << label << "（会话档位）";     // 同时进 stderr：自动化可判定

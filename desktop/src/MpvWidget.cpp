@@ -2,6 +2,10 @@
 #include "SubtitleOverlay.h"
 #include "Subtitles.h"
 #include "Settings.h"
+#include <QOpenGLFunctions>
+#include <QLabel>
+#include <QPainterPath>
+#include <QResizeEvent>
 #include <QDebug>
 #include <QDateTime>
 #include <chrono>
@@ -98,6 +102,7 @@ MpvWidget::MpvWidget(QWidget *parent) : QOpenGLWidget(parent) {
 MpvWidget::~MpvWidget() {
     snapStop_ = true;
     if (snapThread_.joinable()) snapThread_.join();
+    if (logThread_.joinable()) logThread_.join();
     // 先摘掉回调，避免 mpv 之后仍回调到将析构的对象（网络播放耗时长时最容易命中）
     if (ctx_) mpv_render_context_set_update_callback(ctx_, nullptr, nullptr);
     t_currentMpvWidget = this;   // mpv_render_context_free 内的 GL 清理会调到 shim
@@ -158,47 +163,133 @@ void MpvWidget::paintGL() {
         mpv_render_context_render(ctx_, params);
     }
     painter.endNativePainting();
+    // ⚠ 2026-09-25 实测修复：**不在此处绘制任何 QPainter 内容** ✗
+    //   mpv 渲染后残留的 GL 状态会破坏 Qt 的"几何图形路径"——fillRect / drawImage /
+    //   drawPixmap **全部不显示**（只有 glyph 文本侥幸可见 ✗ 诊断彩块测试证实 ✗）。
+    //   正确做法（Qt 文档姿势）：QPainter 内容统一放 paintEvent ✓（GL 之后独立光栅合成 ✓
+    //   不受 GL 状态影响 ✓ 实测封面/磨砂底/渐变色块全部正常 ✓）。
+}
 
-    if (!subs_.forceHidden()) subs_.paint(painter, rect());   // 字幕/歌词（App 层渲染）
-    // ── 玻璃质感（v1.2.0）：磨砂底（模糊封面）+ 主题色竖向渐变 + 压暗层 ──
-    // 只在"有封面"时绘制（视频播放会清空封面）→ 视频画面完全不受影响。
-    // 主题色按封面 URL 缓存：只换封面时才算一次（取色+模糊都在 220px 小图上，毫秒级）。
-    if (glassOn_ && cover_.hasImage()) {
+void MpvWidget::paintEvent(QPaintEvent *ev) {
+    QOpenGLWidget::paintEvent(ev);   // 基类：驱动 initializeGL / paintGL（mpv 画面渲染）
+    QPainter painter(this);
+    // 字幕/歌词：QPainter 文本（glyph 路径在软件 GL 下仍可见 ✓ 实测）
+    // 歌词/字幕：视频场景（无封面/无玻璃 label）直接在 GL 帧内画（glyph 可见 ✓）；
+    // 音乐模式（玻璃 label 覆盖 ✗）改画进玻璃图 —— 见 refreshOverlays（子控件层无法与 GL 帧混合 ✗）
+    if (!subs_.forceHidden() && !(glassOn_ && cover_.hasImage())) {
+        subs_.setTopSafe(0);
+        subs_.paint(painter, rect());
+    }
+    // ⚠ 封面与玻璃背景**不走 QPainter**（软件 GL 下图片/矩形绘制不显示 ✗ 2026-09-25 实测 ✗）
+    //   → 由 QLabel 子控件承载（refreshOverlays ✓ 子控件在 GL 之上且实测可见 ✓✓）
+    refreshOverlays();
+}
+
+void MpvWidget::resizeEvent(QResizeEvent *ev) {
+    QOpenGLWidget::resizeEvent(ev);
+    refreshOverlays();   // 尺寸变化后同步子控件几何 ✓
+}
+
+void MpvWidget::refreshOverlays() {
+    const bool music = cover_.hasImage() && !rect().isEmpty();
+
+    // ── 玻璃背景（磨砂 + 主题色渐变 + 压暗）：合成到一张图 → glassLabel_（全屏、位于封面之下）──
+    if (glassOn_ && music) {
+        if (!glassLabel_) {
+            glassLabel_ = new QLabel(this);
+            glassLabel_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+            glassLabel_->setScaledContents(true);
+        }
         if (!glass_.valid() || glassKey_ != coverUrl_) {
-            const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
             glass_ = ColorTheme::make(cover_.image());
             glassKey_ = coverUrl_;
-            const qint64 cost = QDateTime::currentMSecsSinceEpoch() - t0;
-            std::fprintf(stderr, "[GLASS] 主题计算 %lld ms 有效=%d url=%s\n",
-                         static_cast<long long>(cost), glass_.valid() ? 1 : 0, qPrintable(coverUrl_));
         }
-        if (glass_.valid()) {
-            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        // 底图（磨砂+渐变+压暗）：**只在封面变化时重建** ✓（歌词每帧在它上面叠加 → 不必重复磨砂缩放 ✗）
+        if (glass_.valid() && (glassBaseKey_ != coverUrl_ || glassBase_.size() != size())) {
+            QImage base(size(), QImage::Format_ARGB32_Premultiplied);
+            base.fill(Qt::transparent);
+            QPainter g(&base);
+            g.setRenderHint(QPainter::SmoothPixmapTransform, true);
             const QImage &bd = glass_.backdrop();
-            if (!bd.isNull()) {                                  // 磨砂底：等比铺满（aspect-fill）
-                QSize s = bd.size();
-                s.scale(rect().size(), Qt::KeepAspectRatioByExpanding);
-                QRect r(QPoint(0, 0), s);
-                r.moveCenter(rect().center());
-                // 注意：**必须不透明（1.0）** —— 窗口开了 WA_TranslucentBackground 时，
-                // GL 层若带 alpha（原来 0.85）在 Wayland 会被合成器丢弃（实测：封面/磨砂底整层消失）。
-                painter.setOpacity(1.0);
-                painter.drawImage(r, bd);
+            if (!bd.isNull()) {
+                QSize sc = bd.size();
+                sc.scale(base.size(), Qt::KeepAspectRatioByExpanding);
+                QRect r(QPoint(0, 0), sc);
+                r.moveCenter(base.rect().center());
+                g.setOpacity(0.93);
+                g.drawImage(r, bd);
             }
-            if (!glass_.gradient().isNull()) {                    // 主题色渐变（顶亮→底暗）
-                painter.setOpacity(0.55);
-                painter.drawImage(rect(), glass_.gradient());
-                painter.setOpacity(1.0);
+            if (!glass_.gradient().isNull()) {
+                g.setOpacity(0.55);
+                g.drawImage(base.rect(), glass_.gradient());
             }
-            painter.fillRect(rect(), QColor(0, 0, 0, 90));         // 压暗层：保证白字清晰（macOS 同法）
-            // 兜底：即使封面尚未就绪，也把 GL 层填成不透明，避免透明窗下整层被丢弃
-            const QImage probe = QImage(1, 1, QImage::Format_ARGB32_Premultiplied);
-            Q_UNUSED(probe)
+            g.setOpacity(0.38);
+            g.fillRect(base.rect(), QColor(0, 0, 0));         // 压暗层（半透明 ✓）
+            g.end();
+            glassBase_ = base;
+            glassBaseKey_ = coverUrl_;
         }
+        // 歌词层：key 含**当前歌词状态**（文本+逐字进度+行号 ✗）——
+        //   修复 2026-09-25 用户实测：此前 key 只有封面 URL → 歌词凝固在首帧（"作词/作曲"不动 ✗）
+        if (glassBase_.size() == size()) {
+            subs_.setTopSafe(1);   // >0 = 有封面 → 歌词右列左对齐 ✓
+            const QString lyricKey = coverUrl_ + "||" + subs_.paintKey();
+            if (glassPixKey_ != lyricKey) {
+                QImage canvas = glassBase_.copy();            // 拷贝底图（快 ✓）+ 叠歌词
+                if (!subs_.forceHidden()) {
+                    QPainter g(&canvas);
+                    g.setRenderHint(QPainter::Antialiasing, true);
+                    g.setRenderHint(QPainter::TextAntialiasing, true);
+                    // 歌词直接画进玻璃图（同一张 raster ✓ 100% 可见 —— 子控件层无法与 GL 帧混合 ✗）
+                    subs_.paint(g, canvas.rect());
+                }
+                glassPixKey_ = lyricKey;
+                glassLabel_->setPixmap(QPixmap::fromImage(canvas));
+            }
+        }
+        if (glassLabel_->geometry() != rect()) glassLabel_->setGeometry(rect());
+        glassLabel_->show();
+        glassLabel_->lower();   // 封面之下（封面会 raise ✓）
+    } else if (glassLabel_) {
+        glassLabel_->hide();
     }
-    // 无封面/无视频时，把 GL 层压成不透明深色（否则透明窗口下这一层会被合成器丢弃）
-    if (!cover_.hasImage() && !glassOn_) painter.fillRect(rect(), QColor(18, 18, 18, 255));
-    cover_.paint(painter, rect());                            // 专辑封面（音乐场景）
+
+    // ── 专辑封面（圆角，左侧垂直居中 —— 版式对齐 macOS 音乐模式 ✓）──
+    if (music) {
+        const int side = qBound(120, qMin(int(height() * 0.60), int(width() * 0.30)),
+                                qMax(120, height() - 72));
+        if (!coverLabel_) {
+            coverLabel_ = new QLabel(this);
+            coverLabel_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        }
+        if (coverPixKey_ != coverUrl_ || coverLabelSide_ != side) {
+            const QImage &im = cover_.image();
+            const QImage scaled = im.scaled(side, side, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+            const QPoint off((scaled.width() - side) / 2, (scaled.height() - side) / 2);
+            QImage out(side, side, QImage::Format_ARGB32_Premultiplied);
+            out.fill(Qt::transparent);
+            {
+                QPainter rp(&out);
+                rp.setRenderHint(QPainter::Antialiasing, true);
+                rp.setRenderHint(QPainter::SmoothPixmapTransform, true);
+                QPainterPath path;
+                path.addRoundedRect(QRectF(0, 0, side, side), 12, 12);
+                rp.setClipPath(path);
+                rp.drawImage(QPoint(0, 0), scaled, QRect(off, QSize(side, side)));
+            }
+            coverLabel_->setPixmap(QPixmap::fromImage(out));
+            coverLabel_->resize(side, side);
+            coverPixKey_ = coverUrl_;
+            coverLabelSide_ = side;
+        }
+        const QPoint pos(int(width() * 0.05), (height() - side) / 2);
+        if (coverLabel_->pos() != pos) coverLabel_->move(pos);
+        coverLabel_->show();
+        coverLabel_->raise();
+
+    } else if (coverLabel_) {
+        coverLabel_->hide();
+    }
 }
 
 void MpvWidget::setCoverArt(const QString &url, const QString &title, const QString &artist) {
@@ -383,6 +474,7 @@ void MpvWidget::playResolved(const QString &videoUrl, const QString &audioUrl) {
     const QByteArray headers = ref.isEmpty() ? QByteArray() : ("Referer: " + ref).toUtf8();
     mpv_set_option_string(mpv_, "http-header-fields", headers.constData());
 
+    wantPlaying_ = true;                              // 竞态加固：加载完成后仍 paused 则由快照线程纠正 ✓
     QByteArray v = videoUrl.toUtf8();
     const char *cmd[] = {"loadfile", v.constData(), nullptr};
     mpv_command(mpv_, cmd);
@@ -413,6 +505,24 @@ void MpvWidget::startSnapshotter() {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));   // 5Hz，开销可忽略
         }
     });
+    // mpv 事件/日志泵（2026-09-25 ✗）：此前**没有任何事件消费者** →
+    //   mpv 的加载错误/HTTP 失败/缓冲卡死全被静默吞掉，用户报"随机不播"无从定位（实测复现 ✓）。
+    //   warn 常开；HOV_MPV_VERBOSE=1 时 info 级（诊断用，含 pause/loadfile/HTTP 细节）
+    if (!logThread_.joinable()) {
+        const bool verbose = qEnvironmentVariableIsSet("HOV_MPV_VERBOSE");
+        mpv_request_log_messages(mpv_, verbose ? "info" : "warn");
+        logThread_ = std::thread([this, verbose] {
+            std::fprintf(stderr, "[MPV] 日志泵已启动（级别=%s）\n", verbose ? "info" : "warn");
+            while (!snapStop_) {
+                mpv_event *ev = mpv_wait_event(mpv_, 0.2);
+                if (!ev || ev->event_id == MPV_EVENT_NONE) continue;
+                if (ev->event_id == MPV_EVENT_LOG_MESSAGE) {
+                    auto *m = static_cast<mpv_event_log_message *>(ev->data);
+                    std::fprintf(stderr, "[MPV:%s] %s", m->prefix ? m->prefix : "", m->text ? m->text : "");
+                }
+            }
+        });
+    }
 }
 
 void MpvWidget::captureSnapshot() {
@@ -442,7 +552,17 @@ void MpvWidget::captureSnapshot() {
         if (t) { s.title = QString::fromUtf8(t); mpv_free(t); }
     }
     std::lock_guard<std::mutex> lk(snapMutex_);
-    snap_ = s;
+            // keep-open=yes：新文件加载时可能继承上一文件的"已暂停"状态 ✗ → 停在 0:00 不动
+        //（用户实测"随机不播"✓；150ms 定时清除存在加载竞态 ✗）→ 加载完成后强制纠正一次 ✓
+        if (wantPlaying_.load() && s.paused && s.duration > 0.1 && s.position < 0.5) {
+            int no = 0;
+            mpv_set_property(mpv_, "pause", MPV_FORMAT_FLAG, &no);
+            std::fprintf(stderr, "[PLAY] 检测到新内容继承暂停（keep-open 竞态）→ 已强制取消暂停\n");
+            wantPlaying_ = false;
+        } else if (wantPlaying_.load() && !s.paused && s.position > 0.5) {
+            wantPlaying_ = false;   // 正常播放中 ✓
+        }
+        snap_ = s;
 }
 
 // ---------- 播放控制（mpv 属性接口，与 Android 版用法一致） ----------

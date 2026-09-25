@@ -37,6 +37,7 @@ void MainWindow::openSettingsDialog() {
         ctx.applySetting        = [this](const QString &k, const QString &v) { return applySetting(k, v); };
         ctx.applyThemeSettingNow = [this] { applyThemeSettingNow(); };
         ctx.setStatusLine       = [this](const QString &s) { setStatusLine(s); };
+        ctx.currentVideoHeight  = [this] { return effectiveVideoHeight(); };   // 面板初值=当前有效档位 ✓
         SettingsDialog::open(this, ctx);
 }
 
@@ -63,6 +64,13 @@ bool MainWindow::applySettingInner(const QString &key, const QString &value) {
         if (key == "subtitle.fontScale") player_->setSubtitleFontScale(settings_.number(key, 1.0));
         else if (key == "subtitle.defaultDelay") player_->adjustSubtitleDelay(settings_.number(key, 0.0));
         else if (key == "download.dir") dl_->setDir(settings_.str(key));
+        else if (key == "video.maxHeight") {
+            // 设置面板保存画质 = 权威来源 ✗：清掉会话覆盖，让 effectiveVideoHeight() 落到设置值 ✓
+            //   （面板初值已按"当前有效档位"显示 → 同值写回时用户无感；改值则立即生效 ✓ 无静默变化 ✗）
+            sessionVideoHeight_ = 0;
+            if (resolver_) resolver_->setMaxHeight(effectiveVideoHeight());
+            syncQualityBox();                       // 左下角画质盒立即跟随 ✓（用户主诉 bug ✗）
+        }
         else if (key == "network.forceDirectDomestic" && dl_) { /* 下一次创建 API 时生效 */ }
         results_->addItem(QString("[设置] %1 = %2%3").arg(key, value, changed ? "" : "（值未变化）"));
         return changed;
@@ -184,6 +192,35 @@ int MainWindow::effectiveVideoHeight() const {
         return static_cast<int>(settings_.number("video.maxHeight", 0));
 }
 
+void MainWindow::setQualityBoxForMusic(bool music) {
+        if (!qualityBox_ || qualityBoxMusic_ == music) return;
+        qualityBoxMusic_ = music;
+        const QSignalBlocker b(qualityBox_);            // 重建内容不触发业务信号 ✗
+        qualityBox_->clear();
+        if (music) {
+            static const struct { const char *id; const char *label; } kQ[] = {
+                {"lossless", "无损"}, {"exhigh", "320k"}, {"standard", "128k"}};
+            for (const auto &q : kQ) qualityBox_->addItem(q.label, QString(q.id));
+            const int idx = qualityBox_->findData(settings_.str("music.qualityCeiling", "exhigh"));
+            qualityBox_->setCurrentIndex(idx < 0 ? 1 : idx);
+            qualityBox_->setToolTip("音质上限（听歌时；与设置面板共用 music.qualityCeiling ✓ V 键也可循环 ✓）");
+        } else {
+            const QVector<int> hs = Settings::qualityHeights();
+            for (int h : hs) qualityBox_->addItem(Settings::qualityLabelFor(h), h);
+            const int idx = Settings::qualityHeights().indexOf(effectiveVideoHeight());
+            qualityBox_->setCurrentIndex(idx < 0 ? 0 : idx);
+            qualityBox_->setToolTip("清晰度（与设置面板共用一份档位表 — V 键也可循环切换）");
+        }
+}
+
+void MainWindow::syncQualityBox() {
+        if (!qualityBox_) return;
+        const int idx = Settings::qualityHeights().indexOf(effectiveVideoHeight());
+        if (idx < 0 || idx == qualityBox_->currentIndex()) return;
+        const QSignalBlocker b(qualityBox_);        // 防递归：indexChanged 会写设置 + 重新解析 ✗
+        qualityBox_->setCurrentIndex(idx);
+}
+
 void MainWindow::applyFillMode(bool force) {
         if (!player_ || !player_->renderReady()) return;   // mpv 未就绪一律不动（早期同步调用会挂住 UI）
         const bool want = isFullScreen() && fillScreenSetting();
@@ -208,6 +245,18 @@ void MainWindow::toggleFillScreen() {
 }
 
 void MainWindow::cycleVideoQuality() {
+        if (qualityBoxMusic_) {                                         // 音乐内容 → V 键循环音质（对齐 macOS ✓）
+            static const QStringList qOrder{"lossless", "exhigh", "standard"};
+            const QString curQ = settings_.str("music.qualityCeiling", "exhigh");
+            int qi = qOrder.indexOf(curQ);
+            if (qi < 0) qi = 1;
+            applySetting("music.qualityCeiling", qOrder.at((qi + 1) % qOrder.size()));
+            setQualityBoxForMusic(true);                                // 重建下拉（选中同步 ✓）
+            results_->addItem(QString("[音质] 已切到 %1").arg(qOrder.at((qi + 1) % qOrder.size()) == "lossless" ? "无损"
+                                                              : (qOrder.at((qi + 1) % qOrder.size()) == "exhigh" ? "320k" : "128k")));
+            if (playKey_.startsWith("netease:") || playKey_.startsWith("qq:")) playItem(playKey_, playLabel_);
+            return;
+        }
         static const QVector<int> order = Settings::qualityHeights();   // ④ 单一档位表（含 2160/1440）
         const int cur = effectiveVideoHeight();
         int i = order.indexOf(cur);

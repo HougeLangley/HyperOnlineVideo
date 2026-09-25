@@ -360,32 +360,48 @@ final class MpvView: NSOpenGLView {
             //  · 去掉光晕与粗描边，标题/歌词统一"白字 + 柔和投影"，颜色与质感完全一致
             let rx = viewW * 0.44, rw = viewW * 0.52
             let vpad = viewH * 0.07
-            let base = max(15.0, viewH * 0.040) * overlay.fontScale          // 与 Overlay 内部同一基准
-            let gap = base * 0.35                                            // 歌词行距（参考图很"透气"）
-            let sh = NSShadow()
-            sh.shadowBlurRadius = base * 0.18
-            sh.shadowOffset = NSSize(width: 0, height: -base * 0.03)
-            sh.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.55)
-
-            guard !musicTitle.isEmpty || !lines.isEmpty else { return }      // 前奏且没标题：只留封面
-            var titleLine: NSAttributedString?
-            var titleH = 0.0
-            if !musicTitle.isEmpty {
-                // 长标题自动缩字号（最多缩到 0.72×），避免被截断成"…"（参考图标题是完整的）
-                var tSize = base * 1.26
-                var tLine = Self.titleAttr(musicTitle, size: tSize, shadow: sh)
-                var w = tLine.size().width
-                if w > rw {
-                    tSize = max(base * 1.26 * 0.72, tSize * rw / w)
-                    tLine = Self.titleAttr(musicTitle, size: tSize, shadow: sh)
-                    w = min(tLine.size().width, rw)
-                }
-                titleLine = tLine
-                titleH = GlText.measure([tLine], width: w)
-            }
-            let blockH = lines.isEmpty ? 0 : GlText.measure(lines, width: rw, lineGap: gap, wrap: true)
-            let titleGap = titleH > 0 && blockH > 0 ? titleH * 0.45 : 0     // 标题与歌词之间的小间隙
-            let unitH = titleH + titleGap + blockH
+                          let base0 = max(15.0, viewH * 0.040) * overlay.fontScale         // 与 Overlay 内部同一基准
+              let sh = NSShadow()
+              sh.shadowBlurRadius = base0 * 0.18
+              sh.shadowOffset = NSSize(width: 0, height: -base0 * 0.03)
+              sh.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.55)
+  
+              guard !musicTitle.isEmpty || !lines.isEmpty else { return }      // 前奏且没标题：只留封面
+              // 自适应字号（2026-09-25 ✗→✓ 用户实测"长歌词会超出播放窗口"）：
+              //   标题+歌词总高超出可用高 → 逐档缩字号（至 0.55×）；Linux 端 SubtitleOverlay 同款策略（三端对齐 ✓）
+              var base = base0
+              var titleLine: NSAttributedString?
+              var titleH = 0.0
+              var titleGap = 0.0
+              var blockH = 0.0
+              let availH = max(80.0, viewH - vpad * 2)
+              while true {
+                  let g = base * 0.35
+                  var tl: NSAttributedString?
+                  var th = 0.0
+                  if !musicTitle.isEmpty {
+                      // 长标题自动缩字号（最多缩到 0.72×），避免被截断成"…"（参考图标题是完整的）
+                      var tSize = base * 1.26
+                      var line = Self.titleAttr(musicTitle, size: tSize, shadow: sh)
+                      var w = line.size().width
+                      if w > rw {
+                          tSize = max(base * 1.26 * 0.72, tSize * rw / w)
+                          line = Self.titleAttr(musicTitle, size: tSize, shadow: sh)
+                          w = min(line.size().width, rw)
+                      }
+                      tl = line
+                      th = GlText.measure([line], width: w)
+                  }
+                  let bh = lines.isEmpty ? 0.0 : GlText.measure(lines, width: rw, lineGap: g, wrap: true)
+                  titleLine = tl
+                  titleH = th
+                  titleGap = (th > 0 && bh > 0) ? th * 0.45 : 0
+                  blockH = bh
+                  if th + titleGap + bh <= availH || base <= base0 * 0.55 { break }
+                  base *= 0.86
+              }
+              let gap = base * 0.35
+              let unitH = titleH + titleGap + blockH
             // 整体（标题+歌词）垂直居中；太高时优先保住顶部不越界
             var unitTop = (viewH + unitH) / 2
             unitTop = min(unitTop, viewH - vpad)

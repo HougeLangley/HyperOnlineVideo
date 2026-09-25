@@ -380,7 +380,9 @@ final class DownloadManager {
         args += ["-map", "0:a?"]
         if hasCover { args += ["-map", "1", "-disposition:v:0", "attached_pic",
                                "-metadata:s:v", "title=Album cover", "-metadata:s:v", "comment=Cover (front)"] }
-        args += ["-c:a", "copy", "-metadata", "title=\(title)"]
+        args += ["-c:a", "copy"]
+        if hasCover { args += ["-c:v", "mjpeg"] }   // 显式 mjpeg（与 Linux 对齐 ✓ 避免隐式转码 ✗）
+        args += ["-metadata", "title=\(title)"]
         if !artist.isEmpty { args += ["-metadata", "artist=\(artist)"] }
         if !album.isEmpty { args += ["-metadata", "album=\(album)"] }
         if ext.lowercased() == "mp3" { args += ["-id3v2_version", "3"] }
@@ -398,6 +400,18 @@ final class DownloadManager {
             if readBack.isEmpty {
                 try? FileManager.default.removeItem(atPath: tmp)
                 log?("嵌标签校验未通过（读回为空），保留原文件")
+                return false
+            }
+        }
+        // 封面读回校验（2026-09-25 ✗）：旧逻辑只查 title → 封面丢了也当成功 ✓ → 用户拿到无封面文件 ✗
+        if hasCover, let ffprobe2 = UrlResolver.findExecutable("ffprobe") {
+            let p2 = UrlResolver.runProcess(ffprobe2, ["-v", "error", "-select_streams", "v",
+                                                       "-show_entries", "stream=codec_name",
+                                                       "-of", "default=nw=1:nk=1", tmp], timeout: 20)
+            let vStream = String(data: p2.out, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if vStream.isEmpty {
+                try? FileManager.default.removeItem(atPath: tmp)
+                log?("嵌标签校验未通过（封面流未写入 ✗），保留原文件")
                 return false
             }
         }

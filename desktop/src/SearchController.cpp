@@ -41,7 +41,7 @@ void MainWindow::qqMusicSearch(const QString &keyword) {
         auto *api = new QQMusicApi(this);
         tuneApi(api);
         api->setStatusHandler([this](const QString &m) { results_->addItem(m); });
-        api->search(keyword, 15, [this, api](const QVector<QQMusicApi::Song> &songs) {
+        api->search(keyword, 20, [this, api](const QVector<QQMusicApi::Song> &songs) {
             if (songs.isEmpty()) { results_->addItem("QQ音乐：无结果"); api->deleteLater(); return; }
             for (const auto &s : songs) {
                 auto *item = new QListWidgetItem(QString("%1 — %2").arg(s.name, s.artist), results_);
@@ -179,6 +179,9 @@ void MainWindow::musicSearch(const QString &keyword) {
                 item->setData(Qt::UserRole, "netease:" + s.id);
                 titleMap_.insert("netease:" + s.id, QString("%1 — %2").arg(s.name, s.artist));
             }
+            // 封面：搜索接口只给 picId（picUrl=None ✗ 实测 ✓）→ 批量走 song/detail（与 macOS 对齐 ✓）
+            //  用途①卡片缩略图（结果列表不再是黑块 ✓）②coverMap_ 预热（播放时单曲封面零额外请求 ✓）
+            prefetchNetEaseCovers(songs);
             // 逐条尝试取地址：网易云里有些曲目（混音版/下架曲/版权受限）拿不到直链，
             // 失败就自动换下一条，最多试 5 条 —— 避免"第一条恰好不可播"就整体失败。
             auto attempt = std::make_shared<std::function<void(int)>>();
@@ -202,7 +205,7 @@ void MainWindow::musicSearch(const QString &keyword) {
                     info.label = lb;
                     info.url = url;
                     info.artist = s.artist; info.album = s.album;
-                    info.coverUrl = coverMap_.value("netease:" + s.id);   // 网易云搜索不带封面，播放时另取
+                    info.coverUrl = coverMap_.value("netease:" + s.id);   // 搜索时已批量预热 ✓ 空则播放链路再按需取（applyCoverFor/fetchNetEaseCover）
                     info.statusText = QString("正在播放：%1").arg(lb);
                     info.fetchLyrics = [this, s, api](const QString &l) { loadLyricsFor(s.id, l, api); };
                     startMusicPlayback(info);
@@ -212,6 +215,30 @@ void MainWindow::musicSearch(const QString &keyword) {
             rebuildQueueFromList();
             (*attempt)(0);
         });
+}
+
+/** 网易云封面批量预热（搜索结果只给 picId ✗ → song/detail ✓）——
+ *  第一页与"加载更多"共用（用户实测：翻页后没有封面 ✗ 2026-09-25 ✓） */
+void MainWindow::prefetchNetEaseCovers(const QVector<NetEaseApi::Song> &songs) {
+    if (songs.isEmpty()) return;
+    auto *api = new NetEaseApi(this);
+    tuneApi(api);
+    QStringList coverIds;
+    for (const auto &so : songs) coverIds << so.id;
+    api->coverUrls(coverIds, [this, api](const QHash<QString, QString> &covers) {
+        api->deleteLater();
+        if (covers.isEmpty()) return;
+        for (auto it = covers.constBegin(); it != covers.constEnd(); ++it)
+            coverMap_.insert("netease:" + it.key(), it.value());
+        for (int i = 0; i < results_->count(); ++i) {
+            auto *item = results_->item(i);
+            if (!item || !item->icon().isNull()) continue;   // 已有图不重复请求 ✓
+            const QString k = item->data(Qt::UserRole).toString();
+            if (!k.startsWith("netease:")) continue;
+            const QString u = covers.value(k.mid(8));        // "netease:" = 8 字符 ✓
+            if (!u.isEmpty()) setItemThumb(item, u);
+        }
+    });
 }
 
 void MainWindow::fetchMorePage(int src, const QString &kw, int page) {
@@ -240,19 +267,23 @@ void MainWindow::fetchMorePage(int src, const QString &kw, int page) {
                 for (const auto &so : songs)
                     rows.append({QString("%1 — %2").arg(so.name, so.artist), "netease:" + so.id});
                 finishMore(reqId, appendNewRows(rows));
+                prefetchNetEaseCovers(songs);                     // 翻页封面（用户实测滑到后面全灰 ✗）
             });
             return;
         }
-        if (src == 3) {                                           // QQ音乐（异步）
+        if (src == 3) {                                           // QQ音乐（异步；Desktop 协议真翻页 ✓）
             auto *api = new QQMusicApi(this);
-            api->search(kw, want, [this, api, reqId](const QVector<QQMusicApi::Song> &songs) {
+            api->search(kw, 20, [this, api, reqId](const QVector<QQMusicApi::Song> &songs) {
                 api->deleteLater();
                 if (reqId != moreReqId_) return;
-                QVector<QPair<QString, QString>> rows;
-                for (const auto &so : songs)
+                QVector<QPair<QString, QString>> rows, thumbs;
+                for (const auto &so : songs) {
                     rows.append({QString("%1 — %2").arg(so.name, so.artist), "qq:" + so.mid});
-                finishMore(reqId, appendNewRows(rows));
-            });
+                    thumbs.append({"qq:" + so.mid, qqThumb(so.albumMid)});        // 翻页封面 ✓
+                    coverMap_.insert("qq:" + so.mid, qqCoverUrl(so.albumMid));     // 播放预热 ✓
+                }
+                finishMore(reqId, appendNewRows(rows, thumbs));
+            }, page);                                             // page_num 真翻页 ✓
             return;
         }
         // src == 0：YouTube（异步 QProcess；--playlist-end N + ytsearchN:，与现有搜索结果同一解析逻辑）

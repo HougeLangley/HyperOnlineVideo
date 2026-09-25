@@ -46,8 +46,8 @@ object BiliApi {
         }
     }
 
-    /** 从登录 Cookie 文件读取 SESSDATA（Netscape 格式；登录后解锁更高清晰度） */
-    private fun readSessdata(): String? = try {
+    /** 从登录 Cookie 文件读取 SESSDATA（Netscape 格式；登录后解锁更高清晰度 + 字幕 CDN ✓） */
+    fun readSessdata(): String? = try {   // public：app 模块的字幕抓取也要用（跨模块 internal 不可见 ✗）
         val f = StorageRepo.cookieFile("bilibili")
         if (!f.exists()) null
         else f.readLines().firstNotNullOfOrNull { line ->
@@ -89,7 +89,20 @@ object BiliApi {
     }
 
     /** 解析单视频为直链（html5 mp4；qn 可指定清晰度，登录 Cookie 解锁更高） */
-    fun resolve(url: String, qn: Int = 80): VideoDetail {
+    /** 按"视频清晰度上限"给出推荐 qn（仅降不升；0=自动 → 80=1080P，与既有默认行为一致 ✓）
+     *  注意：仅作用于**默认解析**；播放器内手动切清晰度（显式传 qn）不受限 ✓ 与桌面 V 键语义一致 ✓ */
+    private fun cappedQn(): Int {
+        val cap = Settings.videoMaxHeight
+        return when {
+            cap <= 0 -> 80          // 自动（平台默认 ✓）
+            cap >= 1080 -> 80       // 1080/1440/2160 都取 B站最高（1080P；4K 需更高权益，现状不支持）
+            cap >= 720 -> 64
+            cap >= 480 -> 32
+            else -> 16              // 360 及以下
+        }
+    }
+
+    fun resolve(url: String, qn: Int = cappedQn()): VideoDetail {
         val bvid = Regex("BV[0-9A-Za-z]+").find(url)?.value
             ?: throw Exception("无法提取 BV 号")
         val view = JSONObject(httpGet("https://api.bilibili.com/x/web-interface/view?bvid=$bvid", true))
@@ -139,7 +152,9 @@ object BiliApi {
                 if (u.startsWith("//")) u = "https:$u"
                 val doc = s.optString("lan_doc").ifEmpty { s.optString("lan") }
                 val isAuto = s.optInt("type", 0) == 1
-                subTracks.add(SubTrack(if (isAuto) "$doc（自动翻译）" else doc, u, s.optString("lan"), isAuto))
+                // 标注回归 lan_doc 原文（"中文"）：旧实现加"（自动翻译）"后缀 ✗ → 语言匹配 rank=9
+                // → 自动选轨静默失效（用户实测 2026-09-25 ✗ 见 Subtitles.languageRank ✓）
+                subTracks.add(SubTrack(doc, u, s.optString("lan"), isAuto))
             }
             android.util.Log.i("HOV", "B站字幕轨: ${subTracks.size} 条")
         }

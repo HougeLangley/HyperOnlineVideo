@@ -30,6 +30,8 @@
 #include <QVector>
 #include <iostream>
 
+#include "GpuCompat.h"
+
 void SelfTest::runQueueSelfTest(const Ctx &ctx) {
         int pass = 0, total = 0;
         auto check = [&](bool ok, const QString &name) {
@@ -136,6 +138,11 @@ void SelfTest::runQueueSelfTest(const Ctx &ctx) {
                           "字幕排序：中文系统 → 简体排在英文之前");
                     check(Subtitles::languageRank("中文（中国）· CC") <= Subtitles::languageRank("zh-Hans · SRT"),
                           "字幕排序：B站中文（中国）不劣于 zh-Hans");
+                    // 2026-09-25 ✓ B站裸"中文"/YouTube "Chinese (Simplified)（自动）"也要命中（此前漏判 ✗）
+                    check(Subtitles::languageRank("中文 · CC") < Subtitles::languageRank("en · SRT"),
+                          "字幕排序：B站裸「中文」轨命中中文系统");
+                    check(Subtitles::languageRank("Chinese (Simplified)（自动）") < Subtitles::languageRank("en · SRT"),
+                          "字幕排序：YouTube 中文标签命中中文系统");
                     check(Subtitles::languageRank("zh-Hans · SRT") < Subtitles::languageRank("zh-Hant · SRT"),
                           "字幕排序：简体排在繁体之前");
                     check(Subtitles::languageRank("zh-Hant · SRT") < Subtitles::languageRank("ja · SRT"),
@@ -328,6 +335,23 @@ void SelfTest::runQueueSelfTest(const Ctx &ctx) {
                   "来源识别：QQ 音乐");
             check(UrlResolver::isDirectMedia("https://x.com/a.mp4") && !UrlResolver::isDirectMedia("https://www.bilibili.com/video/BV1"),
                   "直链判定：媒体直链 vs 网页地址");
+            // ── UrlResolver 静态纯函数整组（审计 P2-7 ✓ 跨端一致性守卫 —— macOS 端有同款断言 ✓）──
+            check(UrlResolver::serviceOf("https://www.youtube.com/watch?v=x") == "youtube", "来源识别：YouTube");
+            check(UrlResolver::serviceOf("https://youtu.be/abc") == "youtube", "来源识别：youtu.be 短链");
+            check(UrlResolver::serviceOf("https://b23.tv/abc") == "bilibili", "来源识别：b23.tv 短链");
+            check(UrlResolver::serviceOf("https://music.163.com/song?id=1") == "netease", "来源识别：网易云");
+            check(UrlResolver::serviceOf("https://example.com/x").isEmpty(), "来源识别：未知站点返回空");
+            check(UrlResolver::isDirectMedia("/home/u/v.mp4") && UrlResolver::isDirectMedia("file:///tmp/a.mkv"),
+                  "直链判定：本地路径与 file://");
+            check(UrlResolver::isDirectMedia("https://r1.googlevideo.com/videoplayback?x=1"),
+                  "直链判定：googlevideo 无扩展名也认");
+            check(UrlResolver::isDirectMedia("https://upos.bilivideo.com/v/x"),
+                  "直链判定：bilivideo 无扩展名也认");
+            check(UrlResolver::isDirectMedia("https://x/a.ts") && UrlResolver::isDirectMedia("https://x/a.mov")
+                      && UrlResolver::isDirectMedia("https://x/a.mpd"),
+                  "直链判定：.ts/.mov/.mpd 并集");
+            check(!UrlResolver::isDirectMedia("https://space.bilibili.com/1"), "直链判定：普通页面 → 否");
+            check(UrlResolver::qualityLabel(-2) == "自动", "清晰度标签：负数也归自动（与 macOS 对齐）");
             check(UrlResolver::configDir().endsWith("/.config/hov"), "配置目录：~/.config/hov");
             // 字幕/歌词解析健壮性
             check(Subtitles::parse(QString(), "lrc").isEmpty(), "字幕解析：空输入返回空");
@@ -375,6 +399,16 @@ void SelfTest::runQueueSelfTest(const Ctx &ctx) {
         check(SubtitleOverlay::fontPxFor(200, 1.0) == 13, "字幕字号：小画面命中 13px 下限");
         check(SubtitleOverlay::fontPxFor(700, 2.0) == 39, "字幕字号：用户倍数 2.0 生效");
         check(SubtitleOverlay::fontPxFor(700, 0.5) == 13, "字幕字号：缩到 0.5 时仍不低于下限 13px");
+
+        // GPU 兼容层（虚拟化环境自动 --disable-gpu ✗ 防登录窗首帧渲染异常）—— 纯函数部分
+        check(GpuCompat::mergeFlags(QString(), "--disable-gpu") == "--disable-gpu",
+              "GPU 兼容：空 flags 直接填入");
+        check(GpuCompat::mergeFlags("--no-sandbox", "--disable-gpu") == "--no-sandbox --disable-gpu",
+              "GPU 兼容：已有 flags 末尾追加");
+        check(GpuCompat::mergeFlags("--disable-gpu", "--disable-gpu") == "--disable-gpu",
+              "GPU 兼容：重复 token 不叠加");
+        check(GpuCompat::mergeFlags("--disable-gpu-compositing", "--disable-gpu") == "--disable-gpu-compositing --disable-gpu",
+              "GPU 兼容：前缀相近不误判为已含（逐 token 比较）");
 
         qInfo() << "队列自检:" << pass << "/" << total << "通过";
         std::cerr << "[SELFTEST] 队列自检: " << pass << "/" << total << " 通过" << std::endl;   // 无人值守（CI/SSH）时也能读到汇总

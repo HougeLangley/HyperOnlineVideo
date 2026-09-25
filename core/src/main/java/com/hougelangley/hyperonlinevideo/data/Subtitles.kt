@@ -111,6 +111,34 @@ object Subtitles {
     }
 
     /** 自动识别在线字幕格式（B站 / YouTube） */
+    /** 字幕轨与系统语言的匹配打分（越小越优先；>=9 = 不自动选 ✗）——纯函数（可单测 ✓）
+     *  label 形态：B站 "中文" / YouTube "Chinese (Simplified)（自动）" / 本地 "zh-Hans · SRT"
+     *  修复 2026-09-25 用户实测 ✗：B站轨曾带"（自动翻译）"后缀 → 精确分支全不命中 → rank=9
+     *  → 自动选轨静默失效（toast"字幕加载失败或为空"）✗ */
+    fun languageRank(label: String, sysTag: String): Int {
+        val key = label.substringBefore("·").trim().lowercase()
+        if (key.isEmpty()) return 9
+        val tag = sysTag.lowercase()
+        val lang = tag.substringBefore('-')
+        // ① 精确 / 前缀（zh-hans-cn ↔ "zh-hans · SRT" ✓）
+        if (tag.isNotEmpty() && (key == tag || key.startsWith(tag) || tag.startsWith(key))) return 0
+        // ② 同主语言（"zh" / "zh-cn" 形态；zh 走下面的自然语言分支 ✗）
+        if (lang != "zh" && lang.isNotEmpty() && (key == lang || key.startsWith("$lang-") || key.contains(lang))) return 1
+        // ③ 中文自然语言标签（B站/YouTube 用自然语言 ✗ 不走语言码 ✗）
+        if (lang == "zh") {
+            val hans = key.contains("简体") || key.contains("中文（中国）") || key.contains("中文(中国)") ||
+                       key.contains("hans") || key.contains("simplified")
+            val hant = key.contains("繁體") || key.contains("中文（台") || key.contains("中文(台") ||
+                       key.contains("hant") || key.contains("traditional")
+            if (hans) return 0
+            if (hant) return 2
+            if (key.contains("中文") || key.contains("chinese")) return 1   // 裸"中文"/"Chinese" 兜底 ✓（B站 lan_doc 常态 ✗）
+        }
+        // ④ 英文兜底
+        if (key.startsWith("en") || key.contains("english")) return 3
+        return 9
+    }
+
     fun parseAny(raw: String): List<Cue> = try {
         val j = org.json.JSONObject(raw)
         when {

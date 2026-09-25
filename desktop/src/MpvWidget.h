@@ -13,6 +13,7 @@
 #include "Subtitles.h"   // SubtitleTrack（多字幕轨）
 #include "CoverArt.h"    // 专辑封面（值成员）
 
+class QLabel;
 class SubtitleOverlay;
 class QTimer;
 
@@ -80,11 +81,20 @@ public:
     bool ready() const { return ctx_ != nullptr; }
 protected:
     void initializeGL() override;
-    void paintGL() override;
+    void paintGL() override;      // 只做 mpv 的 GL 渲染 ✗
+    /** QPainter 内容（封面/玻璃/字幕）在此绘制：GL 之后独立光栅合成 ✓
+     *  2026-09-25 实测：在 paintGL 里画会被 mpv 残留 GL 状态破坏（fillRect/drawImage 均不显示 ✗）*/
+    void paintEvent(QPaintEvent *ev) override;
+    void resizeEvent(QResizeEvent *ev) override;   // 同步子控件几何（封面/玻璃层 ✓）
 private:
     // ── 玻璃质感（v1.2.0，设置键 ui.glass）──
     ColorTheme glass_;               // 按封面 URL 缓存的主题（取色 + 磨砂底 + 渐变）
     QString    glassKey_;            // 已算主题对应的封面 URL（换了才算）
+    // 磨砂底/渐变 的 QPixmap 缓存（drawPixmap 走 GL 原生纹理 ✓ drawImage 实测不显示 ✗）
+    QPixmap    glassBdPix_;
+    QString    glassBdKey_;
+    QPixmap    glassGradPix_;
+    QString    glassGradKey_;
     QString    coverUrl_;            // 当前封面 URL（空 = 视频/无封面 → 不画玻璃）
     bool       glassOn_ = true;      // 默认开；关闭后零残留
     bool renderReady_ = false;
@@ -93,6 +103,7 @@ private:
     Snapshot snap_;
     std::atomic<bool> snapStop_{false};
     std::thread snapThread_;
+    std::thread logThread_;      // mpv 事件/日志泵（此前无消费者，错误全静默 ✗ 2026-09-25 加）
     void startSnapshotter();
     void captureSnapshot();   // B7：渲染上下文就绪（就绪前禁止读写 mpv 属性，否则挂 GUI 线程）
     void loadSidecarSubtitles(const QString &mediaPath);
@@ -100,6 +111,18 @@ private:
     void applySubtitleTrack(int index);               // -1 = 关闭字幕
     mpv_handle *mpv_ = nullptr;
     mpv_render_context *ctx_ = nullptr;
+    // 封面/玻璃背景用**子控件**承载（2026-09-25 实测：软件 GL 下 QOpenGLWidget 的 QPainter
+    //   光栅绘制（fillRect/drawImage）全部不显示 ✗ 仅 glyph 文本可见 ✗；子控件经实测可见 ✓✓）
+    QLabel *coverLabel_ = nullptr;
+    std::atomic<bool> wantPlaying_{false};   // keep-open 继承暂停的竞态加固（快照线程自动纠正 ✓）
+    QImage     glassBase_;           // 玻璃底图缓存（磨砂+渐变+压暗；仅封面变化时重建 ✓）
+    QString    glassBaseKey_;        // 底图缓存键（封面 URL ✓）
+    QLabel *glassLabel_ = nullptr;
+    QLabel *lyricLabel_ = nullptr;   // 音乐模式的歌词层（透明子控件：绕开 GL 下 QPainter 绘制的限制 ✓）
+    void refreshOverlays();                          // 按 cover_/glass_ 状态刷新子控件
+    mutable QString coverPixKey_;                    // 已生成封面 pixmap 对应的 url
+    mutable QString glassPixKey_;                    // 已生成玻璃图对应的 url
+    mutable int coverLabelSide_ = 0;
     SubtitleOverlay subs_;   // 值成员：由 paintGL 用 QPainter 绘制（子控件方案实测不显示）
     CoverArt cover_;         // 专辑封面（同样在 paintGL 里画）
     QTimer *subsTimer_ = nullptr;

@@ -3,6 +3,7 @@
 #include "SettingsDialog.h"
 #include "Settings.h"
 #include "MpvWidget.h"
+#include "UrlResolver.h"
 #include <QListWidget>
 #include <QGuiApplication>
 #include <QObject>
@@ -87,6 +88,20 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         }
         form->addRow("应用主题", themeBox);
         form->addRow("音质上限", quality);
+        // 视频清晰度上限（与质量盒 / V 键循环共用 Settings::qualityHeights() 单一档位表 ✓
+        // 避坑：macOS 曾因"两份独立档位映射表"导致设置显示与读取错位（选 1080p 显示成第 2 项 ✗
+        // 控制条却读到 480p ✓）—— 本实现档位与标签均出自同一数据源，不会再错位 ✓）
+        auto *videoCap = new QComboBox(&dlg);
+        {
+            const QVector<int> hs = Settings::qualityHeights();
+            for (int hgt : hs) videoCap->addItem(Settings::qualityLabelFor(hgt), hgt);   // 唯一文案源 ✓（勿在本地建第二份 ✗）
+            const int cur = ctx.currentVideoHeight ? ctx.currentVideoHeight()
+                                                   : static_cast<int>(ctx.settings->number("video.maxHeight", 0));
+            const int idx = hs.indexOf(cur);
+            videoCap->setCurrentIndex(idx < 0 ? 0 : idx);   // 非法值回退到"自动"✓
+        }
+        videoCap->setToolTip("解析时限制最大分辨率（仅降不升）；播放中可按 V 键循环切换");
+        form->addRow("视频清晰度上限", videoCap);
         form->addRow("字幕/歌词字号", fontScale);
         form->addRow("默认字幕延迟", delay);
         form->addRow(QString(), karaoke);
@@ -100,9 +115,14 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
 
         auto *btns = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Close, &dlg);
         form->addRow(btns);
-        QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, [parent, quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck] {
+        QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, [parent, quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck, videoCap] {
             static const QStringList qs{ "standard", "exhigh", "lossless" };
             ctx.applySetting("music.qualityCeiling", qs.at(quality->currentIndex()));
+            const int vh = videoCap->currentData().toInt();   // 单一档位表的值（0=自动 / -1=仅音频 ✓）
+            ctx.applySetting("video.maxHeight", QString::number(vh));
+            if (ctx.setStatusLine)
+                ctx.setStatusLine(QString("视频清晰度上限已设为 %1 —— 下一条视频生效（播放中可按 V 键切换）")
+                                      .arg(UrlResolver::qualityLabel(vh)));
             ctx.applySetting("ui.theme", themeBox->currentData().toString());
             ctx.applyThemeSettingNow();                                  // 立即生效（无需重启 ✓）
             ctx.applySetting("subtitle.fontScale", QString::number(fontScale->value()));

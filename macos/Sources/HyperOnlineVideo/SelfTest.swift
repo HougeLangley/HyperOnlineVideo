@@ -246,6 +246,24 @@ enum SelfTest {
               "清晰度：音频部分不设 height 过滤（否则整条失配退回不设限）")
         check(UrlResolver.qualityLabel(0) == "自动" && UrlResolver.qualityLabel(-1) == "仅音频"
                   && UrlResolver.qualityLabel(1080) == "1080p", "清晰度：档位标签")
+
+        // ---- UrlResolver 静态纯函数整组（审计 P2-7 ✓ 与 Linux 端同款断言 ✓ 一致性守卫 ✓）----
+        check(UrlResolver.serviceOf("https://www.youtube.com/watch?v=x") == "youtube", "来源识别：YouTube")
+        check(UrlResolver.serviceOf("https://youtu.be/abc") == "youtube", "来源识别：youtu.be 短链")
+        check(UrlResolver.serviceOf("https://b23.tv/abc") == "bilibili", "来源识别：b23.tv 短链")
+        check(UrlResolver.serviceOf("https://music.163.com/song?id=1") == "netease", "来源识别：网易云")
+        check(UrlResolver.serviceOf("https://example.com/x").isEmpty, "来源识别：未知站点返回空")
+        check(UrlResolver.isDirectMedia("/home/u/v.mp4") && UrlResolver.isDirectMedia("file:///tmp/a.mkv"),
+              "直链判定：本地路径与 file://")
+        check(UrlResolver.isDirectMedia("https://r1.googlevideo.com/videoplayback?x=1"),
+              "直链判定：googlevideo 无扩展名也认")
+        check(UrlResolver.isDirectMedia("https://upos.bilivideo.com/v/x"),
+              "直链判定：bilivideo 无扩展名也认")
+        check(UrlResolver.isDirectMedia("https://x/a.ts") && UrlResolver.isDirectMedia("https://x/a.mov")
+                  && UrlResolver.isDirectMedia("https://x/a.mpd"),
+              "直链判定：.ts/.mov/.mpd 并集")
+        check(!UrlResolver.isDirectMedia("https://space.bilibili.com/1"), "直链判定：普通页面 → 否")
+        check(UrlResolver.qualityLabel(-2) == "自动", "清晰度标签：负数也归自动（与 Linux 对齐）")
         check(Settings.validate("video.maxHeight", "0") == nil && Settings.validate("video.maxHeight", "-1") == nil,
               "设置：清晰度 0/-1 合法")
         check(Settings.validate("video.maxHeight", "1080") == nil, "设置：清晰度 1080 合法")
@@ -254,6 +272,9 @@ enum SelfTest {
         // ---- 语言优先级 ----
         // 字幕默认轨由**系统语言**决定（用户要求）：中文系统仍应命中最优先
         check(Subtitles.languageRank("zh-Hans · SRT") <= Subtitles.languageRank("en · SRT"), "字幕排序：中文系统的简体优先于英文")
+        // 2026-09-25 ✓ B站裸"中文"/YouTube "Chinese (Simplified)（自动）"也要命中中文系统（此前漏判 ✗）
+        check(Subtitles.languageRank("中文 · CC") < Subtitles.languageRank("en · SRT"), "排序：B站裸「中文」轨命中中文系统")
+        check(Subtitles.languageRank("Chinese (Simplified)（自动）") < Subtitles.languageRank("en · SRT"), "排序：YouTube 中文标签命中中文系统")
         check(Subtitles.systemLanguageHints.first != nil, "字幕排序：能读到系统语言偏好")
         // 音频兜底（竖屏/短视频"有画面没声音"的修复）：从 formats 里挑最佳纯音轨
         let fakeRoot: [String: Any] = ["formats": [

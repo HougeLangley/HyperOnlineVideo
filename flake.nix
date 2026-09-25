@@ -20,7 +20,7 @@
         let
           hov-qt = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "hov-qt";
-            version = "1.2.1";
+            version = "1.2.2";
 
             # 源码 = 本 flake 仓库自身 ✓
             # 过滤掉一切构建产物/缓存（app/build 200MB+ ✗ macos/.build ✗ .gradle ✗ …）

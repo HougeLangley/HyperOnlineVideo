@@ -44,7 +44,7 @@ final class UrlResolver {
 
     static func qualityLabel(_ h: Int) -> String {
         if h == -1 { return "仅音频" }
-        if h == 0 { return "自动" }
+        if h <= 0 { return "自动" }        // 与 Linux 对齐（曾为 ==0 ✗ -2 会输出 "-2p" ✗）P2-7 ✓
         return "\(h)p"
     }
 
@@ -71,8 +71,12 @@ final class UrlResolver {
 
     static func isDirectMedia(_ url: String) -> Bool {
         if url.hasPrefix("/") || url.hasPrefix("file://") { return true }
+        // 媒体 CDN 域名白名单（审计 P2-7 ✓ 与 Linux 对齐 —— 这些直链常无扩展名 ✓）
+        if url.contains("googlevideo.com") || url.contains("bilivideo.com")
+            || url.contains("hdslb.com") || url.contains("126.net") { return true }
         if url.hasPrefix("http://") || url.hasPrefix("https://") {
-            for ext in [".mp4", ".m4a", ".mp3", ".webm", ".mkv", ".flac", ".aac", ".mov", ".ts", ".m3u8"] where url.contains(ext) {
+            // 扩展名与 Linux 取并集（曾各缺 .mov/.ts 与 .mpd ✗）
+            for ext in [".mp4", ".m4a", ".mp3", ".webm", ".mkv", ".flac", ".aac", ".mov", ".ts", ".m3u8", ".mpd"] where url.contains(ext) {
                 return true
             }
         }

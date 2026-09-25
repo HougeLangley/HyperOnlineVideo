@@ -42,7 +42,7 @@ public:
     void setForceDirect(bool on);
 
     /** 关键词搜索（网页版接口，匿名可用） */
-    void search(const QString &keyword, int limit, std::function<void(const QVector<Song> &)> done);
+    void search(const QString &keyword, int limit, std::function<void(const QVector<Song> &)> done, int page = 1);
 
     /** 取歌词（LRC 明文 + 翻译；接口匿名可用，实测 84 行带时间标签）
      *  接口：c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?format=json&nobase64=1 */

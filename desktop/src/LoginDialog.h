@@ -47,5 +47,8 @@ private:
     QWebEngineView *view_ = nullptr;
     QWebEngineProfile *profile_ = nullptr;
     QVector<QNetworkCookie> cookies_;
+    /** 析构守卫：profile 析构期间 Chromium 仍可能回调 cookieAdded（实测 SEGV ✗），
+     *  回调先检查本标志并直接返回（避坑 #268 ✓）。 */
+    bool closing_ = false;
 #endif
 };

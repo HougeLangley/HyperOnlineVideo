@@ -68,6 +68,19 @@ class SubtitlesTest {
     }
 
     @Test
+    fun `字幕语言匹配：B站裸中文与 YouTube 英文标签（2026-09-25 修复）`() {
+        assertEquals(0, Subtitles.languageRank("zh-Hans · SRT", "zh-hans-cn"))
+        assertEquals(1, Subtitles.languageRank("中文", "zh-hans-cn"))                       // B站 lan_doc 常态
+        assertEquals(1, Subtitles.languageRank("中文（自动翻译）", "zh-hans-cn"))           // 历史后缀兜底
+        assertEquals(0, Subtitles.languageRank("Chinese (Simplified)（自动）", "zh-hans-cn"))
+        assertEquals(2, Subtitles.languageRank("Chinese (Traditional)", "zh-hans-cn"))
+        assertEquals(3, Subtitles.languageRank("English", "zh-hans-cn"))
+        assertEquals(9, Subtitles.languageRank("Deutsch", "zh-hans-cn"))
+        assertEquals(9, Subtitles.languageRank("中文", "de-de"))                           // 非中文系统不自动选中文字幕
+        assertEquals(1, Subtitles.languageRank("Deutsch", "de-de"))                        // 同主语言命中
+    }
+
+    @Test
     fun `B站 CC 字幕 JSON 解析`() {
         val json = """{"body":[{"from":0.5,"to":2.5,"content":"你好"},{"from":3.0,"to":4.0,"content":""},{"from":5.0,"to":6.0,"content":"再见"}]}"""
         val cues = Subtitles.parseBiliJson(json)

@@ -95,40 +95,67 @@ void SubtitleOverlay::paint(QPainter &p, const QRect &area) const {
         return;
     }
 
-    // —— 歌词模式：居中面板（上一行暗 / 当前行大且逐字高亮 / 下一行暗） ——
+    // —— 歌词模式：面板（上一行暗 / 当前行大且逐字高亮 / 下一行暗） ——
+    // 版式（2026-09-25 对齐 macOS 音乐模式 ✓ 用户反馈"太过于居中/可能被封面遮挡"）：
+    //   有封面（topSafe_>0，由 MpvWidget 依 cover_.hasImage() 传入 ✓）→ **右列**（44% 起、宽 52%）左对齐
+    //     —— 封面在左已放大居中（CoverArt ✓），歌词不再与它同高重叠 ✓
+    //   无封面 → 全区居中（与字幕一致，原行为不变 ✓）
+    const bool hasCover = topSafe_ > 0;
+    const QRect lyricBox = hasCover
+        ? QRect(area.left() + int(area.width() * 0.44), area.top() + int(area.height() * 0.10),
+                int(area.width() * 0.52), int(area.height() * 0.80))
+        : area;
+    const int lyricW = qMax(40, lyricBox.width() - margin * 2);
+    const int lyricLeft = lyricBox.left() + margin;
+    const int lyricAlign = hasCover ? int(Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap) : alignBox;
     QStringList cur = current_.split('\n');
     const QString line1 = cur.isEmpty() ? QString() : cur.first();          // 原文
     const QString line2 = cur.size() > 1 ? cur.at(1) : QString();           // 翻译（如有）
 
     QFont big = f;
-    big.setPixelSize(int(qBound(20, area.height() / 13, 52) * fontScale_));
-    QFont small = f;
-    small.setPixelSize(int(qBound(14, area.height() / 26, 30) * fontScale_));
+QFont small = f;
+
+const QString prevLine = (index_ > 0) ? cues_.at(index_ - 1).text.split('\n').first() : QString();
+const QString nextLine = (index_ >= 0 && index_ + 1 < cues_.size())
+                             ? cues_.at(index_ + 1).text.split('\n').first()
+                             : QString();
+
+// 字号自适应（用户实测：歌词太长会超出播放窗口 ✗ 2026-09-25）：
+//   总高超出面板 → 逐档缩小（至 0.55 倍 ✓）；绘制段引用同一组 h1..h4 ✓
+int h1 = 0, h2 = 0, h3 = 0, h4 = 0, totalH = 0;
+auto layoutFor = [&](double k) {
+    big.setPixelSize(qMax(12, int(int(qBound(20, area.height() / 13, 52)) * fontScale_ * k)));
+    small.setPixelSize(qMax(10, int(int(qBound(14, area.height() / 26, 30)) * fontScale_ * k)));
     small.setBold(false);
+    const QFontMetrics fb(big), fs(small);
+    h1 = fs.boundingRect(QRect(0, 0, lyricW, lyricBox.height()), alignWrap, prevLine).height() + 4;
+    h2 = fb.boundingRect(QRect(0, 0, lyricW, lyricBox.height()), alignWrap, line1).height() + 8;
+    h3 = (line2.isEmpty() ? 0 : fs.boundingRect(QRect(0, 0, lyricW, lyricBox.height()), alignWrap, line2).height() + 4);
+    h4 = fs.boundingRect(QRect(0, 0, lyricW, lyricBox.height()), alignWrap, nextLine).height() + 4;
+};
+const int gap = qMax(8, area.height() / 60);
+for (double k = 1.0; ; k *= 0.86) {
+    layoutFor(k);
+    totalH = h1 + gap + h2 + (h3 ? gap / 2 + h3 : 0) + gap + h4;
+    if (totalH <= lyricBox.height() - 8 || k <= 0.55) break;
+}
+const QFontMetrics fmBig(big), fmSmall(small);    // 与最终字号一致 ✓（绘制段复用 ✓）
 
-    const QString prevLine = (index_ > 0) ? cues_.at(index_ - 1).text.split('\n').first() : QString();
-    const QString nextLine = (index_ >= 0 && index_ + 1 < cues_.size())
-                                 ? cues_.at(index_ + 1).text.split('\n').first()
-                                 : QString();
-
-    const QFontMetrics fmBig(big), fmSmall(small);
-    const int gap = qMax(8, area.height() / 60);
-    const int h1 = fmSmall.boundingRect(QRect(0, 0, maxW, area.height()), alignWrap, prevLine).height() + 4;
-    const int h2 = fmBig.boundingRect(QRect(0, 0, maxW, area.height()), alignWrap, line1).height() + 8;
-    const int h3 = (line2.isEmpty() ? 0 : fmSmall.boundingRect(QRect(0, 0, maxW, area.height()), alignWrap, line2).height() + 4);
-    const int h4 = fmSmall.boundingRect(QRect(0, 0, maxW, area.height()), alignWrap, nextLine).height() + 4;
-    const int totalH = h1 + gap + h2 + (h3 ? gap / 2 + h3 : 0) + gap + h4;
-    int y = area.top() + (area.height() - totalH) / 2;   // 垂直居中（歌词面板）
+    // 垂直：有封面（右列）→ 列内居中（对齐 macOS 音乐模式）；无封面 → 55% 略偏下（不再呆板居中 ✗）
+    const int availTop = lyricBox.top();
+    const int availH = qMax(80, lyricBox.height());
+    int y = availTop + (availH - totalH) * (hasCover ? 50 : 55) / 100;
+    y = qBound(availTop, y, qMax(availTop, lyricBox.bottom() - totalH - 8));
 
     // 上一行
     if (!prevLine.isEmpty()) {
         p.setFont(small);
-        drawOutlined(QRect(area.left() + margin, y, maxW, h1), alignBox, prevLine, QColor(160, 160, 160));
+        drawOutlined(QRect(lyricLeft, y, lyricW, h1), lyricAlign, prevLine, QColor(160, 160, 160));
         y += h1 + gap;
     }
     // 当前行：先整行白字，再按进度用高亮色覆盖已唱部分（逐字高亮的常用实现）
     p.setFont(big);
-    const QRect curBox(area.left() + margin, y, maxW, h2);
+    const QRect curBox(lyricLeft, y, lyricW, h2);
     const QColor accent(80, 220, 255);          // 已唱：青蓝
     const QColor plain(255, 255, 255);
 
@@ -167,13 +194,13 @@ void SubtitleOverlay::paint(QPainter &p, const QRect &area) const {
     if (!line2.isEmpty()) {
         y += gap / 2;
         p.setFont(small);
-        drawOutlined(QRect(area.left() + margin, y, maxW, h3), alignBox, line2, QColor(220, 220, 220));
+        drawOutlined(QRect(lyricLeft, y, lyricW, h3), lyricAlign, line2, QColor(220, 220, 220));
         y += h3;
     }
     y += gap;
     // 下一行
     if (!nextLine.isEmpty()) {
         p.setFont(small);
-        drawOutlined(QRect(area.left() + margin, y, maxW, h4), alignBox, nextLine, QColor(160, 160, 160));
+        drawOutlined(QRect(lyricLeft, y, lyricW, h4), lyricAlign, nextLine, QColor(160, 160, 160));
     }
 }

@@ -26,26 +26,26 @@ void MainWindow::setItemThumb(QListWidgetItem *item, const QString &url) {
         if (!item || url.isEmpty()) return;
         // 标记为"卡片"并写入来源（按缩略图域名判定；macOS 卡片下方也有一行来源）
         item->setData(Qt::UserRole + 12, true);
-        if (url.contains("ytimg"))          item->setData(Qt::UserRole + 10, QStringLiteral("YouTube"));
-        else if (url.contains("hdslb"))     item->setData(Qt::UserRole + 10, QStringLiteral("B站"));
-        else if (url.contains("qq.com"))    item->setData(Qt::UserRole + 10, QStringLiteral("QQ音乐"));
-        else if (url.contains("126.net"))   item->setData(Qt::UserRole + 10, QStringLiteral("网易云音乐"));
-        if (thumbCache_.contains(url)) {                       // 命中缓存
+        item->setData(Qt::UserRole + 13, url);                 // 记缩略图 URL → 完成后按 URL 回填全部同源卡片 ✓
+        if (url.contains("ytimg"))                        item->setData(Qt::UserRole + 10, QStringLiteral("YouTube"));
+        else if (url.contains("hdslb"))                   item->setData(Qt::UserRole + 10, QStringLiteral("B站"));
+        else if (url.contains("qq.com") || url.contains("gtimg")) item->setData(Qt::UserRole + 10, QStringLiteral("QQ音乐"));
+        else if (url.contains("126.net"))                 item->setData(Qt::UserRole + 10, QStringLiteral("网易云音乐"));
+        if (thumbCache_.contains(url)) {
             const QPixmap pm = thumbCache_.value(url);
             if (!pm.isNull()) item->setIcon(QIcon(pm));
-            return;
+            return;                                            // 占位（在途）或已完成：完成后统一回填 ✓
         }
-        if (thumbCache_.contains(url)) return;
         thumbCache_.insert(url, QPixmap());                    // 占位，防止重复请求
         if (!thumbNet_) thumbNet_ = new QNetworkAccessManager(this);
         QNetworkRequest req{QUrl(url)};
         req.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0 Safari/537.36");
         if (url.contains("hdslb")) req.setRawHeader("Referer", "https://www.bilibili.com/");
           else if (url.contains("ytimg")) req.setRawHeader("Referer", "https://www.youtube.com/");
-          else if (url.contains("qq.com")) req.setRawHeader("Referer", "https://y.qq.com/");
+          else if (url.contains("qq.com") || url.contains("gtimg")) req.setRawHeader("Referer", "https://y.qq.com/");
           else if (url.contains("126.net")) req.setRawHeader("Referer", "https://music.163.com/");
         QNetworkReply *r = thumbNet_->get(req);
-        connect(r, &QNetworkReply::finished, this, [this, r, url, item] {
+        connect(r, &QNetworkReply::finished, this, [this, r, url] {
             r->deleteLater();
             if (r->error() != QNetworkReply::NoError) { thumbCache_.remove(url); return; }
             QPixmap pm;
@@ -55,8 +55,12 @@ void MainWindow::setItemThumb(QListWidgetItem *item, const QString &url) {
             ++thumbLoaded_;
             if (thumbLoaded_ == 1 || thumbLoaded_ % 10 == 0)
                 qInfo() << "缩略图已加载" << thumbLoaded_ << "张";
-            // 搜索可能已经清空列表 → 反查条目是否还在（不依赖 QPointer）
-            if (item && results_->row(item) >= 0) item->setIcon(QIcon(pm));
+            // 回填**所有**持同一 URL 的条目（2026-09-25 ✗ 用户实测"同专辑多曲只出第一张封面"）：
+            //   旧逻辑"占位在途"直接 return ✗ → 后续同 URL 条目永远拿不到图标 ✗
+            for (int i = 0; i < results_->count(); ++i) {
+                auto *it = results_->item(i);
+                if (it && it->data(Qt::UserRole + 13).toString() == url) it->setIcon(QIcon(pm));
+            }
         });
 }
 

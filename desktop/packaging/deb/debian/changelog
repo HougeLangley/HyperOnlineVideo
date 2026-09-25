@@ -1,3 +1,21 @@
+hov-qt (1.2.2-1) resolute; urgency=medium
+
+  * Music: QQ search true pagination (infinite scroll) via the Desktop protocol
+    (grp + numeric page params); works anonymous or logged-in.
+  * Music: pagination covers for NetEase/QQ (thumbnail backfill fix); embedded
+    cover art on downloaded music (verified with ffprobe attached_pic).
+  * Music: CDN node probing for NetEase (m70x 403 workaround) and an mpv event/
+    log pump so playback failures are no longer silent.
+  * Subtitles: auto-track selection fixes (bare-language fallback for zh/Chinese,
+    Bilibili direct route with backoff for 429).
+  * Lyrics: adaptive font shrink for long lines (all platforms); macOS music-mode
+    background/lyric fix.
+  * Quality: "video max height" now actually applied (Linux/Android).
+  * Stability: macOS main-thread-only caches (crash fix), keep-open pause race
+    hardening, anonymous fallback when QQ login state is stale.
+
+ -- Houge Langley <hougelangley1987@gmail.com>  Fri, 25 Sep 2026 22:30:00 +0800
+
 hov-qt (1.2.1-2) resolute; urgency=medium
 
   * License metadata fix: declare GPL-3.0-only. The repository LICENSE

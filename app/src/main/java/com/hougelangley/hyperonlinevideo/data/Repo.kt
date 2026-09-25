@@ -351,7 +351,11 @@ object Repo {
 
         val formats = ArrayList<MediaFormat>()
         var audioUrl = ""
-        val hlsInCap = hlsVideos.filter { it.height in 1..1080 }
+        // 视频清晰度上限（设置项 videoMaxHeight ✓ 与桌面 video.maxHeight 同语义：仅降不升 ✓）
+        //   0=自动 → 保持既有"HLS 偏好 ≤1080"策略 ✓；用户设定档位则按它约束默认解析 ✓
+        val capH = Settings.videoMaxHeight
+        val hlsCap = if (capH > 0) capH else 1080
+        val hlsInCap = hlsVideos.filter { it.height in 1..hlsCap }
         val hlsPool = if (hlsInCap.isNotEmpty()) hlsInCap else hlsVideos
         val hlsVideoPick = hlsPool.maxWithOrNull(compareBy<Cand> { it.height }.thenBy { vRank(it.vcodec) }.thenBy { it.tbr })
         val qualities = if (hlsVideos.isNotEmpty()) buildQualities(hlsVideos) else buildQualities(dashVideos)
@@ -499,8 +503,13 @@ object Repo {
      * 而解析（yt-dlp）走的是系统网络，若这里走直连网络会因 IP 不一致被 403。
      */
     suspend fun fetchSubtitleCues(track: SubTrack): List<Subtitles.Cue> = withContext(Dispatchers.IO) {
-        val referer = if (track.url.contains("hdslb")) "https://www.bilibili.com/" else "https://www.youtube.com/"
-        val raw = plainGet(track.url, referer)
+        val isBili = track.url.contains("hdslb")
+        val referer = if (isBili) "https://www.bilibili.com/" else "https://www.youtube.com/"
+        // B站字幕 CDN 必须走**直连网络**（与 API / 视频流一致 ✗）：
+        //   用户实测 2026-09-25：系统 VPN 出口 IP 触发 B站 WAF → HTTP 429"Sorry"页；
+        //   同一 URL 在直连网络（Mac）上**无 cookie 也 200** ✗ → 根因是出口 IP，不是缺 cookie ✗
+        //   （YouTube timedtext 与解析出口 IP 绑定 → 必须继续走系统网络 ✗ 不能统一处理 ✗）
+        val raw = if (isBili) biliGet(track.url, referer) else plainGet(track.url, referer)
         android.util.Log.i("HOV", "字幕原文 ${raw.length} 字节: ${raw.take(90).replace("\n", " ")}")
         val cues = Subtitles.parseAny(raw)
         android.util.Log.i(
@@ -510,8 +519,56 @@ object Repo {
         cues
     }
 
-    /** 普通 GET（系统默认网络，用于字幕等不需要直连策略的请求） */
+    /** B站字幕专用：直连网络（绕开系统 VPN ✗）+ 登录 cookie（AI 字幕对匿名不稳定 ✓）+ 429 退避重试一次 ✓ */
+    private fun biliGet(url: String, referer: String): String {
+        var lastErr: Exception? = null
+        repeat(2) { attempt ->
+            try {
+                val conn = NetRoute.open(url, 15000)      // 直连网络（不随系统 VPN ✓ 无直连时自动回退 ✓）
+                try {
+                    conn.setRequestProperty("User-Agent", MusicHttp.UA)
+                    conn.setRequestProperty("Referer", referer)
+                    conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                    BiliApi.readSessdata()?.takeIf { it.isNotEmpty() }?.let {
+                        conn.setRequestProperty("Cookie", "SESSDATA=$it")
+                    }
+                    val code = conn.responseCode
+                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                    val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    if (code in 200..299) return body
+                    android.util.Log.w("HOV", "B站字幕抓取 HTTP $code（第 ${attempt + 1} 次）")
+                    lastErr = Exception("HTTP $code")
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+            if (attempt == 0) Thread.sleep(600)          // 429 退避后重试一次 ✓
+        }
+        throw lastErr ?: Exception("字幕抓取失败")
+    }
+
+    /** 普通 GET（系统默认网络，用于字幕等不需要直连策略的请求）——429/403 退避重试一次 ✓ */
     private fun plainGet(url: String, referer: String): String {
+        var lastErr: Exception? = null
+        repeat(2) { attempt ->
+            try {
+                return plainGetOnce(url, referer)
+            } catch (e: Exception) {
+                lastErr = e
+                val msg = e.message.orEmpty()
+                if (attempt == 0 && (msg.contains("429") || msg.contains("403") || msg.contains("50"))) {
+                    Thread.sleep(800)   // 限流退避 ✓
+                } else if (attempt == 0) {
+                    throw e              // 网络类错误直接抛（重试无益 ✗）
+                }
+            }
+        }
+        throw lastErr ?: Exception("字幕抓取失败")
+    }
+
+    private fun plainGetOnce(url: String, referer: String): String {
         val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
         return try {
             conn.connectTimeout = 15000

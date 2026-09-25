@@ -39,11 +39,13 @@ QString UrlResolver::cookieFileFor(const QString &pageUrl) {
 }
 
 bool UrlResolver::isDirectMedia(const QString &url) {
-    if (url.startsWith('/')) return true;                       // 本地文件
+    if (url.startsWith('/') || url.startsWith("file://")) return true;   // 本地文件（file:// 与 macOS 对齐 ✓ P2-7 ✓）
     if (url.contains("googlevideo.com") || url.contains("bilivideo.com")
         || url.contains("hdslb.com") || url.contains("126.net")) return true;
+    // 扩展名白名单：与 macOS 取**并集**（审计 P2-7 ✓ 曾各缺 .mov/.ts 与 .mpd ✗）
     static const char *exts[] = {".mp4", ".m3u8", ".mpd", ".mkv", ".webm",
-                                 ".mp3", ".flac", ".m4a", ".aac", nullptr};
+                                 ".mp3", ".flac", ".m4a", ".aac",
+                                 ".mov", ".ts", nullptr};
     for (int i = 0; exts[i]; ++i) {
         if (url.contains(exts[i])) return true;
     }

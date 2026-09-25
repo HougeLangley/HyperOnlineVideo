@@ -13,6 +13,7 @@ import android.content.SharedPreferences
  */
 object Settings {
 
+    const val VIDEO_CAP_AUTO = 0           // 视频清晰度上限"自动"（=平台默认解析 ✓）
     const val QUALITY_AUTO = "auto"        // 无损 → 320k → 128k
     const val QUALITY_HIGH = "high"        // 320k → 128k
     const val QUALITY_STANDARD = "standard" // 128k
@@ -22,10 +23,12 @@ object Settings {
     private const val K_AUTO_NEXT = "auto_next"
     private const val K_GESTURES = "gestures"
     private const val K_QUALITY = "music_quality"
+    private const val K_VIDEO_MAX_HEIGHT = "video_max_height"   // 视频清晰度上限（0=自动；与桌面 video.maxHeight 同语义 ✓）
     private const val K_WIFI_ONLY = "wifi_only_download"
     private const val K_FILL_SCREEN = "fill_screen_fullscreen"
     private const val K_THEME = "ui_theme"            // auto=跟随系统 / dark / light（与另两端同键语义 ✓）
     private const val K_SUB_AUTO = "subtitle_auto_show"   // 默认自动显示字幕（按系统语言选轨 ✓ 用户可关 ✓）
+    private const val K_SUB_SCALE = "subtitle_font_scale" // 字幕字号缩放（与 Linux/macOS 的 subtitle.fontScale 同语义 ✓）
 
     @Volatile private var sp: SharedPreferences? = null
 
@@ -37,6 +40,16 @@ object Settings {
     var subtitleAutoShow: Boolean
         get() = sp?.getBoolean(K_SUB_AUTO, true) ?: true
         set(v) { sp?.edit()?.putBoolean(K_SUB_AUTO, v)?.apply() }
+
+    /**
+     * 字幕字号缩放：0.5 ~ 2.0（默认 1.0）。
+     * 与 Linux/macOS 的 `subtitle.fontScale` **同语义同范围**（那边也是 0.5~2.0 ✓
+     * 见 desktop/src/Settings.cpp 的校验 ✓）—— Android 字幕走 App 层 TextView（libass 渲染不出字 ✗），
+     * 故在 PlayerActivity 里以 `17f × scale` 应用（基准 17 不变 ✓ 只加缩放 ✓）。
+     */
+    var subtitleFontScale: Float
+        get() = (sp?.getFloat(K_SUB_SCALE, 1.0f) ?: 1.0f).coerceIn(0.5f, 2.0f)
+        set(v) { sp?.edit()?.putFloat(K_SUB_SCALE, v.coerceIn(0.5f, 2.0f))?.apply() }
 
     /** 应用主题：auto=跟随系统 light/dark（用户 2026-09-18 要求）/ dark / light */
     var theme: String
@@ -76,6 +89,11 @@ object Settings {
     var fillScreen: Boolean
         get() = sp?.getBoolean(K_FILL_SCREEN, true) ?: true
         set(v) { sp?.edit()?.putBoolean(K_FILL_SCREEN, v)?.apply() }
+
+    /** 视频清晰度上限（0=自动=平台默认；1080/720/480/360 等=解析时选不超过它的最高档 ✓ 仅降不升 ✓） */
+    var videoMaxHeight: Int
+        get() = sp?.getInt(K_VIDEO_MAX_HEIGHT, 0) ?: 0
+        set(v) { sp?.edit()?.putInt(K_VIDEO_MAX_HEIGHT, v)?.apply() }
 
     fun qualityLabel(): String = when (musicQuality) {
         QUALITY_HIGH -> "320k"

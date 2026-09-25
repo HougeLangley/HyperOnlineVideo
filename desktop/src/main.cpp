@@ -51,6 +51,7 @@
 #include "PlayQueue.h"
 #include "QQMusicApi.h"
 #include "LoginDialog.h"
+#include "GpuCompat.h"
 #include "Settings.h"
 #include "Theme.h"
 #include "ProgressStore.h"
@@ -106,6 +107,11 @@ static void hov_force_c_numeric_locale() {
 #endif
 
 int main(int argc, char **argv) {
+    // 虚拟化环境：QtWebEngine 关闭 GPU（GL 上下文创建失败会导致登录窗首帧渲染异常 ✗ 见 GpuCompat.h）
+    // ⚠ 必须在 QApplication 之前（Chromium 只读一次环境）
+#ifdef HOV_WEBENGINE
+    GpuCompat::applyChromiumCompat();
+#endif
 #ifdef __linux__
     // ── libmpv 的数值 locale 崩溃修复（Arch 端实测复现）────────────────────────────
     // 现象：系统 LC_NUMERIC 非 C（如中文环境 zh_CN.UTF-8）时，**任何**子命令都直接段错误（rc=139），

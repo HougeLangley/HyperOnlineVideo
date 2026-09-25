@@ -11,6 +11,24 @@ enum Panels {
     /// 当前面板的文本导出回调（面板自己设置，避免 KVC 访问私有属性）
     static var activeDumpText: (() -> String)?
     static func reset() { activeWindow = nil; activeDumpText = nil }
+
+    /// 给面板窗口装"玻璃背景"（审计 P1-2 ✓ —— 原先 4 个面板各拄一遍同款配置 ✗ 抽此消除 ✗）
+    /// - Parameters:
+    ///   - window: 面板窗口（会被设为非不透明 + 透明背景 ✓）
+    ///   - root: 内容视图（glass 插到它最底层 ✓）
+    ///   - transparentTitlebar: 标题栏是否透明（默认 true；设置面板标题与内容会重叠 → 传 false ✓）
+    static func installGlassBackground(on window: NSWindow, root: NSView, transparentTitlebar: Bool = true) {
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = transparentTitlebar
+        let glass = NSVisualEffectView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
+        glass.autoresizingMask = [.width, .height]
+        glass.material = .underWindowBackground
+        glass.blendingMode = .behindWindow
+        glass.state = .followsWindowActiveState
+        window.contentView = root
+        root.addSubview(glass, positioned: .below, relativeTo: nil)
+    }
 }
 
 // MARK: - 设置面板
@@ -154,16 +172,7 @@ final class SettingsPanel: NSObject {
         root.addArrangedSubview(savedLabel)
 
         // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.titlebarAppearsTransparent = false   // 标题栏保持常规（透明会让标题与内容叠在一起）
-        let glass = NSVisualEffectView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
-        glass.autoresizingMask = [.width, .height]
-        glass.material = .underWindowBackground
-        glass.blendingMode = .behindWindow
-        glass.state = .followsWindowActiveState
-        window.contentView = root
-        root.addSubview(glass, positioned: .below, relativeTo: nil)
+        Panels.installGlassBackground(on: window, root: root, transparentTitlebar: false)   // 审计 P1-2 ✓ 原 9 行×4 → helper
         Panels.activeWindow = window
         Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
         window.center()
@@ -290,16 +299,7 @@ final class FavoritesPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate
         root.addArrangedSubview(btns)
 
         // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.titlebarAppearsTransparent = true
-        let glass = NSVisualEffectView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
-        glass.autoresizingMask = [.width, .height]
-        glass.material = .underWindowBackground
-        glass.blendingMode = .behindWindow
-        glass.state = .followsWindowActiveState
-        window.contentView = root
-        root.addSubview(glass, positioned: .below, relativeTo: nil)
+        Panels.installGlassBackground(on: window, root: root)   // 审计 P1-2 ✓ 原 9 行×4 → helper
         Panels.activeWindow = window
         Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
         window.center()
@@ -398,16 +398,7 @@ final class QueuePanel: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         root.addArrangedSubview(btns)
 
         // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.titlebarAppearsTransparent = true
-        let glass = NSVisualEffectView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
-        glass.autoresizingMask = [.width, .height]
-        glass.material = .underWindowBackground
-        glass.blendingMode = .behindWindow
-        glass.state = .followsWindowActiveState
-        window.contentView = root
-        root.addSubview(glass, positioned: .below, relativeTo: nil)
+        Panels.installGlassBackground(on: window, root: root)   // 审计 P1-2 ✓ 原 9 行×4 → helper
         Panels.activeWindow = window
         Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
         window.center()
@@ -561,16 +552,7 @@ final class DownloadsPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate
         root.addArrangedSubview(btns)
 
         // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.titlebarAppearsTransparent = true
-        let glass = NSVisualEffectView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
-        glass.autoresizingMask = [.width, .height]
-        glass.material = .underWindowBackground
-        glass.blendingMode = .behindWindow
-        glass.state = .followsWindowActiveState
-        window.contentView = root
-        root.addSubview(glass, positioned: .below, relativeTo: nil)
+        Panels.installGlassBackground(on: window, root: root)   // 审计 P1-2 ✓ 原 9 行×4 → helper
         Panels.activeWindow = window
         Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
         window.center()

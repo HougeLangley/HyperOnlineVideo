@@ -1,6 +1,8 @@
 #pragma once
+#include <QHash>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <functional>
 
@@ -43,7 +45,12 @@ public:
     /** 取歌词（LRC 原文 + 翻译，任一可为空；接口匿名可用，实测部分曲目 40+ 行） */
     void lyric(const QString &songId, std::function<void(const QString &lrc, const QString &trans)> done);
     /** 取专辑封面地址（搜索接口只给 picId，必须走 song/detail 才有 picUrl） */
+    /** 单首封面（播放时按需取 ✓） */
     void coverUrl(const QString &songId, std::function<void(const QString &url)> done);
+    /** 批量封面（搜索卡缩略图 + 播放封面预热 ✓）：POST ids=[a,b,c] → id → album.picUrl ✓
+     *  搜索接口只给 picId（拿不到图 ✗ 实测确认 ✓）→ 必须走 song/detail（与 macOS 的 coverUrls 对齐 ✓） */
+    void coverUrls(const QStringList &songIds,
+                   std::function<void(const QHash<QString, QString> &)> done);
     /** 同上，但额外返回逐字歌词 yrc（登录后才有；为空则退回行级） */
     void lyricFull(const QString &songId,
                    std::function<void(const QString &lrc, const QString &trans, const QString &yrc)> done);
@@ -54,6 +61,9 @@ public:
 
 private:
     QString cookieHeader() const;
+    // CDN 节点择优（2026-09-25 "随机不播"治本 ✗→✓）：网易云流 URL 随机落在 m701~m804，
+    // 部分节点被 CDN 403；探测替代节点取首个可用，全败回退原 URL。
+    void pickWorkingNode(const QString &url, std::function<void(const QString &)> done);
     QNetworkRequest makeRequest(const QString &url) const;
     QNetworkAccessManager *net_ = nullptr;
     std::function<void(const QString &)> status_;

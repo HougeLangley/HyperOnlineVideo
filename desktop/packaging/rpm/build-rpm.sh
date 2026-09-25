@@ -25,7 +25,7 @@ echo "  工作区:   $WORK（本步将被清空重建 ✓）"
 echo "═══ [1] 重置工作区（隔离起点 ✓）═══"
 rm -rf "$WORK"
 mkdir -p "$WORK"/{SOURCES,SPECS,SRPMS,RPMS/result,BUILD,BUILDROOT}
-cp -f "$IN_DIR"/hov-qt-1.2.0.tar.gz "$WORK/SOURCES/"
+cp -f "$IN_DIR"/hov-qt-*.tar.gz "$WORK/SOURCES/"   # 版本无关 ✓（2026-09-26 ✗→✓）
 cp -f "$IN_DIR"/hov-qt.spec "$WORK/SPECS/"
 echo "  SOURCES: $(ls "$WORK/SOURCES")"
 echo "  SPECS:   $(ls "$WORK/SPECS")"

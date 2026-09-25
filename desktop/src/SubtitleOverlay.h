@@ -50,6 +50,9 @@ public:
     /** 字号倍数（设置页 0.5~2.0），绘制时统一乘上去 */
     void setFontScale(double s) { fontScale_ = (s < 0.5) ? 0.5 : (s > 2.0 ? 2.0 : s); }
     double fontScale() const { return fontScale_; }
+    /** 歌词面板顶部安全区（像素 ✗ 非字幕）：由 MpvWidget 按专辑封面底边传入 ✗
+     *  避免歌词大字与左上角封面同高重叠（用户实测反馈 ✓） */
+    void setTopSafe(int px) { topSafe_ = (px < 0) ? 0 : px; }
     bool karaokeMode() const { return karaoke_; }
 
     /** 字幕时间偏移（秒）：正数 = 字幕**延后**出现（做同步校准用） */
@@ -59,6 +62,13 @@ public:
     /** 在给定区域内绘制当前字幕（含延迟角标）；由 MpvWidget::paintGL 调用 */
     void paint(QPainter &p, const QRect &area) const;
 
+    /** 当前绘制状态的指纹（歌词文本+逐字进度+行号+隐藏）——
+     *  MpvWidget 把歌词画进缓存的玻璃图 ✗，缓存 key 必须含它，否则歌词永远停在首帧 ✗（2026-09-25 实测 ✓） */
+    QString paintKey() const {
+        return (hidden_ ? QStringLiteral("H") : QStringLiteral("V")) + QString::number(index_) + "|"
+               + QString::number(int(progress_ * 100.0)) + "|" + current_;
+    }
+
 private:
     QVector<SubtitleCue> cues_;
     QString current_;
@@ -67,6 +77,7 @@ private:
     double delay_ = 0.0;
     bool karaoke_ = false;
     double fontScale_ = 1.0;
+    int topSafe_ = 0;          // 歌词面板顶部安全区（封面占用高度 ✗ 视频/无封面时为 0 ✓）
     double progress_ = 0.0;    // 当前行已唱比例（0~1），paint 用（无字级时间时的近似）
     SubtitleCue cur_;          // 当前行副本（含 words：有则做真·逐字高亮）
     double curTime_ = 0.0;

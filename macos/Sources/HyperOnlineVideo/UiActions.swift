@@ -180,6 +180,7 @@ extension AppDelegate {
                     return
                 }
                 self.rows.append(contentsOf: found)
+          self.rememberMusicMeta(found)          // 主线程写缓存 ✓（后台写 → 崩溃 ✗）
                 if found.isEmpty { self.appendLog("没有结果（检查网络或换关键词）") }
                 else { self.appendLog("共 \(found.count) 条结果（点卡片播放，滚到底自动加载更多）") }
                 self.reloadResults()
@@ -221,26 +222,33 @@ extension AppDelegate {
             var r = Row(text: "\(s.name) — \(s.artist)", key: "netease:\(s.id)", thumb: url)
             r.square = true                            // 专辑封面是方图
             out.append(r)
-            musicCovers["netease:\(s.id)"] = url
-            musicLabels["netease:\(s.id)"] = r.text
+            // ✗ 不在此写 musicCovers/musicLabels（本函数在后台线程运行 → 与主线程并写字典 = 崩溃 ✓ 2026-09-25）
         }
         Config.log("[封面] 网易云：\(covers.count)/\(slice.count) 首取到封面")
         return out
     }
 
     private func searchQQ(_ kw: String, page: Int) -> [Row] {
-        let songs = QQMusicApi().search(kw, limit: min(100, 20 * page))
-        let slice = songs.count > 20 ? Array(songs.suffix(20)) : songs
+        let songs = QQMusicApi().search(kw, page: page)   // 真分页 ✓（musicu 固定回 15 条 ✗ "多取截尾"必被去重归零 ✗）
         var out: [Row] = []
-        for s in slice {
+        for s in songs {
             var r = Row(text: "\(s.name) — \(s.artist)", key: "qq:\(s.mid)",
                         thumb: QQMusicApi.coverUrl(albumMid: s.albumMid))
             r.square = true                            // 专辑封面是方图
             out.append(r)
-            musicCovers["qq:\(s.mid)"] = QQMusicApi.coverUrl(albumMid: s.albumMid)
-            musicLabels["qq:\(s.mid)"] = r.text
+            // ✗ 不在此写 musicCovers/musicLabels（后台线程 → 崩溃 ✓ 见 rememberMusicMeta）
         }
         return out
+    }
+
+    /// 音乐元数据缓存（**只在主线程调用** ✗ 2026-09-25 事故修复）：
+    /// 后台 fetchPage 曾直接写这两个字典 → 与主线程搜索/播放并发 →
+    /// Dictionary 内存踩踏，EXC_BAD_ACCESS（用户崩溃栈落在 searchQQ 的 setValue ✓）。
+    private func rememberMusicMeta(_ rows: [Row]) {
+        for r in rows where r.key.hasPrefix("netease:") || r.key.hasPrefix("qq:") {
+            if !r.thumb.isEmpty { musicCovers[r.key] = r.thumb }
+            musicLabels[r.key] = r.text
+        }
     }
 
     /// 滚到接近底部时拉下一页（由滚动通知触发；同一时间只允许一个请求）
@@ -280,6 +288,7 @@ extension AppDelegate {
                 }
                 self.searchPage = next
                 self.rows.append(contentsOf: fresh)
+          self.rememberMusicMeta(fresh)          // 主线程写缓存 ✓
                 self.reloadResults()
                 self.loadThumbs(rows: fresh)
                 self.syncQueueFromRows()
@@ -373,7 +382,6 @@ extension AppDelegate {
             if thumbCache[r.thumb] != nil { continue }
             thumbCache[r.thumb] = NSImage()                    // 占位，避免并发重复请求
             let url = r.thumb
-            let key = r.key
             DispatchQueue.global().async { [weak self] in
                 let ref = url.contains("hdslb") ? "https://www.bilibili.com/"
                     : ((url.contains("gtimg") || url.contains("qq.com")) ? "https://y.qq.com/"
@@ -390,10 +398,11 @@ extension AppDelegate {
                     if self.thumbLoaded == 1 || self.thumbLoaded % 10 == 0 {
                         Config.log("缩略图已加载 \(self.thumbLoaded) 张")
                     }
-                    // 只刷新对应行（行可能在后续搜索里重排，用 key 定位）
-                    if let idx = self.rows.firstIndex(where: { $0.key == key && $0.thumb == url }) {
-                        self.resultsGrid.reloadItems(at: Set([IndexPath(item: idx, section: 0)]))
-                    }
+                    // 刷新**所有**共享该封面的行（2026-09-25 ✗ 同专辑多曲只刷第一行 → 其余永远空白 ✗）
+                    let idxs = self.rows.enumerated()
+                        .filter { $0.element.thumb == url }
+                        .map { IndexPath(item: $0.offset, section: 0) }
+                    if !idxs.isEmpty { self.resultsGrid.reloadItems(at: Set(idxs)) }
                 }
             }
         }
@@ -1029,10 +1038,11 @@ extension AppDelegate {
     private func playMusic(key: String, label: String) {
         followSource(key.hasPrefix("netease:") ? "netease" : "qqmusic")
         setStatus("取流中：\(label)")
+        let cachedCover = musicCovers[key] ?? ""      // 主线程快照 ✓（字典只在主线程读写 ✗ 2026-09-25 崩溃修复）
         DispatchQueue.global().async { [weak self] in
             guard let self else { return }
             let level = self.effectiveAudioLevel()
-            var url = "", err = "", cover = self.musicCovers[key] ?? ""
+            var url = "", err = "", cover = cachedCover
             var lrc = "", trans = "", yrc = ""
             var actualLevel = level                       // 服务端**实际**给的档位（可能低于请求值）
             if key.hasPrefix("netease:") {
@@ -1143,7 +1153,18 @@ extension AppDelegate {
             }
             lastLRC = text
         }
-        refreshKaraokeFlag()      // 播放新内容后按当前轨重算（此前会无条件置 true → SRT 被当歌词渲染）
+        // 关键修复（2026-09-25 用户实测 ✗）：把歌词注册为**一条轨**再刷新 karaoke 判定 —
+        //   refreshKaraokeFlag 的判据是「tracks[trackIndex] 扩展名 ∈ lrc/yrc/qrc」✗，
+        //   而本函数此前只挂 overlay.cues 不建轨 → trackIndex=-1 → karaoke=false
+        //   → 音乐模式背景不取色（全黑 ✗）+ 歌词按"视频字幕"贴底渲染（用户对比截图 ✗）。
+        //   本地音乐文件路径不受影响（sidecar .lrc 走 AppDelegate 的 tracks + applyTrack ✓）。
+        let lrcPath = (Config.dir as NSString).appendingPathComponent("now-lyrics.lrc")
+        if !lastLRC.isEmpty { try? lastLRC.write(toFile: lrcPath, atomically: true, encoding: .utf8) }
+        if !cues.isEmpty {
+            player.tracks = [SubtitleTrack(label: "歌词：\(label)", source: lrcPath, cues: cues)]
+            trackIndex = 0
+        }
+        refreshKaraokeFlag()      // 唯一写入口 ✓（判据=轨类型 × 设置 ✓ #147）
         player.updateOverlayTimer()
         if !cues.isEmpty {
             let wordCount = cues.reduce(0) { $0 + $1.words.count }

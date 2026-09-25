@@ -10,31 +10,39 @@ void MainWindow::downloadMusic(const QString &keyword, int count) {
         api->setStatusHandler([this](const QString &m) { results_->addItem(m); });
         api->search(keyword, 10, [this, api, count](const QVector<NetEaseApi::Song> &songs) {
             if (songs.isEmpty()) { results_->addItem("无结果"); api->deleteLater(); return; }
-            auto attempt = std::make_shared<std::function<void(int)>>();
-            auto queued = std::make_shared<int>(0);
-            *attempt = [this, api, songs, attempt, count, queued](int i) {
-                if (i >= songs.size() || (*queued) >= count) {
-                    if (*queued == 0) results_->addItem("前几首都没有可下载地址");
-                    else results_->addItem(QString("已入队 %1 首（并发上限 2）").arg(*queued));
-                    api->deleteLater();
-                    QTimer::singleShot(0, this, [attempt] { *attempt = nullptr; });   // C1 断环 ✓（延后：不可在自身执行中自毁 ✗）
-                    return;
-                }
-                const NetEaseApi::Song s = songs.at(i);
-                api->songUrl(s.id, effectiveQuality(), [this, s, i, attempt, queued](const QString &url, const QString &e) {
-                    if (url.isEmpty()) { results_->addItem(QString("跳过「%1」：%2").arg(s.name, e)); (*attempt)(i + 1); return; }
-                    const QString label = QString("%1 — %2").arg(s.name, s.artist);
-                    lastStreamUrl_ = url;
-                    lastStreamTitle_ = label;
-                    lastArtist_ = s.artist;
-                    lastAlbum_ = s.album;
-                    lastCoverUrl_.clear();     // 网易云封面需额外详情请求，批量下载暂不嵌封面
-                    downloadCurrent();          // 复用同一套命名与落盘逻辑
-                    (*queued)++;
-                    (*attempt)(i + 1);          // 继续下一首（达到 count 时由头部收尾）
-                });
-            };
-            (*attempt)(0);
+            // 封面批量预热（用户实测 2026-09-25：下载的音乐没有内嵌封面 ✗）——
+            //   网易云搜索只给 picId ✗ → song/detail 批量取 ✓ 写入 coverMap_，逐首下载时查用 ✓
+            QStringList coverIds;
+            for (const auto &s : songs) coverIds << s.id;
+            api->coverUrls(coverIds, [this, api, songs, count](const QHash<QString, QString> &covers) {
+                for (auto it = covers.constBegin(); it != covers.constEnd(); ++it)
+                    coverMap_.insert("netease:" + it.key(), it.value());
+                auto attempt = std::make_shared<std::function<void(int)>>();
+                auto queued = std::make_shared<int>(0);
+                *attempt = [this, api, songs, attempt, count, queued](int i) {
+                    if (i >= songs.size() || (*queued) >= count) {
+                        if (*queued == 0) results_->addItem("前几首都没有可下载地址");
+                        else results_->addItem(QString("已入队 %1 首（并发上限 2）").arg(*queued));
+                        api->deleteLater();
+                        QTimer::singleShot(0, this, [attempt] { *attempt = nullptr; });   // C1 断环 ✓（延后：不可在自身执行中自毁 ✗）
+                        return;
+                    }
+                    const NetEaseApi::Song s = songs.at(i);
+                    api->songUrl(s.id, effectiveQuality(), [this, s, i, attempt, queued](const QString &url, const QString &e) {
+                        if (url.isEmpty()) { results_->addItem(QString("跳过「%1」：%2").arg(s.name, e)); (*attempt)(i + 1); return; }
+                        const QString label = QString("%1 — %2").arg(s.name, s.artist);
+                        lastStreamUrl_ = url;
+                        lastStreamTitle_ = label;
+                        lastArtist_ = s.artist;
+                        lastAlbum_ = s.album;
+                        lastCoverUrl_ = coverMap_.value("netease:" + s.id);   // 封面（预热结果 ✓ 空则无封面但其余标签照嵌 ✓）
+                        downloadCurrent();          // 复用同一套命名与落盘逻辑
+                        (*queued)++;
+                        (*attempt)(i + 1);          // 继续下一首（达到 count 时由头部收尾）
+                    });
+                };
+                (*attempt)(0);
+            });
         });
 }
 

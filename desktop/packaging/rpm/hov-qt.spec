@@ -4,7 +4,7 @@
 # 手册的**唯一真相**是 desktop/packaging/man/hov-qt.1（deb/rpm 共用 ✓ 防漂移 ✗）
 
 Name:           hov-qt
-Version:        1.2.1
+Version:        1.2.2
 Release:        2%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
@@ -68,6 +68,15 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
+* Fri Sep 25 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.2-2
+- Music: QQ search true pagination (Desktop protocol + grp + numeric params) and infinite scroll
+- Music: pagination covers for NetEase/QQ; embedded cover art on downloads (ffprobe-verified)
+- Music: CDN node probing (NetEase m70x 403 workaround) and mpv event/log pump
+- Subtitles: auto-track selection fixes (bare-language fallback, Bilibili direct route)
+- Lyrics: adaptive font shrink on all three platforms; macOS music-mode fix
+- Quality: video max-height setting now applied on Linux/Android
+- Stability: macOS thread-safety fix (main-thread-only caches); keep-open race hardening
+
 * Thu Sep 24 2026 Houge Langley <hougelangley@users.noreply.github.com> - 1.2.1-2
 - Fix license tag: GPL-3.0-only (LICENSE grants version 3 only; the
   earlier "or-later" statement was an over-declaration)

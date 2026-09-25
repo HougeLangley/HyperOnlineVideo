@@ -52,6 +52,25 @@ object MusicHttp {
         }
     }
 
+    /** 系统网络 POST（走 VPN/系统路由 ✓；"直连出口被风控"时降级重试用 ✓ 2026-09-25 手机实测 code=2001 ✗） */
+    fun postJsonSystem(url: String, referer: String, json: String, cookie: String? = null, timeoutMs: Int = 15000): String {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.doOutput = true
+        conn.connectTimeout = timeoutMs
+        conn.readTimeout = timeoutMs
+        conn.setRequestProperty("User-Agent", UA)
+        conn.setRequestProperty("Referer", referer)
+        conn.setRequestProperty("Content-Type", "application/json")
+        if (!cookie.isNullOrEmpty()) conn.setRequestProperty("Cookie", cookie)
+        return try {
+            conn.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     fun postJson(url: String, referer: String, json: String, cookie: String? = null, timeoutMs: Int = 15000): String {
         val conn = NetRoute.open(url, timeoutMs)
         return try {
@@ -163,7 +182,35 @@ object NeteaseApi {
         val d = j.optJSONArray("data")?.optJSONObject(0) ?: return null
         val url = d.optString("url")
         if (url.isEmpty() || url == "null") return null
-        return MusicStream(url, d.optString("type").ifEmpty { "mp3" }, d.optInt("br"))
+        return MusicStream(pickWorkingNode(url), d.optString("type").ifEmpty { "mp3" }, d.optInt("br"))
+    }
+
+    /**
+     * CDN 节点择优（2026-09-25 "随机不播"根因 ✗→✓）：网易云流 URL 随机落在 m701~m804 等节点，
+     * 部分节点被 CDN 返回 403（实测 m704/m804 → 403；m701/m702/m703/m801 → 200；token 不绑定节点）。
+     * 播放器一次失败即弃 → 进度条不动。探测替代节点取首个可用（Range、1.5s 超时），全败回退原 URL。
+     */
+    private fun pickWorkingNode(url: String): String {
+        val m = Regex("^(https?://)(m\\d+)\\.music\\.126\\.net(/.*)$").find(url) ?: return url
+        val (scheme, orig, rest) = m.destructured
+        for (node in listOf("m701", "m702", "m703", "m801", "m802", "m803")) {
+            if (node == orig) continue
+            val cand = "$scheme$node.music.126.net$rest"
+            try {
+                val conn = NetRoute.open(cand, 1500)
+                conn.setRequestProperty("Range", "bytes=0-0")
+                conn.setRequestProperty("User-Agent", MusicHttp.UA)
+                conn.setRequestProperty("Referer", REFERER)
+                if (!cookieHeader.isNullOrEmpty()) conn.setRequestProperty("Cookie", cookieHeader)
+                val code = conn.responseCode
+                conn.disconnect()
+                if (code == 200 || code == 206) {
+                    android.util.Log.i("HOV", "网易云节点择优: 选用 $node.music.126.net")
+                    return cand
+                }
+            } catch (_: Exception) { }
+        }
+        return url
     }
 
     /** 匿名取流（不带 cookie）：VIP 音源受地区限制时退回免费音质 */
@@ -212,22 +259,53 @@ object QQMusicApi {
         if (albumMid.isEmpty()) "" else "https://y.gtimg.cn/music/photo_new/T002R500x500M000$albumMid.jpg"
 
     fun search(query: String, page: Int, limit: Int = 20): List<VideoItem> {
+        // uin 一致性（2026-09-25 手机实测：uin 非 0 但 cookie 空 → 服务端 code=2001 风控 ✗）
+        val effUin = if (cookieHeader.isNullOrEmpty()) "0" else uin
         val body = JSONObject().apply {
-            put("comm", JSONObject().apply { put("ct", "19"); put("cv", "1859"); put("uin", uin) })
+            put("comm", JSONObject().apply { put("ct", "19"); put("cv", "1859"); put("uin", effUin) })
             put("req", JSONObject().apply {
                 put("module", "music.search.SearchCgiService")
-                put("method", "DoSearchForQQMusicMobile")
+                // 2026-09-25 傍晚：换 Desktop 方法（真翻页 ✓ 实测 page1/2 各 50 首不同 ✓）——
+                //   grp:1 + num_per_page/page_num 用**数字**（字符串会被服务端忽略 ✗ 翻不动页 ✗）
+                put("method", "DoSearchForQQMusicDesktop")
                 put("param", JSONObject().apply {
                     put("query", query)
-                    put("num_per_page", limit.toString())
-                    put("page_num", page.toString())
-                    put("search_type", "0")
+                    put("grp", 1)
+                    put("num_per_page", limit)
+                    put("page_num", page)
+                    put("search_type", 0)
                 })
             })
         }
-        val raw = MusicHttp.postJson(CGI, REFERER, body.toString(), cookieHeader)
+        var raw = MusicHttp.postJson(CGI, REFERER, body.toString(), cookieHeader)
+        fun reqCode(x: String): Int = runCatching {
+            JSONObject(x).optJSONObject("req")?.optInt("code", -1) ?: -1
+        }.getOrDefault(-2)
+        android.util.Log.i("HOV", "QQ搜索[直连] len=${raw.length} reqCode=${reqCode(raw)} uin=$effUin ck=${cookieHeader?.length ?: 0}")
+        if (reqCode(raw) != 0) {
+            // 直连出口被风控（手机移动网实测 code=2001 ✗ / 家宽正常 ✓）→ 系统网络（VPN/WiFi）重试一次 ✓
+            raw = MusicHttp.postJsonSystem(CGI, REFERER, body.toString(), cookieHeader)
+            android.util.Log.i("HOV", "QQ搜索[系统] len=${raw.length} reqCode=${reqCode(raw)}")
+        }
+        if (reqCode(raw) != 0 && !cookieHeader.isNullOrEmpty()) {
+            // 登录态失效（旧 cookie → 服务端 2001 风控 ✗ 手机实测 ✓）→ **匿名重试**（搜索不需要登录 ✓）
+            val anon = JSONObject(body.toString())
+            anon.getJSONObject("comm").put("uin", "0")
+            raw = MusicHttp.postJson(CGI, REFERER, anon.toString(), null)
+            android.util.Log.i("HOV", "QQ搜索[匿名] len=${raw.length} reqCode=${reqCode(raw)}")
+        }
+        val finalCode = reqCode(raw)
+        if (finalCode != 0) {
+            // 三通道全败（2026-09-25 手机实测：旧 cookie + 匿名全 2001 ✗；Mac 有效登录 → 0 ✓）→ 明确提示（不再静默 0 条 ✗）
+            throw IllegalStateException(
+                if (!cookieHeader.isNullOrEmpty())
+                    "QQ音乐需登录（登录态已失效 code=$finalCode）→ 请在「登录」页重新登录 QQ 音乐"
+                else
+                    "QQ音乐搜索暂被限制（code=$finalCode）→ 请稍后重试或登录 QQ 音乐"
+            )
+        }
         val songs = JSONObject(raw).optJSONObject("req")?.optJSONObject("data")
-            ?.optJSONObject("body")?.optJSONArray("item_song") ?: JSONArray()
+            ?.optJSONObject("body")?.optJSONObject("song")?.optJSONArray("list") ?: JSONArray()   // Desktop 响应路径 ✓
         val out = ArrayList<VideoItem>()
         for (i in 0 until songs.length()) {
             val s = songs.optJSONObject(i) ?: continue

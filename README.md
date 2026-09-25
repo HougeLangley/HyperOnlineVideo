@@ -7,17 +7,17 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ---
 
-### 📌 当前发布状态（v1.2.1 · 全平台正式发布）
+### 📌 当前发布状态（v1.2.2 · 全平台正式发布）
 
 | 平台 | 状态 | 获取方式（详细步骤见 [📦 安装指南](#-安装指南小白也能看懂)）|
 |---|---|---|
-| **Android** | ✅ v1.2.1 | [Releases](../../releases/latest) 下载 `app-release-1.2.1.apk` |
-| **macOS**（Apple 芯片）| ✅ v1.2.1 | Releases 下载 `HyperOnlineVideo-1.2.1-arm64.dmg` |
-| **Arch Linux / Manjaro** | ✅ v1.2.1 | AUR：`yay -S hov-qt` |
-| **Fedora 44 / 45** | ✅ v1.2.1 | Copr：[`houge/hov-qt`](https://copr.fedorainfracloud.org/coprs/houge/hov-qt/) · `sudo dnf copr enable houge/hov-qt` |
-| **openSUSE Tumbleweed** | ✅ v1.2.1 | OBS `home:houge`（x86_64 / aarch64 / riscv64）|
-| **openSUSE Leap 16.0** | ✅ v1.2.1 | OBS `home:houge`（x86_64 / aarch64）|
-| **NixOS** | ✅ v1.2.1 | flake：`github:HougeLangley/HyperOnlineVideo` |
+| **Android** | ✅ v1.2.2 | [Releases](../../releases/latest) 下载 `app-release-1.2.2.apk` |
+| **macOS**（Apple 芯片）| ✅ v1.2.2 | Releases 下载 `HyperOnlineVideo-1.2.2-arm64.dmg` |
+| **Arch Linux / Manjaro** | ✅ v1.2.2 | AUR：`yay -S hov-qt` |
+| **Fedora 44 / 45** | ✅ v1.2.2 | Copr：[`houge/hov-qt`](https://copr.fedorainfracloud.org/coprs/houge/hov-qt/) · `sudo dnf copr enable houge/hov-qt` |
+| **openSUSE Tumbleweed** | ✅ v1.2.2 | OBS `home:houge`（x86_64 / aarch64 / riscv64）|
+| **openSUSE Leap 16.0** | ✅ v1.2.2 | OBS `home:houge`（x86_64 / aarch64）|
+| **NixOS** | ✅ v1.2.2 | flake：`github:HougeLangley/HyperOnlineVideo` |
 | **Ubuntu / Debian / 其它** | ✅ 源码构建 | 3 条命令、约 5 分钟（见安装指南）|
 
 > 💡 **Linux 全系都通过官方/第三方软件源安装** ✓ 用系统包管理器一键完成 ✓ 自动更新 ✓
@@ -134,7 +134,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 ### 📱 Android（手机 / 平板）
 
 1. 打开本仓库的 **[Releases 页面](../../releases/latest)**
-2. 在 "Assets" 区域点击 **`app-release-1.2.1.apk`** 下载
+2. 在 "Assets" 区域点击 **`app-release-1.2.2.apk`** 下载
 3. 在手机上打开这个文件；若提示「禁止安装未知应用」，按提示允许（安卓装非商店应用的标准流程 ✓）
 4. 安装完成后，桌面会出现「**聚合视频**」图标 ✓
 
@@ -142,7 +142,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ### 🍎 macOS（Apple 芯片 M 系列）
 
-1. Releases 页面下载 **`HyperOnlineVideo-1.2.1-arm64.dmg`**
+1. Releases 页面下载 **`HyperOnlineVideo-1.2.2-arm64.dmg`**
 2. 双击打开，把「**聚合视频**」拖进 **应用程序** 文件夹
 3. **第一次打开**会被 macOS 拦下（未做付费公证的应用都会这样 ✓ 正常现象）：
    - **方法 A**：在「应用程序」里 **右键点图标 → 选"打开" → 再点一次"打开"**
@@ -517,7 +517,7 @@ mock -r fedora-44-x86_64 --rebuild <SRPM> && mock -r fedora-44-x86_64 --scrub=al
 > ⚠️ **spec 的注释里绝不能出现宏名**（如 `%cmake`）—— RPM 会展开注释中的宏，
 > 会产生 `Unknown tag` 之类难以理解的报错。写完先 `rpmspec -q <spec>` 预检。
 
-### 4. Fedora Copr 第三方源（✅ **v1.2.1 正式渠道**）
+### 4. Fedora Copr 第三方源（✅ **v1.2.2 正式渠道**）
 
 ```bash
 sudo dnf copr enable houge/hov-qt

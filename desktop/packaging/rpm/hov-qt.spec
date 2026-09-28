@@ -68,7 +68,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
-* Sun Sep 28 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.3-1
+* Mon Sep 28 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.3-1
 - Bilibili: search upgraded to wbi signing on all three platforms (auto-fallback to legacy)
 - Android: robust end-of-playback detection + diagnostics for auto-advance
 - Maintenance: yt-dlp version check; four-platform API audit

@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.security.MessageDigest
 
 /**
  * B 站原生 API（不走 yt-dlp）：
@@ -58,15 +59,48 @@ object BiliApi {
 
     /** 搜索视频（分页 + 排序/时长过滤） */
     fun search(query: String, page: Int, order: String, duration: Int): List<VideoItem> {
-        val enc = URLEncoder.encode(query, "UTF-8")
-        val raw = httpGet(
-            "https://api.bilibili.com/x/web-interface/search/type?search_type=video" +
-                "&keyword=$enc&page=$page&page_size=$SEARCH_PAGE_SIZE" +
-                "&order=$order&duration=$duration",
-            true
+        // 2026-09-28：**wbi 签名路径优先**（现行标准 ✓；旧接口对冷请求已被风控 ✗ 实测）
+        //   失败（网络/密钥/风控）→ 自动回退旧接口（App 内仍可用 ✓ 双保险 ✓）
+        val params = linkedMapOf(
+            "search_type" to "video", "keyword" to query, "page" to page.toString(),
+            "page_size" to SEARCH_PAGE_SIZE.toString(), "order" to order,
+            "duration" to duration.toString(),
+            "wts" to (System.currentTimeMillis() / 1000).toString()
         )
-        val resp = JSONObject(raw)
-        if (resp.optInt("code") != 0) throw Exception("bilibili code=${resp.optInt("code")}")
+        var resp: JSONObject? = null
+        try {
+            val mixin = wbiMixinKey()
+            if (mixin != null) {
+                val raw = httpGet("https://api.bilibili.com/x/web-interface/wbi/search/type?" +
+                    signWbiParams(params, mixin), true)
+                val r = runCatching { JSONObject(raw) }.getOrNull()
+                if (r != null && r.optInt("code", -1) == 0) {
+                    android.util.Log.i("HOV", "B站搜索[wbi] ✓ code=0")
+                    resp = r
+                } else {
+                    android.util.Log.w("HOV", "B站搜索[wbi] 失败 code=${r?.optInt("code", -1) ?: -2} → 回退旧接口")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("HOV", "B站搜索[wbi] 异常: ${e.message} → 回退旧接口")
+        }
+        if (resp == null) {
+            val enc = URLEncoder.encode(query, "UTF-8")
+            val raw = httpGet(
+                "https://api.bilibili.com/x/web-interface/search/type?search_type=video" +
+                    "&keyword=$enc&page=$page&page_size=$SEARCH_PAGE_SIZE" +
+                    "&order=$order&duration=$duration",
+                true
+            )
+            val r = JSONObject(raw)
+            if (r.optInt("code") != 0) throw Exception("bilibili code=${r.optInt("code")}")
+            resp = r
+        }
+        return parseSearchResult(resp)
+    }
+
+    /** 搜索响应 → VideoItem 列表（wbi 与旧接口共用 ✓ 2026-09-28 去重 ✓） */
+    private fun parseSearchResult(resp: JSONObject): List<VideoItem> {
         val result = resp.getJSONObject("data").optJSONArray("result") ?: JSONArray()
         val out = ArrayList<VideoItem>()
         for (i in 0 until result.length()) {
@@ -86,6 +120,42 @@ object BiliApi {
             )
         }
         return out
+    }
+
+    // ── wbi 签名（2026-09-28 ✓ 现行标准 ✓）：nav 取密钥 → mixin 表 → w_rid=md5(query+mixin) ──
+    private val WBI_TAB = intArrayOf(
+        46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+        33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
+        26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36,
+        20, 34, 44, 52
+    )
+
+    @Volatile private var wbiMixin: String? = null
+    @Volatile private var wbiFetchedAt = 0L
+
+    /** wbi 混合密钥（32 位）；缓存 6h ✓（B站每日轮换 → 自动刷新 ✓） */
+    private fun wbiMixinKey(): String? {
+        val now = System.currentTimeMillis()
+        wbiMixin?.let { if (now - wbiFetchedAt < 6 * 3600_000L) return it }
+        return runCatching {
+            val nav = JSONObject(httpGet("https://api.bilibili.com/x/web-interface/nav", false))
+            val wi = nav.getJSONObject("data").getJSONObject("wbi_img")
+            val img = wi.getString("img_url").substringAfterLast('/').substringBefore('.')
+            val sub = wi.getString("sub_url").substringAfterLast('/').substringBefore('.')
+            val orig = img + sub
+            val mix = buildString { for (idx in WBI_TAB) append(orig[idx]) }.take(32)
+            wbiMixin = mix; wbiFetchedAt = now
+            mix
+        }.getOrNull()
+    }
+
+    /** 参数 → wbi 签名 query（encodeURIComponent 语义 + w_rid ✓） */
+    private fun signWbiParams(params: Map<String, String>, mixin: String): String {
+        fun e(s: String) = URLEncoder.encode(s.replace(Regex("[!'()*]"), ""), "UTF-8").replace("+", "%20")
+        val query = params.toSortedMap().entries.joinToString("&") { "${e(it.key)}=${e(it.value)}" }
+        val rid = MessageDigest.getInstance("MD5").digest((query + mixin).toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return "$query&w_rid=$rid"
     }
 
     /** 解析单视频为直链（html5 mp4；qn 可指定清晰度，登录 Cookie 解锁更高） */

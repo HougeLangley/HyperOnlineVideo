@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCryptographicHash>
@@ -219,13 +220,106 @@ QNetworkRequest siteRequest(const QUrl &url, const QString &referer) {
 }
 }   // namespace
 
-// B站搜索：接口与 Android 端一致（实测可用）；标题里的 <em> 高亮标签要去掉
+// ── B站 wbi 签名（2026-09-28 ✓ 现行标准）：nav 取密钥 → mixin 表 → w_rid=md5(query+mixin) ──
+static const int kBiliWbiTab[64] = {
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+    33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
+    26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36,
+    20, 34, 44, 52
+};
+
+static QString biliWbiSign(const QMap<QString, QString> &params, const QString &mixin) {
+    QStringList parts;
+    for (auto it = params.constBegin(); it != params.constEnd(); ++it) {   // QMap 已按 key 排序 ✓
+        QString v = it.value();
+        v.remove(QRegularExpression("[!'()*]"));
+        parts << QUrl::toPercentEncoding(it.key()) + "=" + QUrl::toPercentEncoding(v);   // RFC3986 ✓（与 encodeURIComponent 同语义 ✓）
+    }
+    const QString query = parts.join("&");
+    const QString rid = QString::fromUtf8(QCryptographicHash::hash((query + mixin).toUtf8(), QCryptographicHash::Md5).toHex());
+    return query + "&w_rid=" + rid;
+}
+
+/** 搜索响应 → 列表（wbi 与旧接口共用 ✓ 2026-09-28 去重 ✓） */
+static QVector<UrlResolver::BiliVideo> biliParseSearch(const QJsonObject &root) {
+    QVector<UrlResolver::BiliVideo> out;
+    for (const auto &v : root.value("data").toObject().value("result").toArray()) {
+        const QJsonObject o = v.toObject();
+        UrlResolver::BiliVideo b;
+        b.bvid = o.value("bvid").toString();
+        b.title = o.value("title").toString();
+        b.title.remove(QRegularExpression("<[^>]+>"));      // 去掉 <em class="keyword">
+        b.author = o.value("author").toString();
+        b.duration = o.value("duration").toString();
+        b.pic = o.value("pic").toString();
+        if (b.pic.startsWith("//")) b.pic.prepend("https:");
+        if (!b.bvid.isEmpty() && !b.title.isEmpty()) out.append(b);
+    }
+    return out;
+}
+
+/** wbi 混合密钥（32 位）；缓存 6h ✓（B站每日轮换 → 自动刷新 ✓） */
+QString UrlResolver::biliWbiMixin() {
+    static QString cached;
+    static qint64 at = 0;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (!cached.isEmpty() && now - at < 6LL * 3600 * 1000) return cached;
+    QNetworkRequest req = siteRequest(QUrl("https://api.bilibili.com/x/web-interface/nav"), "https://www.bilibili.com/");
+    QEventLoop loop;
+    QNetworkReply *r = net_->get(req);
+    QObject::connect(r, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    r->deleteLater();
+    const QJsonObject wi = QJsonDocument::fromJson(r->readAll()).object()
+                               .value("data").toObject().value("wbi_img").toObject();
+    const QString img = QUrl(wi.value("img_url").toString()).fileName().section('.', 0, 0);
+    const QString sub = QUrl(wi.value("sub_url").toString()).fileName().section('.', 0, 0);
+    const QString orig = img + sub;
+    if (orig.size() < 64) { qInfo() << "B站 wbi 密钥获取失败 ✗"; return QString(); }
+    QString mix;
+    for (int idx : kBiliWbiTab) mix += orig.at(idx);
+    cached = mix.left(32);
+    at = now;
+    return cached;
+}
+
+
+// B站搜索（2026-09-28）：wbi 签名路径优先（现行标准 ✓）；失败自动回退旧接口（现状仍可用 ✓ 双保险 ✓）
 QVector<UrlResolver::BiliVideo> UrlResolver::searchBili(const QString &keyword, int pageSize) {
     QVector<BiliVideo> out;
     if (keyword.trimmed().isEmpty()) return out;
     applyProxy();
-    const QString enc = QString::fromUtf8(QUrl::toPercentEncoding(keyword));
     const QString filt = biliFilterQuery();                       // UI-4-B ✓ 过滤器参数（排序/时长 ✓）
+    QMap<QString, QString> wbiParams;
+    wbiParams["search_type"] = "video";
+    wbiParams["keyword"] = keyword;
+    wbiParams["page"] = "1";
+    wbiParams["page_size"] = QString::number(pageSize);
+    wbiParams["wts"] = QString::number(QDateTime::currentSecsSinceEpoch());
+    for (const QString &kv : filt.split('&', Qt::SkipEmptyParts)) {   // "&order=..&duration=.." → 拆进签名参数 ✓
+        const int eq = kv.indexOf('=');
+        if (eq > 0) wbiParams.insert(kv.left(eq), kv.mid(eq + 1));
+    }
+    const QString mixin = biliWbiMixin();
+    if (!mixin.isEmpty()) {
+        const QUrl wu("https://api.bilibili.com/x/web-interface/wbi/search/type?" + biliWbiSign(wbiParams, mixin));
+        QNetworkRequest wreq = siteRequest(wu, "https://www.bilibili.com/");
+        const QString wck = cookieHeaderFor("bilibili");
+        if (!wck.isEmpty()) wreq.setRawHeader("Cookie", wck.toUtf8());
+        QEventLoop loop;
+        QNetworkReply *wr = net_->get(wreq);
+        connect(wr, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        wr->deleteLater();
+        const QJsonObject wroot = QJsonDocument::fromJson(wr->readAll()).object();
+        if (wroot.value("code").toInt(-1) == 0) {
+            out = biliParseSearch(wroot);
+            qInfo() << "B站搜索[wbi]:" << keyword << "→" << out.size() << "条";
+            return out;
+        }
+        qInfo() << "B站搜索[wbi] code=" << wroot.value("code").toInt(-1) << "→ 回退旧接口";
+    }
+    const QString enc = QString::fromUtf8(QUrl::toPercentEncoding(keyword));
     const QUrl u(QString("https://api.bilibili.com/x/web-interface/search/type?search_type=video"
                          "&keyword=%1&page=1&page_size=%2%3").arg(enc).arg(pageSize).arg(filt));
     qInfo() << "[过滤器] B站搜索 URL =" << u.toString();                // 自动化可判定 ✓
@@ -243,18 +337,7 @@ QVector<UrlResolver::BiliVideo> UrlResolver::searchBili(const QString &keyword, 
         qInfo() << "B站搜索返回 code=" << code;
         return out;
     }
-    for (const auto &v : root.value("data").toObject().value("result").toArray()) {
-        const QJsonObject o = v.toObject();
-        BiliVideo b;
-        b.bvid = o.value("bvid").toString();
-        b.title = o.value("title").toString();
-        b.title.remove(QRegularExpression("<[^>]+>"));      // 去掉 <em class="keyword">
-        b.author = o.value("author").toString();
-        b.duration = o.value("duration").toString();
-        b.pic = o.value("pic").toString();
-        if (b.pic.startsWith("//")) b.pic.prepend("https:");
-        if (!b.bvid.isEmpty() && !b.title.isEmpty()) out.append(b);
-    }
+    out = biliParseSearch(root);
     qInfo() << "B站搜索:" << keyword << "→" << out.size() << "条";
     return out;
 }

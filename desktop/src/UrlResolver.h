@@ -83,6 +83,7 @@ public:
 
     /** 站点 cookie 文件 → Cookie 头（音乐 API 与 B站搜索共用） */
     QString cookieHeaderFor(const QString &site) const;
+    QString biliWbiMixin();                                    // B站 wbi 混合密钥（缓存 6h ✓ 2026-09-28）
     /** 从系统浏览器读 cookie（A0 登录方案；空 = 关闭）。开启后 yt-dlp 会把合并 jar 写回站点 cookie 文件 */
     void setCookiesFromBrowser(const QString &b) { cookiesFromBrowser_ = b.trimmed(); }
     QString cookiesFromBrowser() const { return cookiesFromBrowser_; }

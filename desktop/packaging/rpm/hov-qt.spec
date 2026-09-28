@@ -4,8 +4,8 @@
 # 手册的**唯一真相**是 desktop/packaging/man/hov-qt.1（deb/rpm 共用 ✓ 防漂移 ✗）
 
 Name:           hov-qt
-Version:        1.2.2
-Release:        2%{?dist}
+Version:        1.2.3
+Release:        1%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
 License:        GPL-3.0-only
@@ -68,6 +68,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
+* Sun Sep 28 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.3-1
+- Bilibili: search upgraded to wbi signing on all three platforms (auto-fallback to legacy)
+- Android: robust end-of-playback detection + diagnostics for auto-advance
+- Maintenance: yt-dlp version check; four-platform API audit
 * Fri Sep 25 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.2-2
 - Music: QQ search true pagination (Desktop protocol + grp + numeric params) and infinite scroll
 - Music: pagination covers for NetEase/QQ; embedded cover art on downloads (ffprobe-verified)

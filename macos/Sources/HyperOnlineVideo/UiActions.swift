@@ -1,5 +1,10 @@
 import AppKit
 import AVFoundation
+import CryptoKit
+
+// B站 wbi 密钥缓存（文件作用域 ✓ 扩展内不能加存储属性 ✗ 2026-09-28）
+private var hovBiliWbiCache: String?
+private var hovBiliWbiAt: Double = 0
 
 /// 结果行的模型（列表里既显示搜索结果也显示日志/状态，与 Qt 端的做法一致）
 struct Row {
@@ -328,15 +333,31 @@ extension AppDelegate {
         return out
     }
 
-    /// B站搜索：用官方 search/type 接口（与 Android 端同一路径，实测可用；yt-dlp 的 bilisearch 会被 412 拦）
+    /// B站搜索（2026-09-28）：**wbi 签名路径优先**（现行标准 ✓；旧接口对冷请求已被风控 ✗ 实测）→ 失败回退旧接口 ✓
     private func searchBilibili(_ kw: String, page: Int = 1) -> [Row] {
-        let enc = kw.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? kw
         let order = searchSort == 2 ? "pubdate" : (searchSort == 3 ? "click" : "totalrank")
-        var url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(enc)"
-                + "&page=\(page)&page_size=20&order=\(order)"
-        if searchDuration >= 1 { url += "&duration=\(searchDuration == 3 ? 4 : searchDuration)" }
+        let dur = searchDuration >= 1 ? (searchDuration == 3 ? 4 : searchDuration) : 0
         var h = ["User-Agent": Http.ua, "Referer": "https://www.bilibili.com/"]
         if let ck = cookieHeaderText(site: "bilibili"), !ck.isEmpty { h["Cookie"] = ck }
+        if let mixin = Self.biliWbiMixin(), !mixin.isEmpty {
+            var params: [(String, String)] = [
+                ("search_type", "video"), ("keyword", kw), ("page", "\(page)"),
+                ("page_size", "20"), ("order", order),
+                ("wts", "\(Int(Date().timeIntervalSince1970))"),
+            ]
+            if dur >= 1 { params.append(("duration", "\(dur)")) }
+            let q = Self.biliWbiSignedQuery(params, mixin: mixin)
+            let r = Http.get("https://api.bilibili.com/x/web-interface/wbi/search/type?\(q)", headers: h)
+            if r.ok, (r.json()["code"] as? NSNumber)?.intValue == 0 {
+                Config.log("B站搜索[wbi] ✓ code=0")
+                return Self.parseBiliSearch(r.json())
+            }
+            Config.log("B站搜索[wbi] 失败 code=\((r.json()["code"] as? NSNumber)?.intValue ?? -1) → 回退旧接口")
+        }
+        let enc = kw.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? kw
+        var url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(enc)"
+                + "&page=\(page)&page_size=20&order=\(order)"
+        if dur >= 1 { url += "&duration=\(dur)" }
         let r = Http.get(url, headers: h)
         guard r.ok else { Config.log("B站搜索请求失败 HTTP \(r.status)"); return [] }
         let root = r.json()
@@ -344,22 +365,66 @@ extension AppDelegate {
             Config.log("B站搜索返回 code=\((root["code"] as? NSNumber)?.intValue ?? -1)")
             return []
         }
+        return Self.parseBiliSearch(root)
+    }
+
+    /// 搜索响应 → 行列表（wbi 与旧接口共用 ✓ 2026-09-28 去重 ✓）
+    private static func parseBiliSearch(_ root: [String: Any]) -> [Row] {
         let list = ((root["data"] as? [String: Any])?["result"] as? [Any]) ?? []
         var out: [Row] = []
         for v in list {
             guard let o = v as? [String: Any], let bvid = o["bvid"] as? String else { continue }
-            // 标题里带 <em class="keyword"> 高亮标签 → 去掉
             var title = (o["title"] as? String) ?? bvid
             title = title.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             let up = (o["author"] as? String) ?? ""
             var text = title
             if !up.isEmpty { text += "  · \(up)" }
             if let d = o["duration"] as? String, !d.isEmpty { text += "  · \(d)" }
-            var pic = (o["pic"] as? String) ?? ""            // B站返回 //i0.hdslb.com/… 形式
+            var pic = (o["pic"] as? String) ?? ""
             if pic.hasPrefix("//") { pic = "https:" + pic }
             out.append(Row(text: text, key: "https://www.bilibili.com/video/\(bvid)", thumb: pic))
         }
         return out
+    }
+
+    /// wbi 混合密钥（32 位；缓存 6h ✓ B站每日轮换自动跟进 ✓）
+    private static func biliWbiMixin() -> String? {
+        if let m = hovBiliWbiCache, Date().timeIntervalSince1970 - hovBiliWbiAt < 6 * 3600 { return m }
+        let r = Http.get("https://api.bilibili.com/x/web-interface/nav",
+                         headers: ["User-Agent": Http.ua, "Referer": "https://www.bilibili.com/"])
+        guard r.ok,
+              let wi = ((r.json()["data"] as? [String: Any])?["wbi_img"]) as? [String: Any],
+              let imgUrl = wi["img_url"] as? String, let subUrl = wi["sub_url"] as? String else {
+            Config.log("B站 wbi 密钥获取失败 ✗")
+            return nil
+        }
+        let img = (imgUrl as NSString).lastPathComponent.components(separatedBy: ".").first ?? ""
+        let sub = (subUrl as NSString).lastPathComponent.components(separatedBy: ".").first ?? ""
+        let orig = Array(img + sub)
+        guard orig.count >= 64 else { return nil }
+        let tab = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+                   33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61,
+                   26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36,
+                   20, 34, 44, 52]
+        var mix = ""
+        for idx in tab { mix.append(orig[idx]) }
+        let key = String(mix.prefix(32))
+        hovBiliWbiCache = key
+        hovBiliWbiAt = Date().timeIntervalSince1970
+        return key
+    }
+
+    /// 参数 → wbi 签名 query（encodeURIComponent 语义 + w_rid=md5(query+mixin) ✓）
+    private static func biliWbiSignedQuery(_ params: [(String, String)], mixin: String) -> String {
+        func e(_ s: String) -> String {
+            let filtered = s.replacingOccurrences(of: "[!'()*]", with: "", options: .regularExpression)
+            let cs = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
+            return filtered.addingPercentEncoding(withAllowedCharacters: cs) ?? filtered
+        }
+        let query = params.sorted { $0.0 < $1.0 }.map { "\(e($0.0))=\(e($0.1))" }.joined(separator: "&")
+        let digest = Insecure.MD5.hash(data: Data((query + mixin).utf8))
+        let rid = digest.map { String(format: "%02x", $0) }.joined()
+        return query + "&w_rid=" + rid
     }
 
     /// 从站点 cookie 文件拼 Cookie 头

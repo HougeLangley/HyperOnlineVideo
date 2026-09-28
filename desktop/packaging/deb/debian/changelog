@@ -1,3 +1,14 @@
+hov-qt (1.2.3-1) resolute; urgency=medium
+
+  * Bilibili: search upgraded to the wbi signing protocol on all three
+    platforms (key cached 6h; automatic fallback to the legacy endpoint).
+  * Android: robust end-of-playback detection so auto-advance works even
+    when mpv unloads time-pos/duration; added diagnostics.
+  * Maintenance: yt-dlp version audit (2026.08.19 is the latest stable)
+    and a four-platform API audit.
+
+ -- Houge Langley <hougelangley1987@gmail.com>  Sun, 28 Sep 2026 15:00:00 +0800
+
 hov-qt (1.2.2-1) resolute; urgency=medium
 
   * Music: QQ search true pagination (infinite scroll) via the Desktop protocol

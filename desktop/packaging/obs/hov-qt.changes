@@ -1,4 +1,10 @@
 -------------------------------------------------------------------
+Sun Sep 28 15:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Version 1.2.3: Bilibili search wbi signing (three platforms, legacy
+  fallback); Android auto-advance hardening; maintenance audits.
+
+-------------------------------------------------------------------
 Fri Sep 25 22:30:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
 
 - Version 1.2.2: QQ search true pagination + infinite scroll (Desktop

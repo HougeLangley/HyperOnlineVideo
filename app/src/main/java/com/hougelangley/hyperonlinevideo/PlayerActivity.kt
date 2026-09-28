@@ -1330,6 +1330,7 @@ class PlayerActivity : Activity() {
 
     /** 播完：有下一项则自动续播，队列到头则退出播放器 */
     private fun onPlaybackEnded() {
+        android.util.Log.i("HOV", "onPlaybackEnded: started=$playbackStarted handled=$finishedHandled switching=$switching autoNext=${Settings.autoNext}")
         if (!playbackStarted || finishedHandled || switching) return
         finishedHandled = true
         switching = true
@@ -1347,6 +1348,7 @@ class PlayerActivity : Activity() {
     /** 切歌：解析队列中的下一项；auto=true 表示"播完自动续播" */
     private fun playNext(auto: Boolean) {
         val entry = PlayQueue.peekNext(auto)
+        android.util.Log.i("HOV", "playNext(auto=$auto): next=${entry?.item?.title} idx=${PlayQueue.index.value} size=${PlayQueue.size} mode=${PlayQueue.mode.value}")
         if (entry == null) {
             finish()          // 队列到头（顺序模式）→ 正常退出
             return
@@ -1502,13 +1504,23 @@ class PlayerActivity : Activity() {
                 }
                 if (dur > 0 && pendingSubtitleFile != null) attachPendingSubtitle()
                 if (dur > 1 && pos > 0.5) playbackStarted = true
-                // 兜底：个别情况事件会丢，轮询 mpv 标志位再确认一次
-                if (playbackStarted && !finishedHandled && !switching &&
-                    (m.getPropertyBoolean("eof-reached") == true || m.getPropertyBoolean("idle-active") == true)
-                ) {
-                    onPlaybackEnded()
-                    handler.postDelayed(this, 500)
-                    return
+                // 播放结束检测（2026-09-28 ✗→✓ 用户实测 Android QQ "播完不切歌" 根治）：
+                //   ① 属性路径：eof-reached / idle-active（正常环境 ✓）
+                //   ② 兜底路径：**mpv 结束后进入 idle 会把 time-pos/duration 直接卸载** ✗
+                //      （实测 logcat: "mpv_get_property(time-pos) format 5 was unavailable" ✗），
+                //      而个别环境下 eof/idle 标志又不翻转 ✗ → 用"曾经正常播放过 + 当前 pos/dur 双双失效"
+                //      判定播放结束 ✓（applyEntry 切歌时会把 playbackStarted 复位 → 加载期不会误触发 ✓；
+                //      中途流错误卸载也走这里 → 自动跳下一首，正是期望行为 ✓）
+                if (playbackStarted && !finishedHandled && !switching) {
+                    val endedByProp = m.getPropertyBoolean("eof-reached") == true ||
+                                      m.getPropertyBoolean("idle-active") == true
+                    val endedByPurge = dur <= 0.01 && pos <= 0.01
+                    if (endedByProp || endedByPurge) {
+                        android.util.Log.i("HOV", "播放结束（prop=$endedByProp purge=$endedByPurge pos=$pos dur=$dur）→ 自动续播")
+                        onPlaybackEnded()
+                        handler.postDelayed(this, 500)
+                        return
+                    }
                 }
                 if (dur > 0 && !userSeeking) seek.progress = (pos / dur * 1000).toInt()
                 syncLyrics(pos)

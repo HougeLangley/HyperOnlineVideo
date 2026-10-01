@@ -1,3 +1,5 @@
+#include "HovLog.h"
+#include <QTime>
 #include <QApplication>
 #include <QDesktopServices>
 #include <QMenu>
@@ -106,9 +108,17 @@ static void hov_force_c_numeric_locale() {
 // 上游 mpv f74adc4 亦已修、将随 0.42 发布）。原生 Wayland 可放心使用。
 #endif
 
+// 日志时间前缀（Issue #1 评论请求 ✓ 2026-10-01）：qInfo/qWarning 统一 [HH:MM:SS]（fprintf 侧走 hovLog ✓）
+static void hovMsgHandler(QtMsgType type, const QMessageLogContext &, const QString &msg) {
+    const QString ts = QTime::currentTime().toString("HH:mm:ss");
+    const char *tag = type == QtWarningMsg ? "W" : (type == QtCriticalMsg || type == QtFatalMsg ? "E" : "I");
+    std::fprintf(stderr, "[%s][%s] %s\n", qPrintable(ts), tag, qPrintable(msg));
+}
+
 int main(int argc, char **argv) {
     // 虚拟化环境：QtWebEngine 关闭 GPU（GL 上下文创建失败会导致登录窗首帧渲染异常 ✗ 见 GpuCompat.h）
     // ⚠ 必须在 QApplication 之前（Chromium 只读一次环境）
+    qInstallMessageHandler(hovMsgHandler);
 #ifdef HOV_WEBENGINE
     GpuCompat::applyChromiumCompat();
 #endif
@@ -420,17 +430,17 @@ int main(int argc, char **argv) {
         bool ok = false; const int secs = args[mi + 1].toInt(&ok);
         if (ok && secs > 0) QTimer::singleShot(secs * 1000, &w, [&w] {
             const QSize win = w.minimumSizeHint();
-            std::fprintf(stderr, "[MINPROBE] 窗口 minimumSizeHint=%dx%d 当前=%dx%d 最小宽=%d\n",
+            hovLog("[MINPROBE] 窗口 minimumSizeHint=%dx%d 当前=%dx%d 最小宽=%d\n",
                          win.width(), win.height(), w.width(), w.height(), w.minimumWidth());
             for (auto *l : w.findChildren<QLabel *>()) {
                 const QSize sz = l->minimumSizeHint();
                 if (sz.width() < 200) continue;                 // 只关心"宽的"（撑窗口的元凶 ✓）
-                std::fprintf(stderr, "[MINPROBE]   QLabel 最小=%dx%d 可见=%d 文本(%d 字)=%s\n",
+                hovLog("[MINPROBE]   QLabel 最小=%dx%d 可见=%d 文本(%d 字)=%s\n",
                              sz.width(), sz.height(), int(l->isVisible()), int(l->text().size()),
                              l->text().left(44).toUtf8().constData());
             }
             for (auto *c : w.findChildren<QComboBox *>()) {
-                std::fprintf(stderr, "[MINPROBE]   QComboBox 最小=%dx%d 可见=%d\n",
+                hovLog("[MINPROBE]   QComboBox 最小=%dx%d 可见=%d\n",
                              c->minimumSizeHint().width(), c->minimumSizeHint().height(), int(c->isVisible()));
             }
             // 任意类型的可见控件，谁的最小宽大就点名谁 ✓（找"窗口被夹住"的元凶 ✓ 不限 QLabel/QComboBox）
@@ -443,7 +453,7 @@ int main(int argc, char **argv) {
                 }
                 std::sort(wide.begin(), wide.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
                 for (int i = 0; i < qMin(6, wide.size()); ++i)
-                    std::fprintf(stderr, "[MINPROBE]   宽控件 #%d 最小宽=%d %s\n", i + 1, wide[i].first,
+                    hovLog("[MINPROBE]   宽控件 #%d 最小宽=%d %s\n", i + 1, wide[i].first,
                                  wide[i].second.toUtf8().constData());
             }
             // ── 决定性 A/B ✓：给状态行塞**超长文本**（模拟用户那条长状态行 ✗）→ 看窗口最小宽是否被撑 ✓
@@ -455,7 +465,7 @@ int main(int argc, char **argv) {
                 const QSize after = w.minimumSizeHint();
                 sl->setText(keep);
                 w.layout()->activate();
-                std::fprintf(stderr, "[MINPROBE] 长文本 A/B：塞前 %dx%d → 塞后 %dx%d %s\n",
+                hovLog("[MINPROBE] 长文本 A/B：塞前 %dx%d → 塞后 %dx%d %s\n",
                              before.width(), before.height(), after.width(), after.height(),
                              (after.width() == before.width() ? "✓ 不再撑窗口 ✓" : "✗ 仍被撑大 ✗"));
             }
@@ -497,14 +507,14 @@ int main(int argc, char **argv) {
             const int pw = wh[0].toInt(), ph = wh[1].toInt();
             QTimer::singleShot(2000, &w, [&w, pw, ph] {
                 w.resize(pw, ph);
-                std::fprintf(stderr, "[WINPROBE] 设定 %dx%d → 实际 %dx%d\n", pw, ph, w.width(), w.height());
+                hovLog("[WINPROBE] 设定 %dx%d → 实际 %dx%d\n", pw, ph, w.width(), w.height());
             });
             QTimer::singleShot(3000, &w, [&w] {
-                std::fprintf(stderr, "[WINPROBE] close() → 应触发 closeEvent 落盘\n");
+                hovLog("[WINPROBE] close() → 应触发 closeEvent 落盘\n");
                 w.close();
             });
             QTimer::singleShot(5000, &app, [&app] {              // 兜底：close 若未结束进程也收工
-                std::fprintf(stderr, "[WINPROBE] 兜底退出（close 未结束进程）\n");
+                hovLog("[WINPROBE] 兜底退出（close 未结束进程）\n");
                 app.exit(0);
             });
         }
@@ -515,7 +525,7 @@ int main(int argc, char **argv) {
             const int pw = wh[0].toInt(), ph = wh[1].toInt();
             QTimer::singleShot(2000, &w, [&w, pw, ph, &app] {
                 const bool ok = (w.width() == pw && w.height() == ph);
-                std::fprintf(stderr, "[WINPROBE] 恢复核对：期望 %dx%d，实际 %dx%d @(%d,%d) → %s\n",
+                hovLog("[WINPROBE] 恢复核对：期望 %dx%d，实际 %dx%d @(%d,%d) → %s\n",
                              pw, ph, w.width(), w.height(), w.x(), w.y(), ok ? "一致 ✓" : "不一致 ✗");
                 app.exit(ok ? 0 : 2);
             });
@@ -547,7 +557,7 @@ int main(int argc, char **argv) {
         else if (which == "downloads")
             QMetaObject::invokeMethod(&w, [&w] { w.openDownloadPanel(); }, Qt::QueuedConnection);
         else
-            std::fprintf(stderr, "[PANEL] 未知面板：%s（可用 settings / favorites / downloads）\n", qPrintable(which));
+            hovLog("[PANEL] 未知面板：%s（可用 settings / favorites / downloads）\n", qPrintable(which));
     }
     if (args.contains("--selftest")) {   // 隔离测试：只验证 playResolved + mpv 渲染链路
         const int si = args.indexOf("--selftest");

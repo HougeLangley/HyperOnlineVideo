@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // 搬运/新增清单: FavoritesPanel（收藏面板）+ MainWindow::openFavoritesPanel
 //   W2 ✓ 用户需求「macOS 有收藏，Linux 端要对齐、功能一致」
 //   形态**逐项照搬** macOS Panels.swift FavoritesPanel（560x420 ✓ 标题"收藏（N 项）" ✓
@@ -100,5 +101,5 @@ void MainWindow::openFavoritesPanel() {
     favPanel_->show();
     favPanel_->raise();
     favPanel_->activateWindow();
-    std::fprintf(stderr, "[FAV] 收藏面板已打开（%d 项 ✓）\n", favs_.size());
+    hovLog("[FAV] 收藏面板已打开（%d 项 ✓）\n", favs_.size());
 }

@@ -1,3 +1,4 @@
+#include "HovLog.h"
 #include <cstdio>
 #include "DownloadManager.h"
 
@@ -207,7 +208,7 @@ DownloadManager::CleanResult DownloadManager::cleanupLru(qint64 maxBytes) {
             const bool fileGone = j.filePath.isEmpty() || !QFile::exists(j.filePath);
             if (gone.contains(j.filePath) || fileGone) jobs_.remove(i);
         }
-        std::fprintf(stderr, "[LRU] 列表同步：清理后剩 %d 个条目（进行中的保留 ✓）\n", int(jobs_.size()));
+        hovLog("[LRU] 列表同步：清理后剩 %d 个条目（进行中的保留 ✓）\n", int(jobs_.size()));
     }
     return res;
 }
@@ -269,11 +270,11 @@ void DownloadManager::startAudioPhase(const QString &id) {
         f->deleteLater();
         reply->abort(); reply->deleteLater();
         jp->audioPath.clear();                   // 退回到"让 ffmpeg 自己拉"的老路径（保底）
-        std::fprintf(stderr, "[DL] 音轨临时文件不可写，退回 ffmpeg 直连拉流\n");
+        hovLog("[DL] 音轨临时文件不可写，退回 ffmpeg 直连拉流\n");
         startMux(id);
         return;
     }
-    std::fprintf(stderr, "[DL] 开始下载独立音轨（第 2 路）: %s\n", au.left(70).toUtf8().constData());
+    hovLog("[DL] 开始下载独立音轨（第 2 路）: %s\n", au.left(70).toUtf8().constData());
     connect(reply, &QNetworkReply::readyRead, f, [f, reply] { f->write(reply->readAll()); });
     connect(reply, &QNetworkReply::downloadProgress, this, [this, id](qint64 got, qint64 total) {
         for (auto &j : jobs_) {
@@ -292,7 +293,7 @@ void DownloadManager::startAudioPhase(const QString &id) {
         if (!j) return;
         const bool ok = (err == QNetworkReply::NoError) && QFileInfo(j->audioPath).size() > 0;
         if (!ok) {
-            std::fprintf(stderr, "[DL] 音轨下载失败（%d），退回让 ffmpeg 直连拉流\n", int(err));
+            hovLog("[DL] 音轨下载失败（%d），退回让 ffmpeg 直连拉流\n", int(err));
             QFile::remove(j->audioPath);
             j->audioPath.clear();                    // 保底路径：ffmpeg 用远端 URL
         }
@@ -313,7 +314,7 @@ void DownloadManager::startMux(const QString &id) {
                       "-c", "copy", "-movflags", "+faststart", out };
     auto *p = new QProcess(this);
     muxProcs_.insert(id, p);                 // W4 ✓ 存句柄：取消要能杀掉混流进程 ✗（原来没存 → 取消不掉 ✓）
-    std::fprintf(stderr, "[MUX] 开始混流（视频 + %s）: %s\n", hasLocal ? "本地音轨" : "远端音轨直连", video.toUtf8().constData());
+    hovLog("[MUX] 开始混流（视频 + %s）: %s\n", hasLocal ? "本地音轨" : "远端音轨直连", video.toUtf8().constData());
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
             [this, p, id, video, out, hasLocal](int code, QProcess::ExitStatus) {
                 p->deleteLater();
@@ -482,7 +483,7 @@ int DownloadManager::dropFinishedJobs() {
         const State st = jobs_.at(i).state;
         if (st == State::Done || st == State::Failed || st == State::Canceled) { jobs_.remove(i); ++n; }
     }
-    if (n > 0) std::fprintf(stderr, "[LRU] 清理列表：移除 %d 条已结束记录（剩 %d ✓）\n", n, int(jobs_.size()));
+    if (n > 0) hovLog("[LRU] 清理列表：移除 %d 条已结束记录（剩 %d ✓）\n", n, int(jobs_.size()));
     return n;
 }
 
@@ -492,7 +493,7 @@ void DownloadManager::cancelAll() {
     for (const Job &j : jobs_)
         if (j.state == State::Queued || j.state == State::Running) ids.append(j.id);
     for (const QString &id : ids) cancel(id);
-    std::fprintf(stderr, "[DL] 取消全部：%d 个任务\n", int(ids.size()));
+    hovLog("[DL] 取消全部：%d 个任务\n", int(ids.size()));
 }
 
 bool DownloadManager::cancel(const QString &id) {
@@ -509,7 +510,7 @@ bool DownloadManager::cancel(const QString &id) {
     if (QProcess *p = muxProcs_.take(id)) {
         p->kill();
         p->waitForFinished(1500);
-        std::fprintf(stderr, "[MUX] 已终止混流进程: %s\n", qPrintable(id));
+        hovLog("[MUX] 已终止混流进程: %s\n", qPrintable(id));
     }
     // ③ 清半截文件（视频本体 / 独立音轨临时文件 / 混流中间产物 ✓）
     const QString video = j->filePath;
@@ -521,7 +522,7 @@ bool DownloadManager::cancel(const QString &id) {
     const QString title = j->title;
     for (int i = 0; i < jobs_.size(); ++i)
         if (jobs_[i].id == id) { jobs_.remove(i); break; }
-    std::fprintf(stderr, "[DL] 已取消下载：%s\n", title.toUtf8().constData());
+    hovLog("[DL] 已取消下载：%s\n", title.toUtf8().constData());
     if (progress_) { Job dummy; dummy.id = id; dummy.title = title; dummy.state = State::Canceled; progress_(dummy); }
     pump();
     return true;

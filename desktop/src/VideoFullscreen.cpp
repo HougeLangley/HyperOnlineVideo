@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // ── VideoFullscreen.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53 手法 ✓ 零行为改动 ✓）──
 // 搬运清单: enterVideoFullscreen exitVideoFullscreen pollHover setMasonryFloating setSidebarRevealed
 #include "MainWindow.h"
@@ -31,7 +32,7 @@ void MainWindow::setMasonryFloating(bool floating) {
                         break;
                     }
                 split_->setSizes(sizes);
-                std::fprintf(stderr, "[VFULL] 退出还原：子控件=%d masonry宽=%d 播放器宽=%d\n",
+                hovLog("[VFULL] 退出还原：子控件=%d masonry宽=%d 播放器宽=%d\n",
                              split_->count(), keepW, qMax(0, total - keepW));
             }
             masonry_->show();
@@ -59,7 +60,7 @@ void MainWindow::setSidebarRevealed(bool on) {
                     if (topCard_ && topCard_->isAncestorOf(w2)) continue;
                     w2->show();
                 }
-            std::fprintf(stderr, "[FS-PROBE] 侧栏浮出 w=%d h=%d 卡片可见=%d\n", w, h, (masonry_ && masonry_->isVisible()) ? 1 : 0);
+            hovLog("[FS-PROBE] 侧栏浮出 w=%d h=%d 卡片可见=%d\n", w, h, (masonry_ && masonry_->isVisible()) ? 1 : 0);
         } else {
             masonryHost_->hide();
             if (masonry_) masonry_->hide();     // 浮层收起 → 卡片也要藏（否则留在画面上）
@@ -107,7 +108,7 @@ void MainWindow::enterVideoFullscreen() {
         }
         if (settings_.boolean("ui.hoverReveal", true)) hoverTimer_->start(200);
         qInfo().noquote() << QString("[VFULL] 进入视频全屏（面板已收起；鼠标贴左边缘浮出列表，双击 / Esc / F 退出）");
-        std::fprintf(stderr, "[VFULL] 进入视频全屏 窗口全屏=%d 结果面板隐藏=%d\n",
+        hovLog("[VFULL] 进入视频全屏 窗口全屏=%d 结果面板隐藏=%d\n",
                      isFullScreen() ? 1 : 0, (results_ && !results_->isVisible()) ? 1 : 0);
 }
 
@@ -121,6 +122,6 @@ void MainWindow::exitVideoFullscreen() {
         if (isFullScreen()) showNormal();
         applyFillMode(true);
         qInfo().noquote() << QString("[VFULL] 退出视频全屏（面板已恢复）");
-        std::fprintf(stderr, "[VFULL] 退出视频全屏 窗口全屏=%d 结果面板可见=%d\n",
+        hovLog("[VFULL] 退出视频全屏 窗口全屏=%d 结果面板可见=%d\n",
                      isFullScreen() ? 1 : 0, (results_ && results_->isVisible()) ? 1 : 0);
 }

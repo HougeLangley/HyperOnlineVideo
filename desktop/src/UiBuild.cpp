@@ -1,3 +1,31 @@
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QUrl>
+
+// ── 可流播性预检（Issue #1 ✓ 2026-10-01）──────────────────────────────
+// 背景：部分网络出口（代理/VPS/数据中心 IP ✗）对 googlevideo 直链只放行 ≤64KB 的 Range ✗，
+// 真实播放（开放式/大 Range ✗）必 403 ✗ → 表现"解析成功但 mpv 打不开" ✓（用户实测 ✓）。
+// 判据（实测 2026-10-01）：正常出口 4MB Range → 200/206 ✓；受限出口 → 403 ✗。
+static void preflightPlayable(const QString &url) {
+    if (!url.startsWith("https://") || !url.contains("googlevideo.com")) return;
+    static QNetworkAccessManager nam;
+    QNetworkRequest r{QUrl(url)};
+    r.setRawHeader("Range", "bytes=0-4194304");
+    auto *rep = nam.get(r);
+    QObject::connect(rep, &QNetworkReply::finished, rep, [rep] {
+        const int code = rep->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (code == 200 || code == 206) {
+            qInfo() << "[PREFLIGHT] YouTube 流可播 ✓（HTTP" << code << "）";
+        } else {
+            qWarning() << "[PREFLIGHT] YouTube 拒绝该网络出口获取视频流（HTTP" << code
+                       << "）→ 请更换代理节点/线路，或改用直连（常见于 VPS/数据中心出口 ✗）";
+        }
+        rep->deleteLater();
+    });
+}
+
+#include "HovLog.h"
 // ── UiBuild.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: 
 #include "MainWindow.h"
@@ -270,8 +298,9 @@ MainWindow::MainWindow() {
             player_->playResolved(s.videoUrl, s.audioUrl);
             resolvedAtMs_ = QDateTime::currentMSecsSinceEpoch();
             healTried_ = false;   // 新内容重新允许自愈
-            std::fprintf(stderr, "[PLAY] 交给 mpv: host=%s len=%lld\n", QUrl(s.videoUrl).host().toUtf8().constData(), (long long)s.videoUrl.size());
-              std::fprintf(stderr, "[PLAY] 已解析: 视频=%s(%lld) 音频=%s(%lld) 标题=%s\n",
+            preflightPlayable(s.videoUrl);
+    hovLog("[PLAY] 交给 mpv: host=%s len=%lld\n", QUrl(s.videoUrl).host().toUtf8().constData(), (long long)s.videoUrl.size());
+              hovLog("[PLAY] 已解析: 视频=%s(%lld) 音频=%s(%lld) 标题=%s\n",
                            QUrl(s.videoUrl).host().toUtf8().constData(), (long long)s.videoUrl.size(),
                            QUrl(s.audioUrl).host().toUtf8().constData(), (long long)s.audioUrl.size(),
                            s.title.toUtf8().constData());
@@ -315,7 +344,7 @@ MainWindow::MainWindow() {
                 const QDir fdDir("/proc/self/fd");
                 const int n = fdDir.exists()
                     ? fdDir.entryList(QDir::NoDotAndDotDot | QDir::AllEntries).size() : -1;
-                std::fprintf(stderr, "[FD] 当前打开的文件描述符: %d\n", n);
+                hovLog("[FD] 当前打开的文件描述符: %d\n", n);
             });
             fdTimer->start();
         }
@@ -361,7 +390,7 @@ MainWindow::MainWindow() {
             // 诊断（--load-more 之外，正常滚动也会打点，便于无头取证）
             auto trace = [](const char *who, QScrollBar *sb, bool visible) {
                 if (sb && sb->value() + sb->pageStep() >= sb->maximum() - 400)
-                    std::fprintf(stderr, "[MORE] %s 滚动: v=%d max=%d step=%d visible=%d\n",
+                    hovLog("[MORE] %s 滚动: v=%d max=%d step=%d visible=%d\n",
                                  who, sb->value(), sb->maximum(), sb->pageStep(), int(visible));
             };
             connect(results_->verticalScrollBar(), &QScrollBar::valueChanged, this,
@@ -617,7 +646,7 @@ MainWindow::MainWindow() {
                     move(av.center().x() - width() / 2, av.center().y() - height() / 2);
                 }
             }
-            std::fprintf(stderr, "[W1] 几何: 键 %d 字符 → %s；当前 %dx%d @(%d,%d)\n",
+            hovLog("[W1] 几何: 键 %d 字符 → %s；当前 %dx%d @(%d,%d)\n",
                          int(g.size()), restored ? "恢复成功 ✓" : "无记忆→默认 1200x720 居中",
                          width(), height(), x(), y());   // 探针式日志 ✓ 自动化可判定 ✓
         }
@@ -662,7 +691,7 @@ MainWindow::MainWindow() {
             const bool gw = settings_.has("ui.glassWindow") ? settings_.boolean("ui.glassWindow", false) : isX11;
             Theme::setGlass(gw);
             setAttribute(Qt::WA_TranslucentBackground, gw);
-            std::fprintf(stderr, "[GLASS] 窗口级玻璃=%s 平台=%s 属性生效=%d（Wayland/KDE 可透出桌面；Xvfb 无 ARGB 视觉时不生效属正常）\n",
+            hovLog("[GLASS] 窗口级玻璃=%s 平台=%s 属性生效=%d（Wayland/KDE 可透出桌面；Xvfb 无 ARGB 视觉时不生效属正常）\n",
                          gw ? "开" : "关", qPrintable(QGuiApplication::platformName()),
                          testAttribute(Qt::WA_TranslucentBackground) ? 1 : 0);
         }

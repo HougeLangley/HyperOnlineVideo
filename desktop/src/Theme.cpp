@@ -1,3 +1,4 @@
+#include "HovLog.h"
 #include "Theme.h"
 
 #include <QApplication>
@@ -184,7 +185,7 @@ QLabel { background: transparent; }
 
 void Theme::apply(QApplication &app, Mode m) {
     s_mode = m;
-    std::fprintf(stderr, "[THEME] apply(mode=%s glass=%d)\n", m == Mode::Light ? "light" : "dark", s_glass ? 1 : 0);
+    hovLog("[THEME] apply(mode=%s glass=%d)\n", m == Mode::Light ? "light" : "dark", s_glass ? 1 : 0);
     app.setStyle("Fusion");   // 统一各平台控件绘制，避免系统主题差异
 
     QPalette pal;

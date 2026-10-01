@@ -1,3 +1,4 @@
+#include "HovLog.h"
 #include "UrlResolver.h"
 #include "NetPolicy.h"
 
@@ -88,7 +89,7 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     connect(deadline, &QTimer::timeout, this, [this, p, service] {
         if (p->state() == QProcess::NotRunning) return;
         p->kill();
-        std::fprintf(stderr, "[PLAY] 解析超时（45s）→ 已终止 yt-dlp\n");
+        hovLog("[PLAY] 解析超时（45s）→ 已终止 yt-dlp\n");
         if (status_)
             status_(QString("解析超时（45 秒）：%1 无响应 —— 可能是网络受限或站点风控，请检查网络/登录状态")
                         .arg(service.isEmpty() ? QString("yt-dlp") : service));
@@ -96,7 +97,7 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     deadline->start();
     connect(p, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e != QProcess::FailedToStart) return;
-        std::fprintf(stderr, "[PLAY] yt-dlp 启动失败\n");
+        hovLog("[PLAY] yt-dlp 启动失败\n");
         if (status_) status_("无法启动 yt-dlp（未安装或不在 PATH 中？）");
     });
     QStringList args{"-J", "--no-warnings", "--no-playlist"};
@@ -118,7 +119,7 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                         if (!l.contains("ERROR") && !l.contains("WARNING")) continue;
                         const QString t = l.trimmed().left(200);
                         if (status_) status_(QString("yt-dlp：%1").arg(t));
-                        std::fprintf(stderr, "[PLAY] yt-dlp: %s\n", t.toUtf8().constData());
+                        hovLog("[PLAY] yt-dlp: %s\n", t.toUtf8().constData());
                         break;              // 只报第一条避免刷屏（完整信息仍在 yt-dlp 自身日志里）
                     }
                 }
@@ -127,7 +128,7 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                 if (code != 0) {
                     if (status_) {
                         status_(QString("解析失败（yt-dlp 退出码 %1）").arg(code));
-                        std::fprintf(stderr, "[PLAY] 解析失败 rc=%d\n", code);
+                        hovLog("[PLAY] 解析失败 rc=%d\n", code);
                         const QString e = QString::fromUtf8(err).trimmed();
                         if (!e.isEmpty()) status_(e.left(300));
                         status_(NetPolicy::hintForFailure(service.isEmpty() ? "yt-dlp" : service));
@@ -191,7 +192,7 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                     return;
                 }
                 if (status_) {
-                    std::fprintf(stderr, "[PLAY] 解析成功: 视频=%s(%lld) 音频=%s(%lld)\n",
+                    hovLog("[PLAY] 解析成功: 视频=%s(%lld) 音频=%s(%lld)\n",
                                  QUrl(s.videoUrl).host().toUtf8().constData(), (long long)s.videoUrl.size(),
                                  QUrl(s.audioUrl).host().toUtf8().constData(), (long long)s.audioUrl.size());
                     status_(QString("正在播放：%1（%2）")

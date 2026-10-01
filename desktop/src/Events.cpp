@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // ── Events.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: eventFilter keyPressEvent mouseDoubleClickEvent showEvent
 #include "MainWindow.h"
@@ -7,14 +8,14 @@ void MainWindow::closeEvent(QCloseEvent *e) {
     //   ⚠️ 画中画/全屏态下**不保存**：那是程序化改的尺寸（PiP 固定 480x270），存下去会把用户正常尺寸污染掉
     //      （与 macOS 端同理；macOS 早有"程序化重排把 ui.listWidth 误存"的历史教训 ✓）
     if (pipActive_ || isFullScreen()) {
-        std::fprintf(stderr, "[W1] 跳过保存窗口几何（画中画=%d 全屏=%d ✓）\n", int(pipActive_), int(isFullScreen()));
+        hovLog("[W1] 跳过保存窗口几何（画中画=%d 全屏=%d ✓）\n", int(pipActive_), int(isFullScreen()));
     } else {
         const QByteArray g = saveGeometry();
         // ⚠️ Settings::set() 只改**内存** values_ ✓ 落盘必须显式 save() ✗（首版漏了 → 日志打了但文件里仍是空 ✗
         //    参照 applySettingInner 的既有写法 ✓）。值未变化时 set() 返回 false → 不写盘 ✓ 避免无谓刷盘。
         if (settings_.set("ui.windowGeometry", QString::fromLatin1(g.toBase64())))
             settings_.save();
-        std::fprintf(stderr, "[W1] 保存窗口几何 %dx%d @(%d,%d)（%d 字节 base64，已落盘 ✓）\n",
+        hovLog("[W1] 保存窗口几何 %dx%d @(%d,%d)（%d 字节 base64，已落盘 ✓）\n",
                      width(), height(), x(), y(), int(g.size()));   // 探针式日志 ✓ 自动化可判定 ✓
     }
     QMainWindow::closeEvent(e);
@@ -41,7 +42,7 @@ void MainWindow::showEvent(QShowEvent *e) {
             QTimer::singleShot(300, this, [this, on] {
                 KWindowEffects::enableBlurBehind(windowHandle(), on);
             });
-            std::fprintf(stderr, "[GLASS] 已向合成器申请窗口模糊=%d（KWindowEffects；映射后再申一次）\n", on ? 1 : 0);
+            hovLog("[GLASS] 已向合成器申请窗口模糊=%d（KWindowEffects；映射后再申一次）\n", on ? 1 : 0);
         }
 #endif
 }

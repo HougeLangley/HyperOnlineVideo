@@ -1,3 +1,4 @@
+#include "HovLog.h"
 #include "MpvWidget.h"
 #include "SubtitleOverlay.h"
 #include "Subtitles.h"
@@ -131,7 +132,7 @@ void MpvWidget::initializeGL() {
           //（历史上这里有一段"gpu-next 失败就切回 libmpv 重试"的逻辑 ✗ —— 但 mpv 初始化后不能再改 vo ✗，
           //  且现在 vo 恒定 libmpv ✓ → 该分支永远走不到 ✓ 已按死代码清理纪律移除 ✗ 见文档 46/47）
           qWarning() << "mpv_render_context_create 失败（vo=libmpv）：本视图将无画面";
-          std::fprintf(stderr, "[PLAY] ✗ 渲染上下文创建失败（vo=libmpv）—— 请检查 OpenGL/EGL 环境\n");
+          hovLog("[PLAY] ✗ 渲染上下文创建失败（vo=libmpv）—— 请检查 OpenGL/EGL 环境\n");
           return;
       }
     mpv_render_context_set_update_callback(ctx_, [](void *p) {
@@ -499,7 +500,7 @@ void MpvWidget::startSnapshotter() {
     if (snapThread_.joinable()) return;
     snapStop_ = false;
     snapThread_ = std::thread([this] {
-        std::fprintf(stderr, "[SNAPSHOT] 属性快照线程已启动（后台 5Hz，GUI 线程不再直连 mpv）\n");
+        hovLog("[SNAPSHOT] 属性快照线程已启动（后台 5Hz，GUI 线程不再直连 mpv）\n");
         while (!snapStop_) {
             captureSnapshot();
             std::this_thread::sleep_for(std::chrono::milliseconds(200));   // 5Hz，开销可忽略
@@ -512,13 +513,13 @@ void MpvWidget::startSnapshotter() {
         const bool verbose = qEnvironmentVariableIsSet("HOV_MPV_VERBOSE");
         mpv_request_log_messages(mpv_, verbose ? "info" : "warn");
         logThread_ = std::thread([this, verbose] {
-            std::fprintf(stderr, "[MPV] 日志泵已启动（级别=%s）\n", verbose ? "info" : "warn");
+            hovLog("[MPV] 日志泵已启动（级别=%s）\n", verbose ? "info" : "warn");
             while (!snapStop_) {
                 mpv_event *ev = mpv_wait_event(mpv_, 0.2);
                 if (!ev || ev->event_id == MPV_EVENT_NONE) continue;
                 if (ev->event_id == MPV_EVENT_LOG_MESSAGE) {
                     auto *m = static_cast<mpv_event_log_message *>(ev->data);
-                    std::fprintf(stderr, "[MPV:%s] %s", m->prefix ? m->prefix : "", m->text ? m->text : "");
+                    hovLog("[MPV:%s] %s", m->prefix ? m->prefix : "", m->text ? m->text : "");
                 }
             }
         });
@@ -557,7 +558,7 @@ void MpvWidget::captureSnapshot() {
         if (wantPlaying_.load() && s.paused && s.duration > 0.1 && s.position < 0.5) {
             int no = 0;
             mpv_set_property(mpv_, "pause", MPV_FORMAT_FLAG, &no);
-            std::fprintf(stderr, "[PLAY] 检测到新内容继承暂停（keep-open 竞态）→ 已强制取消暂停\n");
+            hovLog("[PLAY] 检测到新内容继承暂停（keep-open 竞态）→ 已强制取消暂停\n");
             wantPlaying_ = false;
         } else if (wantPlaying_.load() && !s.paused && s.position > 0.5) {
             wantPlaying_ = false;   // 正常播放中 ✓

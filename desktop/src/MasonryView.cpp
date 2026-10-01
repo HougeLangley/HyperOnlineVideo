@@ -1,3 +1,4 @@
+#include "HovLog.h"
 #include "MasonryView.h"
 
 #include <QScrollBar>
@@ -160,7 +161,7 @@ void MasonryView::layout() {
     const int sx = horizontalScrollBar() ? horizontalScrollBar()->value() : 0;
     if (cardW_ != lastCardW || cols_ != lastCols || sx != lastSX) {
         lastCardW = cardW_; lastCols = cols_; lastSX = sx;
-        std::fprintf(stderr, "[MASONRY] 布局 vw=%d cardW=%d 列=%d 画布宽=%d 视口宽=%d 横向滚动=%d 可见=%d\n",
+        hovLog("[MASONRY] 布局 vw=%d cardW=%d 列=%d 画布宽=%d 视口宽=%d 横向滚动=%d 可见=%d\n",
                      vw, cardW_, cols_, canvas_ ? canvas_->width() : 0,
                      viewport() ? viewport()->width() : 0, sx, int(isVisible()));
     }

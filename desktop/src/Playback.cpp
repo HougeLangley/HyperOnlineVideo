@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // ── Playback.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: applySpeed effectiveQuality refreshControls seekBy setPlayerOnlyVisible startStallWatch switchQualityTo tickProgress togglePiP
 #include "MainWindow.h"
@@ -143,7 +144,7 @@ void MainWindow::startStallWatch() {
             const qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (pos >= 0 && std::abs(pos - lastPos_) > 0.05) { lastPos_ = pos; lastPosAtMs_ = now; return; }
             if (lastPosAtMs_ > 0 && now - lastPosAtMs_ > 15000) {
-                std::fprintf(stderr, "[HEAL] 进度停滞 15s（pos=%.1f）→ 尝试自愈\n", pos);
+                hovLog("[HEAL] 进度停滞 15s（pos=%.1f）→ 尝试自愈\n", pos);
                 lastPosAtMs_ = now;                       // 避免反复触发（healTried_ 兜底）
                 healIfExpired(true);
             }

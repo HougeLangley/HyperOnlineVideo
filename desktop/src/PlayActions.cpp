@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // ── PlayActions.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: beginPlayback biliSearch downloadCurrent loadMore playItem playNetEase playQQ playStormForTest probeNetwork queueOrFileNext switchVideoQuality toggleFavoriteCurrent
 #include "MainWindow.h"
@@ -27,7 +28,7 @@ void MainWindow::downloadCurrent() {
 }
 
 void MainWindow::playItem(const QString &key, const QString &label) {
-        std::fprintf(stderr, "[PLAY] 点击/请求: %s\n", qPrintable(key.left(110)));
+        hovLog("[PLAY] 点击/请求: %s\n", qPrintable(key.left(110)));
         beginPlayback(key, label);
         // 与队列同步下标（用户在列表里点哪首，队列就跳到哪首 → ⏭/⏮ 接得上）
         for (int i = 0; i < queue_.size(); ++i) {
@@ -193,12 +194,12 @@ void MainWindow::switchVideoQuality(int h) {
 }
 
 void MainWindow::playStormForTest(int n, int intervalMs) {
-        std::fprintf(stderr, "[STORM] 探针启动：连播 %d 次，间隔 %dms\n", n, intervalMs);
+        hovLog("[STORM] 探针启动：连播 %d 次，间隔 %dms\n", n, intervalMs);
         auto *t = new QTimer(this);
         t->setInterval(qMax(500, intervalMs));
         auto fired = std::make_shared<int>(0);
         connect(t, &QTimer::timeout, this, [this, t, n, fired] {
-            if (*fired >= n) { t->stop(); std::fprintf(stderr, "[STORM] 探针结束\n"); return; }
+            if (*fired >= n) { t->stop(); hovLog("[STORM] 探针结束\n"); return; }
             QStringList urls;
             for (int i = 0; results_ && i < results_->count(); ++i) {
                 const QString u = results_->item(i)->data(Qt::UserRole).toString();
@@ -207,7 +208,7 @@ void MainWindow::playStormForTest(int n, int intervalMs) {
             if (urls.isEmpty()) return;                      // 搜索是异步的：结果未回就等下一拍
             const QString u = urls.at((*fired) % urls.size());
             ++(*fired);
-            std::fprintf(stderr, "[STORM] 第 %d/%d 次连播: %s\n", *fired, n, qPrintable(u.left(80)));
+            hovLog("[STORM] 第 %d/%d 次连播: %s\n", *fired, n, qPrintable(u.left(80)));
             playItem(u, QString());
         });
         t->start();
@@ -235,20 +236,20 @@ void MainWindow::biliSearch(const QString &keyword, bool autoPlayFirst) {
 }
 
 void MainWindow::loadMore() {
-        std::fprintf(stderr, "[MORE] loadMore 触发: kw=%s src=%d page=%d loading=%d hasMore=%d\n",
+        hovLog("[MORE] loadMore 触发: kw=%s src=%d page=%d loading=%d hasMore=%d\n",
                      qPrintable(moreKw_), moreSrc_, morePage_, int(moreLoading_), int(moreHasMore_));
         if (moreLoading_ || !moreHasMore_ || moreKw_.isEmpty() || moreSrc_ < 0) return;
         if (moreSrc_ == 4) return;                                 // 本地库不分页
         if (morePage_ >= maxPageFor(moreSrc_)) {                   // 与 macOS 相同的页数上限
             moreHasMore_ = false;
             setStatusLine(QString("已到分页上限（%1 页，与 macOS/Android 一致）").arg(maxPageFor(moreSrc_)));
-            std::fprintf(stderr, "[MORE] 到达上限 %d 页\n", maxPageFor(moreSrc_));
+            hovLog("[MORE] 到达上限 %d 页\n", maxPageFor(moreSrc_));
             return;
         }
         syncSeenFromList();
         moreLoading_ = true;
         setStatusLine(QString("正在加载更多（已 %1 条）…").arg(moreSeen_.size()));
-        std::fprintf(stderr, "[MORE] 请求第 %d 页（%s）\n", morePage_ + 1, qPrintable(moreKw_));
+        hovLog("[MORE] 请求第 %d 页（%s）\n", morePage_ + 1, qPrintable(moreKw_));
         fetchMorePage(moreSrc_, moreKw_, morePage_ + 1);
 }
 

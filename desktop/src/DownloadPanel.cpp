@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // 搬运/新增清单: DownloadPanel（下载面板）+ MainWindow::openDownloadPanel
 //   W2 ✓ 用户需求「下载面板要有下载进度显示，要美观」（macOS 端同步升级 ✓ 两端功能一致 ✓）
 #include "DownloadPanel.h"
@@ -258,7 +259,7 @@ void DownloadPanel::refresh() {
                           .arg(jobs.size())
                           .arg(active > 0 ? QStringLiteral("，%1 个进行中").arg(active) : QString()));
     setWindowTitle(QStringLiteral("下载（%1 个任务）").arg(jobs.size()));
-    std::fprintf(stderr, "[DL] 面板刷新：%d 行（内核 %d 个任务 ✓）\n", table_->rowCount(), int(jobs.size()));
+    hovLog("[DL] 面板刷新：%d 行（内核 %d 个任务 ✓）\n", table_->rowCount(), int(jobs.size()));
 }
 
 void DownloadPanel::updateJob(const DownloadManager::Job &j) {
@@ -282,5 +283,5 @@ void MainWindow::openDownloadPanel() {
     dlPanel_->show();
     dlPanel_->raise();
     dlPanel_->activateWindow();
-    std::fprintf(stderr, "[DL] 下载面板已打开（%d 个任务 ✓）\n", int(dl_->jobs().size()));
+    hovLog("[DL] 下载面板已打开（%d 个任务 ✓）\n", int(dl_->jobs().size()));
 }

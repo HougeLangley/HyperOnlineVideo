@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // ── MainWindow.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: applyFillMode applySetting applySettingInner applySource applySubsUrl applySubtitleDelay applySubtitleTrackIndex artistOf biliSearchPublic cleanupDownloads clearProgress cycleQuality cycleVideoQuality demoSearch downloadUrl dumpProgress effectiveVideoHeight fetchNetEaseCover finishMore fmtClock fmtTime followSourceFor healIfExpired importCookiesFromBrowser isWebUrl openFiles openLoginDialog openSettingsDialog playCurrent playNextFile playPrevFile qualityLabel queueOrFilePrev rebuildQueueFromList runQueueSelfTest saveProgressNow selfTest setAutoplay setResumeEnabled setStatusLine setVol titleOf toggleFillScreen togglePiPPublic toggleVideoFullscreen ttlMs tuneApi
 #include "MainWindow.h"
@@ -314,7 +315,7 @@ void MainWindow::applySearchFilters(int sort, int duration) {
     if (resolver_) resolver_->setSearchFilters(searchSort_, searchDuration_);
     const QString sN = UrlResolver::sortNames().value(searchSort_ - 1);
     const QString dN = UrlResolver::durationNames().value(searchDuration_);
-    std::fprintf(stderr, "[过滤器] 已应用 排序=%d（%s） 时长=%d（%s）\n",
+    hovLog("[过滤器] 已应用 排序=%d（%s） 时长=%d（%s）\n",
                  searchSort_, sN.toUtf8().constData(), searchDuration_, dN.toUtf8().constData());
     setStatusLine(QStringLiteral("搜索过滤器：排序=%1 · 时长=%2").arg(sN, dN));
     // macOS 行为 ✓（UiActions.swift:793）：应用后**若搜索框里有词就立即按新条件重搜** —— 用户预期"点了就生效"
@@ -323,7 +324,7 @@ void MainWindow::applySearchFilters(int sort, int duration) {
 }
 
 void MainWindow::openFilterDialog() {
-    std::fprintf(stderr, "[过滤器] 打开面板（当前 排序=%d 时长=%d）\n", searchSort_, searchDuration_);   // 与 macOS 同文案 ✓
+    hovLog("[过滤器] 打开面板（当前 排序=%d 时长=%d）\n", searchSort_, searchDuration_);   // 与 macOS 同文案 ✓
     QDialog dlg(this);
     dlg.setWindowTitle(QStringLiteral("搜索过滤器"));
     dlg.setFixedWidth(360);                                  // macOS 面板 360 宽 ✓（UiActions.swift:795）
@@ -387,12 +388,12 @@ void MainWindow::finishMore(int reqId, int added) {
         if (added == 0) {                                          // 本页没有新内容 → 到底（不设人为上限）
             moreHasMore_ = false;
             setStatusLine(QString("已加载全部 %1 条结果").arg(moreSeen_.size()));
-            std::fprintf(stderr, "[MORE] 到底：共 %d 条\n", int(moreSeen_.size()));
+            hovLog("[MORE] 到底：共 %d 条\n", int(moreSeen_.size()));
         } else {
             ++morePage_;
             rebuildQueueFromList();                               // 追加后重建播放队列（⏭ 与自动续播依赖它）
             setStatusLine(QString("已加载 %1 条（继续下拉可加载更多）").arg(moreSeen_.size()));
-            std::fprintf(stderr, "[MORE] 追加 %d 条，累计 %d 条（第 %d 页）\n", added, int(moreSeen_.size()), morePage_);
+            hovLog("[MORE] 追加 %d 条，累计 %d 条（第 %d 页）\n", added, int(moreSeen_.size()), morePage_);
         }
 }
 
@@ -410,7 +411,7 @@ void MainWindow::healIfExpired(bool force) {
         if (!force && (resolvedAtMs_ == 0 || age < ttlMs())) return;
         healTried_ = true;
         qInfo() << "[HEAL] 直链已" << age / 1000 << "秒（> TTL" << ttlMs() / 1000 << "秒）→ 重新解析";
-        std::fprintf(stderr, "[HEAL] 直链过期 %llds → 重新解析并回原位\n", static_cast<long long>(age / 1000));
+        hovLog("[HEAL] 直链过期 %llds → 重新解析并回原位\n", static_cast<long long>(age / 1000));
         setStatusLine("直链已过期，正在重新解析…");
         switchVideoQuality(effectiveVideoHeight());      // 内含重新解析 + pendingResume_ 回原进度
 }

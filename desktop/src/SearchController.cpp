@@ -1,3 +1,4 @@
+#include "HovLog.h"
 // ── SearchController.cpp：搜索 / 分页 / 探针（S3+S4 ✓ 2026-09-22）──
 // 手法（文档 52 ✓ 升级版）：类声明在 MainWindow.h ✓ → 成员函数可直接在任意 TU 定义 ✓
 //   **零 Ctx 注入 ✓ 零接口改动 ✓ 纯剪切 ✓**（函数体逐字搬运 ✓ 只加了 `MainWindow::` 前缀 ✓）
@@ -105,24 +106,24 @@ void MainWindow::qqMusicSearch(const QString &keyword) {
 void MainWindow::fsProbePublic(const QString &tag) {
         enterVideoFullscreen();
         if (hoverTimer_) hoverTimer_->stop();
-        std::fprintf(stderr, "[FS-PROBE] %s 进全屏: 全屏=%d 卡片隐藏=%d 浮层显示=%d\n",
+        hovLog("[FS-PROBE] %s 进全屏: 全屏=%d 卡片隐藏=%d 浮层显示=%d\n",
                      qPrintable(tag), isFullScreen() ? 1 : 0,
                      (masonry_ && !masonry_->isVisible()) ? 1 : 0,
                      (masonryHost_ && masonryHost_->isVisible()) ? 1 : 0);
         setSidebarRevealed(true);
         QTimer::singleShot(600, this, [this, tag] {
-            std::fprintf(stderr, "[FS-PROBE] %s 浮出后: 浮层=%dx%d 浮层可见=%d 卡片可见=%d\n",
+            hovLog("[FS-PROBE] %s 浮出后: 浮层=%dx%d 浮层可见=%d 卡片可见=%d\n",
                          qPrintable(tag), masonryHost_ ? masonryHost_->width() : 0,
                          masonryHost_ ? masonryHost_->height() : 0,
                          (masonryHost_ && masonryHost_->isVisible()) ? 1 : 0,
                          (masonry_ && masonry_->isVisible()) ? 1 : 0);
             QTimer::singleShot(1200, this, [this, tag] {
                 setSidebarRevealed(false);
-                std::fprintf(stderr, "[FS-PROBE] %s 收起后: 浮层可见=%d\n",
+                hovLog("[FS-PROBE] %s 收起后: 浮层可见=%d\n",
                              qPrintable(tag), (masonryHost_ && masonryHost_->isVisible()) ? 1 : 0);
                 exitVideoFullscreen();
                 // 关键回归判据：退出后**数据源 results_ 必须仍然隐藏**（它曾被我 show() 出来 → 左侧多出窄缝 ✗）
-                std::fprintf(stderr, "[FS-PROBE] %s 退出后: 全屏=%d 卡片可见=%d 数据源可见=%d\n",
+                hovLog("[FS-PROBE] %s 退出后: 全屏=%d 卡片可见=%d 数据源可见=%d\n",
                              qPrintable(tag), isFullScreen() ? 1 : 0,
                              (masonry_ && masonry_->isVisible()) ? 1 : 0,
                              (results_ && results_->isVisible()) ? 1 : 0);
@@ -134,7 +135,7 @@ void MainWindow::fsProbePublic(const QString &tag) {
                     QTimer::singleShot(900, this, [this, tag] {
                         setSidebarRevealed(false);
                         exitVideoFullscreen();
-                        std::fprintf(stderr, "[FS-PROBE] %s 第二轮退出: 全屏=%d 卡片可见=%d 数据源可见=%d 浮层可见=%d\n",
+                        hovLog("[FS-PROBE] %s 第二轮退出: 全屏=%d 卡片可见=%d 数据源可见=%d 浮层可见=%d\n",
                                      qPrintable(tag), isFullScreen() ? 1 : 0,
                                      (masonry_ && masonry_->isVisible()) ? 1 : 0,
                                      (results_ && results_->isVisible()) ? 1 : 0,
@@ -152,13 +153,13 @@ void MainWindow::searchPublic(const QString &kw, int src) {
 }
 
 void MainWindow::loadMoreForTest(int n) {
-        std::fprintf(stderr, "[MORE] 探针启动：模拟拖到底 ×%d\n", n);
+        hovLog("[MORE] 探针启动：模拟拖到底 ×%d\n", n);
         for (int i = 0; i < n; ++i)
             QTimer::singleShot(i * 8000, this, [this, i] {
                 QScrollBar *sb = (masonry_ && masonry_->isVisible()) ? masonry_->verticalScrollBar()
                                : (results_ ? results_->verticalScrollBar() : nullptr);
-                if (!sb) { std::fprintf(stderr, "[MORE] 探针：找不到滚动条\n"); return; }
-                std::fprintf(stderr, "[MORE] 探针第 %d 次：推到底（max=%d 当前=%d 可见=%d）\n",
+                if (!sb) { hovLog("[MORE] 探针：找不到滚动条\n"); return; }
+                hovLog("[MORE] 探针第 %d 次：推到底（max=%d 当前=%d 可见=%d）\n",
                              i + 1, sb->maximum(), sb->value(),
                              int(masonry_ && masonry_->isVisible()));
                 sb->setValue(sb->maximum());          // ← 等价用户拖到底 → 触发 loadMore
@@ -366,7 +367,7 @@ void MainWindow::doSearch() {
         resolver_->setSearchFilters(searchSort_, searchDuration_);   // B站用（在 biliSearch 前生效 ✓）
         // UI-4-B ✓ 过滤器：排序/时长 → YouTube `sp` 参数（无筛选时行为完全不变 ✓ 零回归）
         const QString ytArg = youTubeSearchArgN(q, searchSort_, searchDuration_, 15);
-        std::fprintf(stderr, "[FILTER] sort=%d duration=%d ytArg=%s\n", searchSort_, searchDuration_, ytArg.toUtf8().constData());   // ④ ✓ 与 [DL]/[GLASS] 同通道（实测可见 ✓）
+        hovLog("[FILTER] sort=%d duration=%d ytArg=%s\n", searchSort_, searchDuration_, ytArg.toUtf8().constData());   // ④ ✓ 与 [DL]/[GLASS] 同通道（实测可见 ✓）
         p->start("yt-dlp", {"-J", "--flat-playlist", "--no-warnings",
                             "--playlist-end", "15", ytArg});
 }

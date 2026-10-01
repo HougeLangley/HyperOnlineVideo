@@ -1,3 +1,4 @@
+#include "HovLog.h"
 #include "ThemeWatcher.h"
 
 #include <QDBusConnection>
@@ -86,7 +87,7 @@ Theme::Mode ThemeWatcher::detect()
     const uint pv = readPortalColorScheme(&raw);
     if (pv == 1) return Theme::Mode::Dark;
     if (pv == 2) return Theme::Mode::Light;
-    std::fprintf(stderr, "[THEME] Portal 未命中（原始=%s）→ 走降级链\n", qPrintable(raw));
+    hovLog("[THEME] Portal 未命中（原始=%s）→ 走降级链\n", qPrintable(raw));
 
     // ② Qt 自带
     const Qt::ColorScheme cs = QGuiApplication::styleHints()->colorScheme();
@@ -104,7 +105,7 @@ void ThemeWatcher::start()
 {
     const QString src = detectSource();
     emit modeChanged(detect(), src);   // 立即应用一次（调用方接到 Theme::setMode ✓）
-    std::fprintf(stderr, "[THEME] 跟随系统：来源=%s 模式=%s\n", qPrintable(src),
+    hovLog("[THEME] 跟随系统：来源=%s 模式=%s\n", qPrintable(src),
                  Theme::mode() == Theme::Mode::Light ? "light" : "dark");
     if (watching_) return;
     // 订阅 Portal 变更：用户在系统里切深浅色 → 立即跟随（无需重启 ✓）
@@ -112,7 +113,7 @@ void ThemeWatcher::start()
         QLatin1String(kPortalSvc), QLatin1String(kPortalPath), QLatin1String(kPortalIface),
         QStringLiteral("SettingChanged"), this, SLOT(onSettingChanged(QString,QString,QDBusVariant)));
     watching_ = ok;
-    std::fprintf(stderr, "[THEME] 订阅 SettingChanged：%s（%s）\n", ok ? "成功" : "失败",
+    hovLog("[THEME] 订阅 SettingChanged：%s（%s）\n", ok ? "成功" : "失败",
                  ok ? "系统切换时会自动跟随" : "只在启动时读取一次");
 }
 
@@ -123,7 +124,7 @@ void ThemeWatcher::stop()
         QLatin1String(kPortalSvc), QLatin1String(kPortalPath), QLatin1String(kPortalIface),
         QStringLiteral("SettingChanged"), this, SLOT(onSettingChanged(QString,QString,QDBusVariant)));
     watching_ = false;
-    std::fprintf(stderr, "[THEME] 已停止跟随系统（用户显式指定了 ui.theme）\n");
+    hovLog("[THEME] 已停止跟随系统（用户显式指定了 ui.theme）\n");
 }
 
 void ThemeWatcher::onSettingChanged(const QString &ns, const QString &key, const QDBusVariant &value)
@@ -132,6 +133,6 @@ void ThemeWatcher::onSettingChanged(const QString &ns, const QString &key, const
     const uint v = value.variant().toUInt();
     if (v != 1 && v != 2) return;
     const Theme::Mode m = (v == 1) ? Theme::Mode::Dark : Theme::Mode::Light;
-    std::fprintf(stderr, "[THEME] 系统明暗变化 → %s\n", m == Theme::Mode::Light ? "light" : "dark");
+    hovLog("[THEME] 系统明暗变化 → %s\n", m == Theme::Mode::Light ? "light" : "dark");
     emit modeChanged(m, QStringLiteral("portal-live"));
 }

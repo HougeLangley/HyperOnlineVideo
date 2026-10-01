@@ -16,7 +16,7 @@ MACOS_DIR="$(pwd)"
 REPO_DIR="$(cd .. && pwd)"
 APP_NAME="HyperOnlineVideo"
 APP="$MACOS_DIR/build/$APP_NAME.app"
-VER="1.2.4"
+VER="1.2.5"
 DO_DMG=1
 [ "${1:-}" = "--no-dmg" ] && DO_DMG=0
 

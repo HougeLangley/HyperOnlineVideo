@@ -373,6 +373,28 @@ class PlayerActivity : Activity() {
         }
         currentPlayUrl = playUrl
         resolvedAtMs = System.currentTimeMillis()
+        // Issue #1 ✓（2026-10-01）：googlevideo 直链先做 4MB Range 预检 → 受限出口（HTTP 403 ✗）
+        // 明确提示更换节点/线路（正常出口 200/206 ✓）；后台线程探测 + 主线程 Toast ✓
+        if (playUrl.contains("googlevideo.com")) {
+            Thread {
+                val code = try {
+                    (java.net.URL(playUrl).openConnection() as java.net.HttpURLConnection).run {
+                        setRequestProperty("Range", "bytes=0-4194304")
+                        connectTimeout = 10000
+                        readTimeout = 10000
+                        val c = try { responseCode } finally { disconnect() }
+                        c
+                    }
+                } catch (e: Exception) { 0 }
+                if (code != 200 && code != 206) {
+                    runOnUiThread {
+                        Toast.makeText(this@PlayerActivity,
+                            "YouTube 拒绝该网络出口获取视频流（HTTP $code）→ 请更换代理节点/线路，或改用直连 ✓",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
+        }
         mpvView.playFile(playUrl)
         if (platform == "local") autoLoadSubtitle(url)
         handler.postDelayed({ applyFillMode() }, 900)   // 起播后应用显示模式（铺满/适应）

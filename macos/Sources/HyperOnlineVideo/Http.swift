@@ -66,5 +66,14 @@ enum Http {
         return r.status == 200 || r.status == 206
     }
 
+    /// YouTube 直链可流播性预检（Issue #1 ✓ 2026-10-01）：部分出口（VPS/数据中心 IP ✗）只放行 ≤64KB Range ✗，
+    /// 真实播放必 403 ✗ → 用 4MB Range 探针判定（正常 200/206 ✓；受限 403 ✗）。
+    static func streamRangeOk(_ url: String) -> Int {
+        guard url.contains("googlevideo.com"), let u = URL(string: url) else { return 0 }
+        var req = URLRequest(url: u)
+        req.setValue("bytes=0-4194304", forHTTPHeaderField: "Range")
+        return run(req, timeout: 10).status
+    }
+
     static let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 }

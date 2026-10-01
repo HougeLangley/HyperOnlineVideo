@@ -4,7 +4,7 @@
 # 手册的**唯一真相**是 desktop/packaging/man/hov-qt.1（deb/rpm 共用 ✓ 防漂移 ✗）
 
 Name:           hov-qt
-Version:        1.2.4
+Version:        1.2.5
 Release:        1%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
@@ -70,6 +70,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
+* Thu Oct  2 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.5-1
+- YouTube direct-link playability preflight (4MB Range probe) + exit guidance
+- Log time prefixes (HH:MM:SS) on all stderr/qInfo lines
+
 * Wed Oct  1 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.4-1
 - Remove dead field lyricLabel_ and unused lambda captures (clang -Wextra clean)
 - Fix QQ Music lyrics (anonymous-first + capped Cookie retry)

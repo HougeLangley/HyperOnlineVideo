@@ -224,6 +224,13 @@ final class MpvView: NSOpenGLView {
     }
 
     func playResolved(video: String, audio: String) {
+        // Issue #1 ✓：googlevideo 直链先做 4MB Range 预检 → 受限出口（403）打明确指引 ✓
+        if video.contains("googlevideo.com") {
+            let code = Http.streamRangeOk(video)
+            if code != 200 && code != 206 {
+                print("[PREFLIGHT] YouTube 拒绝该网络出口获取视频流（HTTP \(code)）→ 请更换代理节点/线路，或改用直连（常见于 VPS/数据中心出口 ✗）")
+            }
+        }
         guard mpv != nil else {          // 还没就绪：排队，等 render context 起来再发
             pendingURL = video
             pendingAudio = audio

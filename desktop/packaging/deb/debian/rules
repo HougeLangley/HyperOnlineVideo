@@ -10,6 +10,10 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
 # 显式指定 Release + 打开 QtWebEngine（与仓库 PKGBUILD 的 depends 保持一致：
 # 那边 depends 含 qt6-webengine，故本包同样构建为"含内嵌登录窗口"的版本）
+# clang 产出 DWARF5（.debug_str_offsets 段 ✗）与各发行版自带 dwz 不兼容 ✗ →
+# 跳过 dwz 调试信息压缩（仅影响 debug 包体积 ✓ 不影响功能/主包 ✓）
+override_dh_dwz:
+
 override_dh_auto_configure:
 	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DHOV_WEBENGINE=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 

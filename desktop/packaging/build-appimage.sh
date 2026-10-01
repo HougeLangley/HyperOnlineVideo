@@ -126,7 +126,7 @@ BUILD_DIR="$here/build-appimage"
 # HOV_OPTIMIZED=1：用 clang + full-LTO + PGO 构建（体积更小、启动更快）。
 # 默认不开启，保证"同样源码 → 同样产物"的可复现性；发布优化版时显式打开：
 #   HOV_OPTIMIZED=1 HOV_PROFDATA=/tmp/hovpgo/hov.profdata bash packaging/build-appimage.sh
-OPT_FLAGS=()
+OPT_FLAGS=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld )
 if [ "${HOV_OPTIMIZED:-0}" = "1" ]; then
   OPT_FLAGS+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
               -DHOV_LTO=ON -DHOV_PGO=use -DHOV_PROFDATA="${HOV_PROFDATA:-/tmp/hovpgo/hov.profdata}")

@@ -11,7 +11,7 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 # 显式指定 Release + 打开 QtWebEngine（与仓库 PKGBUILD 的 depends 保持一致：
 # 那边 depends 含 qt6-webengine，故本包同样构建为"含内嵌登录窗口"的版本）
 override_dh_auto_configure:
-	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DHOV_WEBENGINE=ON
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release -DHOV_WEBENGINE=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 
 # debian/docs 里列的 LICENSE 位于**源码树根**（本仓库是单仓库多平台，桌面端在 desktop/），
 # 而 --sourcedir=desktop 会使 dh_installdocs 只在 desktop/ 下找 → 故仅对这一步改回源码树根。

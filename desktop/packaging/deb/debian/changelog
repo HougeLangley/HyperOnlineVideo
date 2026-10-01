@@ -1,3 +1,9 @@
+hov-qt (1.2.3-2) resolute; urgency=medium
+
+  * Rebuild with Clang/LLVM (clang + lld) instead of GCC.
+
+ -- Houge Langley <hougelangley1987@gmail.com>  Sun, 28 Sep 2026 18:00:00 +0800
+
 hov-qt (1.2.3-1) resolute; urgency=medium
 
   * Bilibili: search upgraded to the wbi signing protocol on all three

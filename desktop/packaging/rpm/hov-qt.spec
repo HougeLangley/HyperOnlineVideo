@@ -5,7 +5,7 @@
 
 Name:           hov-qt
 Version:        1.2.3
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
 License:        GPL-3.0-only
@@ -14,7 +14,9 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cmake
 BuildRequires:  ninja-build
-BuildRequires:  gcc-c++
+BuildRequires:  clang
+BuildRequires:  lld
+BuildRequires:  libstdc++-devel
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  qt6-qtbase-devel
 BuildRequires:  qt6-qtdeclarative-devel
@@ -43,7 +45,7 @@ QtWebEngine 登录窗口完成登录。
 
 %build
 cd desktop
-%cmake -DCMAKE_BUILD_TYPE=Release -DHOV_WEBENGINE=ON
+%cmake -DCMAKE_BUILD_TYPE=Release -DHOV_WEBENGINE=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 %cmake_build
 
 %install
@@ -68,6 +70,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
+* Mon Sep 28 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.3-2
+- Rebuild with Clang/LLVM (clang + lld) instead of GCC
+
 * Mon Sep 28 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.3-1
 - Bilibili: search upgraded to wbi signing on all three platforms (auto-fallback to legacy)
 - Android: robust end-of-playback detection + diagnostics for auto-advance

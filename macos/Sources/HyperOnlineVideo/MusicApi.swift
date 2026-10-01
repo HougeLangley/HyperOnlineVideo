@@ -284,12 +284,24 @@ final class QQMusicApi {
 
     func lyric(_ mid: String) -> (lrc: String, trans: String) {
         let url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=\(mid)&format=json&nobase64=1"
-        var h = ["User-Agent": Self.ua, "Referer": Self.referer]
-        let ck = Self.cookieHeader()
-        if !ck.isEmpty { h["Cookie"] = ck }
-        let r = Http.get(url, headers: h)
-        guard r.ok else { return ("", "") }
-        let root = r.json()
+        // 2026-10-01 修复（用户实测 QQ 全黑无歌词 ✗）：c.y.qq.com 对超大 Cookie 头**直接断连**
+        //（实测 HTTP 000/0 字节 ✗；同一请求匿名或截到 ≤3KB 即 200 + 全文 ✓）。
+        // 策略：先匿名；歌词为空再用"整对截断"的 Cookie 重试一次 ✓（与 Linux 同款 ✓）
+        let base = ["User-Agent": Self.ua, "Referer": Self.referer]
+        var root = Http.get(url, headers: base).json()
+        if (root["lyric"] as? String ?? "").isEmpty {
+            let ck = Self.cookieHeader()
+            if !ck.isEmpty {
+                var capped = ck
+                if capped.count > 3000 {
+                    capped = String(capped.prefix(3000))
+                    if let rr = capped.range(of: "; ", options: .backwards) { capped = String(capped[..<rr.lowerBound]) }
+                }
+                var h = base
+                h["Cookie"] = capped
+                root = Http.get(url, headers: h).json()
+            }
+        }
         return ((root["lyric"] as? String) ?? "", (root["trans"] as? String) ?? "")
     }
 

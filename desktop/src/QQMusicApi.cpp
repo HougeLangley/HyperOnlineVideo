@@ -244,11 +244,10 @@ void QQMusicApi::lyric(const QString &mid,
     QNetworkRequest r{QUrl(url)};
     r.setRawHeader("Referer", kReferer);          // 该接口强校验 Referer
     r.setRawHeader("User-Agent", kUserAgent);
-    const Cookie ck = readCookie();
-    if (!ck.header.isEmpty()) r.setRawHeader("Cookie", ck.header.toUtf8());
-
+    // 2026-10-01 修复（macOS 用户实测 QQ 无歌词 ✗，三端同源 ✓）：c.y.qq.com 对超大 Cookie 头
+    // **直接断连**（实测 HTTP 000/0 字节 ✗；匿名或 ≤3KB 截断均 200 + 全文 ✓）→ 首请求匿名 ✓
     QNetworkReply *reply = net_->get(r);
-    connect(reply, &QNetworkReply::finished, this, [reply, done, mid] {
+    connect(reply, &QNetworkReply::finished, this, [this, url, reply, done, mid] {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) { done(QString(), QString()); return; }
         const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
@@ -264,6 +263,34 @@ void QQMusicApi::lyric(const QString &mid,
         };
         lrc = maybeB64(lrc);
         trans = maybeB64(trans);
+        if (lrc.isEmpty()) {                              // 匿名空 → 用"整对截断"Cookie 重试一次 ✓
+            QString capped = readCookie().header;
+            if (capped.size() > 3000) {
+                capped.truncate(3000);
+                const int cut = capped.lastIndexOf("; ");
+                if (cut > 0) capped.truncate(cut);
+            }
+            if (!capped.isEmpty()) {
+                QNetworkRequest r2{QUrl(url)};
+                r2.setRawHeader("Referer", kReferer);
+                r2.setRawHeader("User-Agent", kUserAgent);
+                r2.setRawHeader("Cookie", capped.toUtf8());
+                QNetworkReply *reply2 = net_->get(r2);
+                connect(reply2, &QNetworkReply::finished, this, [reply2, done, mid] {
+                    reply2->deleteLater();
+                    const QJsonObject root2 = QJsonDocument::fromJson(reply2->readAll()).object();
+                    QString l2 = root2.value("lyric").toString();
+                    QString t2 = root2.value("trans").toString();
+                    if (!l2.isEmpty() && !l2.trimmed().startsWith('[')) {
+                        const QByteArray d2 = QByteArray::fromBase64(l2.toUtf8());
+                        if (!d2.isEmpty()) l2 = QString::fromUtf8(d2);
+                    }
+                    qInfo() << "QQ歌词(截断Cookie重试) mid=" << mid << "原文" << l2.size() << "字节";
+                    done(l2, t2);
+                });
+                return;
+            }
+        }
         qInfo() << "QQ歌词 mid=" << mid << "原文" << lrc.size() << "字节，翻译" << trans.size() << "字节";
         done(lrc, trans);
     });

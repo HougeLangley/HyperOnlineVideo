@@ -151,7 +151,7 @@ void QQMusicApi::search(const QString &keyword, int limit,
             r2.setRawHeader("Referer", kReferer);
             r2.setRawHeader("User-Agent", kUserAgent);
             QNetworkReply *rep2 = net_->post(r2, QJsonDocument(b2).toJson(QJsonDocument::Compact));
-            connect(rep2, &QNetworkReply::finished, this, [this, rep2, done] {
+            connect(rep2, &QNetworkReply::finished, this, [rep2, done] {
                 rep2->deleteLater();
                 const QJsonObject root2 = QJsonDocument::fromJson(rep2->readAll()).object();
                 const QVector<Song> out2 = parseQQSearchList(root2);

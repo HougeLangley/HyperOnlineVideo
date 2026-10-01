@@ -259,7 +259,7 @@ void NetEaseApi::pickWorkingNode(const QString &url, std::function<void(const QS
             const int c = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (c == 200 || c == 206) r->abort();                 // Range 探测：拿到状态码就断，不整首下载 ✗
         });
-        connect(r, &QNetworkReply::finished, this, [this, r, u, cands, idx, self, done] {
+        connect(r, &QNetworkReply::finished, this, [r, u, cands, idx, self, done] {
             const int c = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             r->deleteLater();
             if (c == 200 || c == 206) {

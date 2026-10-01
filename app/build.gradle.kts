@@ -21,8 +21,8 @@ android {
         applicationId = "com.hougelangley.hov"
         minSdk = 35
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.2.3"
+        versionCode = 7
+        versionName = "1.2.4"
 
         ndk {
             abiFilters += "arm64-v8a"   // 只带 arm64，砍掉模拟器 ABI 体积

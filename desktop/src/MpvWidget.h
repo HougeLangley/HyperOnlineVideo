@@ -118,7 +118,6 @@ private:
     QImage     glassBase_;           // 玻璃底图缓存（磨砂+渐变+压暗；仅封面变化时重建 ✓）
     QString    glassBaseKey_;        // 底图缓存键（封面 URL ✓）
     QLabel *glassLabel_ = nullptr;
-    QLabel *lyricLabel_ = nullptr;   // 音乐模式的歌词层（透明子控件：绕开 GL 下 QPainter 绘制的限制 ✓）
     void refreshOverlays();                          // 按 cover_/glass_ 状态刷新子控件
     mutable QString coverPixKey_;                    // 已生成封面 pixmap 对应的 url
     mutable QString glassPixKey_;                    // 已生成玻璃图对应的 url

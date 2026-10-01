@@ -4,8 +4,8 @@
 # 手册的**唯一真相**是 desktop/packaging/man/hov-qt.1（deb/rpm 共用 ✓ 防漂移 ✗）
 
 Name:           hov-qt
-Version:        1.2.3
-Release:        2%{?dist}
+Version:        1.2.4
+Release:        1%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
 License:        GPL-3.0-only
@@ -70,6 +70,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
+* Wed Oct  1 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.4-1
+- Remove dead field lyricLabel_ and unused lambda captures (clang -Wextra clean)
+
 * Mon Sep 28 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.3-2
 - Rebuild with Clang/LLVM (clang + lld) instead of GCC
 

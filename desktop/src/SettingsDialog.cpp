@@ -72,7 +72,7 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         dirLay->addWidget(dirEdit, 1);
         auto *browse = new QPushButton("浏览…", dirRow);
         dirLay->addWidget(browse);
-        QObject::connect(browse, &QPushButton::clicked, parent, [parent, dirEdit, &ctx] {
+        QObject::connect(browse, &QPushButton::clicked, parent, [parent, dirEdit] {
             const QString d = QFileDialog::getExistingDirectory(parent, "选择下载目录", dirEdit->text());
             if (!d.isEmpty()) dirEdit->setText(d);
         });
@@ -115,7 +115,7 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
 
         auto *btns = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Close, &dlg);
         form->addRow(btns);
-        QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, [parent, quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck, videoCap] {
+        QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, [quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck, videoCap] {
             static const QStringList qs{ "standard", "exhigh", "lossless" };
             ctx.applySetting("music.qualityCeiling", qs.at(quality->currentIndex()));
             const int vh = videoCap->currentData().toInt();   // 单一档位表的值（0=自动 / -1=仅音频 ✓）

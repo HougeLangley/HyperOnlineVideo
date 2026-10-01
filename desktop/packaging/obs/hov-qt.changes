@@ -1,4 +1,11 @@
 -------------------------------------------------------------------
+Wed Oct  1 21:30:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Version 1.2.4: remove dead field + unused lambda captures (clang clean);
+  fix QQ Music lyrics (anonymous-first + capped Cookie retry, c.y.qq.com
+  rejects oversized Cookie headers).
+
+-------------------------------------------------------------------
 Sun Sep 28 18:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
 
 - Rebuild with Clang/LLVM (clang + lld) instead of GCC across all targets

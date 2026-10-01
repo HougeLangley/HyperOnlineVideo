@@ -72,6 +72,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %changelog
 * Wed Oct  1 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.4-1
 - Remove dead field lyricLabel_ and unused lambda captures (clang -Wextra clean)
+- Fix QQ Music lyrics (anonymous-first + capped Cookie retry)
 
 * Mon Sep 28 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.3-2
 - Rebuild with Clang/LLVM (clang + lld) instead of GCC

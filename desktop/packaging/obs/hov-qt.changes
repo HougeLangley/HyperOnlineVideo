@@ -1,4 +1,10 @@
 -------------------------------------------------------------------
+Sun Sep 28 18:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
+
+- Rebuild with Clang/LLVM (clang + lld) instead of GCC across all targets
+  (x86_64 / aarch64 / riscv64).
+
+-------------------------------------------------------------------
 Sun Sep 28 15:00:00 UTC 2026 - Houge Langley <hougelangley1987@gmail.com>
 
 - Version 1.2.3: Bilibili search wbi signing (three platforms, legacy

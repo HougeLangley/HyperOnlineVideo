@@ -22,7 +22,9 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cmake
 BuildRequires:  ninja
-BuildRequires:  gcc-c++
+BuildRequires:  clang
+BuildRequires:  lld
+BuildRequires:  libstdc++-devel
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  qt6-widgets-devel
 BuildRequires:  qt6-openglwidgets-devel
@@ -65,7 +67,7 @@ App 内登录窗口使用 QtWebEngine（Tumbleweed 的 qt6-webenginewidgets-deve
 
 %build
 cd desktop
-%cmake -DHOV_WEBENGINE=ON
+%cmake -DHOV_WEBENGINE=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 %cmake_build
 
 %install

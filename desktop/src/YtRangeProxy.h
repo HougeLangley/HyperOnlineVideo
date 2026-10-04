@@ -4,6 +4,8 @@
 #include <QObject>
 #include <QString>
 #include <QTcpServer>
+#include <QThread>
+#include <atomic>
 
 /**
  * YouTube googlevideo 分块 Range 本地代理（Issue #1 真修 ✓）
@@ -26,8 +28,8 @@ public:
     /** 非 googlevideo 原样返回；googlevideo → 本机代理 URL（失败则退回原 URL） */
     QString map(const QString &upstreamUrl);
 
-    int port() const { return port_; }
-    bool running() const { return port_ > 0; }
+    int port() const { return port_.load(); }
+    bool running() const { return port_.load() > 0; }
 
     /** 从 videoplayback URL 的 clen= 解析总长度；没有则返回 0 */
     static qint64 contentLengthFromUrl(const QString &url);
@@ -38,7 +40,8 @@ private:
     void handleClient(qintptr socketDescriptor);
 
     QTcpServer *server_ = nullptr;
-    int port_ = 0;
+    QThread *ioThread_ = nullptr;    // accept 必须离开 GUI：否则 mpv loadfile 阻塞主线程时死锁，音轨永远连不上
+    std::atomic<int> port_{0};
     mutable QMutex mu_;
     QHash<QString, QString> tokens_;   // token → upstream
 };

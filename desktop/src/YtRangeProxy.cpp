@@ -1,6 +1,7 @@
 #include "YtRangeProxy.h"
 #include "HovLog.h"
 
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QHostAddress>
 #include <QNetworkAccessManager>
@@ -113,7 +114,12 @@ private:
 YtRangeProxy::YtRangeProxy(QObject *parent) : QObject(parent) {}
 
 YtRangeProxy::~YtRangeProxy() {
-    if (server_) server_->close();
+    if (server_)
+        QMetaObject::invokeMethod(server_, "close", Qt::BlockingQueuedConnection);
+    if (ioThread_) {
+        ioThread_->quit();
+        ioThread_->wait(2000);
+    }
 }
 
 qint64 YtRangeProxy::contentLengthFromUrl(const QString &url) {
@@ -125,16 +131,29 @@ qint64 YtRangeProxy::contentLengthFromUrl(const QString &url) {
 }
 
 bool YtRangeProxy::ensureListening() {
-    if (server_ && server_->isListening()) return true;
-    auto *ps = new ProxyServer([this](qintptr fd) { handleClient(fd); }, this);
+    if (port_.load() > 0) return true;
+    if (ioThread_) return port_.load() > 0;
+
+    auto *ps = new ProxyServer([this](qintptr fd) { handleClient(fd); });
+    auto *th = new QThread(this);
+    ps->moveToThread(th);
+    QObject::connect(th, &QThread::finished, ps, &QObject::deleteLater);
+    QObject::connect(th, &QThread::started, ps, [ps, this] {
+        if (!ps->listen(QHostAddress::LocalHost, 0)) {
+            hovLog("[YT-PROXY] listen failed: %s\n", qPrintable(ps->errorString()));
+            return;
+        }
+        port_.store(int(ps->serverPort()));
+        hovLog("[YT-PROXY] listening 127.0.0.1:%d (googlevideo chunked Range)\n", port_.load());
+    });
     server_ = ps;
-    if (!server_->listen(QHostAddress::LocalHost, 0)) {
-        hovLog("[YT-PROXY] listen failed: %s\n", qPrintable(server_->errorString()));
-        return false;
-    }
-    port_ = int(server_->serverPort());
-    hovLog("[YT-PROXY] listening 127.0.0.1:%d (googlevideo chunked Range)\n", port_);
-    return true;
+    ioThread_ = th;
+    th->start();
+    QElapsedTimer wait;
+    wait.start();
+    while (port_.load() == 0 && wait.elapsed() < 2000)
+        QThread::msleep(10);
+    return port_.load() > 0;
 }
 
 QString YtRangeProxy::map(const QString &upstreamUrl) {
@@ -143,10 +162,9 @@ QString YtRangeProxy::map(const QString &upstreamUrl) {
     const QString token = QUuid::createUuid().toString(QUuid::Id128);
     {
         QMutexLocker lock(&mu_);
-        if (tokens_.size() > 32) tokens_.clear();
         tokens_.insert(token, upstreamUrl);
     }
-    return QStringLiteral("http://127.0.0.1:%1/s/%2").arg(port_).arg(token);
+    return QStringLiteral("http://127.0.0.1:%1/s/%2").arg(port_.load()).arg(token);
 }
 
 void YtRangeProxy::onNewConnection() {
@@ -179,6 +197,7 @@ void YtRangeProxy::handleClient(qintptr socketDescriptor) {
             rangeHdr = line.mid(6).trimmed();
     }
 
+    hovLog("[YT-PROXY] client %s %s\n", method.constData(), path.constData());
     if (!path.startsWith("/s/")) {
         writeSimple(&sock, 404, "Not Found");
         sock.waitForBytesWritten(3000);

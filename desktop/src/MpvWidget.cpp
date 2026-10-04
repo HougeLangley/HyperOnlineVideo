@@ -458,6 +458,7 @@ static QString refererForUrl(const QString &u) {
 
 void MpvWidget::stop() {
     ++playEpoch_;
+    if (mpv_) mpv_set_property_string(mpv_, "audio-files", "");
     if (!mpv_) return;
     const char *cmd[] = { "stop", nullptr };
     mpv_command(mpv_, cmd);
@@ -478,27 +479,25 @@ void MpvWidget::playResolved(const QString &videoUrl, const QString &audioUrl) {
     const QByteArray headers = ref.isEmpty() ? QByteArray() : ("Referer: " + ref).toUtf8();
     mpv_set_option_string(mpv_, "http-header-fields", headers.constData());
 
-    wantPlaying_ = true;                              // 竞态加固：加载完成后仍 paused 则由快照线程纠正 ✓
+    wantPlaying_ = true;
     const int epoch = ++playEpoch_;
+    // DASH 分轨必须在 loadfile 之前挂上：延迟 audio-add 会碰到
+    // 「主线程卡在 loadfile + 代理 accept 也在主线程」的死锁，音轨约 60s 超时失败、无声。
+    if (!audioUrl.isEmpty())
+        mpv_set_property_string(mpv_, "audio-files", audioUrl.toUtf8().constData());
+    else
+        mpv_set_property_string(mpv_, "audio-files", "");
     QByteArray v = videoUrl.toUtf8();
     const char *cmd[] = {"loadfile", v.constData(), nullptr};
     mpv_command(mpv_, cmd);
-    // keep-open=yes 会让新文件继承"已暂停"状态 → 显式取消暂停（实测踩到：自动续播后停在 0:00 不动）
     QTimer::singleShot(150, this, [this, epoch] {
         if (epoch != playEpoch_.load()) return;
         int no = 0;
         mpv_set_property(mpv_, "pause", MPV_FORMAT_FLAG, &no);
     });
-    qInfo() << "播放视频流:" << videoUrl.left(80);
-    if (!audioUrl.isEmpty()) {
-        QTimer::singleShot(700, this, [this, audioUrl, epoch] {
-            if (epoch != playEpoch_.load()) return;
-            QByteArray a = audioUrl.toUtf8();
-            const char *c[] = {"audio-add", a.constData(), "select", nullptr};   // 必须有 NULL 终止符：缺了会越界 strlen 崩溃（实测）
-            mpv_command(mpv_, c);
-            qInfo() << "已挂载音轨:" << audioUrl.left(80);
-        });
-    }
+    qInfo() << "play video:" << videoUrl.left(80);
+    if (!audioUrl.isEmpty())
+        qInfo() << "play audio-files:" << audioUrl.left(80);
 }
 
 // ---------- 属性快照：后台线程采集，GUI 只读快照 ----------

@@ -20,8 +20,9 @@ v1.2.5 的 4MB 预检只测 capped Range → 会误报「可播 ✓」，而播�
   对上游强制 ≤1MiB capped Range 分块拉取，再交给 mpv（音视频分轨各自代理）。
 - **预检**：改为探测开放式 GET；若仅开放式失败则提示「已启用本机分块代理」。
 - **自愈**：`switchVideoQuality` 在 `duration<1`（起播失败）时仍重新解析；HEAL 日志区分强制/TTL。
-- **解码兼容**：自动档优先非 AV1 且 ≤1080p（轻薄本无 AV1 硬解时避免选中 2160p AV1 黑屏）；
-  mpv `hwdec-codecs` 跳过 AV1 硬解探测（消除 Vulkan/CUDA/VDPAU 刷屏）。
+- **解码兼容**：自动档优先非 AV1 且 ≤1080p；mpv `hwdec=vaapi,no`（避开无效 Vulkan/CUDA）。
+- **YouTube 客户端**：强制 `web_embedded,mweb`——默认 `android_vr` 在 SoSim 等出口上
+  **只能读文件头约 10MB**（之后分块 403，播十几秒即断）；`web_embedded` 可完整拉 1080p。
 
 ## 工作区绕过
 仍无法播放时（连 capped Range 也被拒）才需要更换代理节点。

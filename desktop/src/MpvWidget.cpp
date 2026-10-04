@@ -72,10 +72,9 @@ MpvWidget::MpvWidget(QWidget *parent) : QOpenGLWidget(parent) {
     // 本端**不再提供** video.gpuNext 设置项（2026-09-22 用户决定 ✓ 全仓删除该键 ✓ 见文档 48）；
     // 渲染后端恒定 `vo=libmpv`（理由见上 ✓ 唯一能嵌进宿主控件的路径 ✓）。
     mpv_set_option_string(mpv_, "vo", "libmpv");
-    mpv_set_option_string(mpv_, "hwdec", "auto-safe");
-    // 跳过 AV1 硬解探测：无 Vulkan video decode / CUDA 的机器会刷屏报错并偶发起播失败
-    // （用户日志：VK_KHR_video_decode_queue / libcuda / vdpau_nvidia）。AV1 若仍被选中走软解。
-    mpv_set_option_string(mpv_, "hwdec-codecs", "h264,vc1,hevc,vp8,vp9,avc,prores");
+    // 轻薄本常无 Vulkan video decode / CUDA：auto-safe 会先踩 vulkan 再失败（日志刷屏、偶发起播异常）。
+    // 优先 VAAPI（Intel/AMD），没有则软解；不碰 vulkan/cuda/vdpau_nvidia。
+    mpv_set_option_string(mpv_, "hwdec", "vaapi,no");
     mpv_set_option_string(mpv_, "ytdl", "no");
     // 直链由 App 层解析（UrlResolver 调 yt-dlp），mpv 只负责播放：
     // 这里只设 UA；Referer 按站点在 playResolved 里逐次设置

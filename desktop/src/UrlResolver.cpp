@@ -102,6 +102,10 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     });
     QStringList args{"-J", "--no-warnings", "--no-playlist"};
     args << formatArgsFor(maxHeight_);
+    // Issue #1 / SoSim：默认 android_vr 直链只允许读文件头 ~10MB（之后 Range/开放式皆 403），
+    // 表现为播十几秒就断。web_embedded 可完整拉流（含 1080p 分轨）；mweb 兜底（常为 360p 单流）。
+    if (service == "youtube")
+        args << "--extractor-args" << "youtube:player_client=web_embedded,mweb";
     args << cookieArgsFor(pageUrl);
     args << pageUrl;
 

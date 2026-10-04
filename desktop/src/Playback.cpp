@@ -140,6 +140,11 @@ void MainWindow::startStallWatch() {
         t->setInterval(5000);
         connect(t, &QTimer::timeout, this, [this] {
             if (!player_ || player_->paused()) return;
+            // 仍在解析/字幕/未拿到时长：不算停滞（否则点播后 15s 误触发 HEAL，打乱起播）
+            if (player_->durationSec() < 1.0) {
+                lastPosAtMs_ = QDateTime::currentMSecsSinceEpoch();
+                return;
+            }
             const double pos = player_->positionSec();
             const qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (pos >= 0 && std::abs(pos - lastPos_) > 0.05) { lastPos_ = pos; lastPosAtMs_ = now; return; }

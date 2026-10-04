@@ -16,7 +16,7 @@
 #include <functional>
 
 namespace {
-constexpr qint64 kChunk = 1024 * 1024;   // 1 MiB capped Range
+constexpr qint64 kChunk = 8 * 1024 * 1024;   // 8 MiB：减少请求次数（android_vr 等客户端连发 1MiB 易触墙）
 const char *kUa =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36";
@@ -40,27 +40,33 @@ struct UpstreamResult {
 
 UpstreamResult fetchRange(QNetworkAccessManager &nam, const QString &url, qint64 start, qint64 end) {
     UpstreamResult r;
-    QNetworkRequest req{QUrl(url)};
-    req.setHeader(QNetworkRequest::UserAgentHeader, QString::fromUtf8(kUa));
-    req.setRawHeader("Referer", "https://www.youtube.com/");
-    req.setRawHeader("Range", QByteArray("bytes=") + QByteArray::number(start) + '-'
-                                  + QByteArray::number(end));
-    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                     QNetworkRequest::NoLessSafeRedirectPolicy);
-    QNetworkReply *reply = nam.get(req);
-    QEventLoop loop;
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-    r.code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (r.code == 200 || r.code == 206) r.data = reply->readAll();
-    const QByteArray cr = reply->rawHeader("Content-Range");
-    const int slash = cr.lastIndexOf('/');
-    if (slash > 0) {
-        bool ok = false;
-        const qint64 t = cr.mid(slash + 1).trimmed().toLongLong(&ok);
-        if (ok && t > 0) r.totalHint = t;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        if (attempt > 0) QThread::msleep(400u * uint(attempt));
+        QNetworkRequest req{QUrl(url)};
+        req.setHeader(QNetworkRequest::UserAgentHeader, QString::fromUtf8(kUa));
+        req.setRawHeader("Referer", "https://www.youtube.com/");
+        req.setRawHeader("Range", QByteArray("bytes=") + QByteArray::number(start) + '-'
+                                      + QByteArray::number(end));
+        req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+        QNetworkReply *reply = nam.get(req);
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        r = UpstreamResult{};
+        r.code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (r.code == 200 || r.code == 206) r.data = reply->readAll();
+        const QByteArray cr = reply->rawHeader("Content-Range");
+        const int slash = cr.lastIndexOf('/');
+        if (slash > 0) {
+            bool ok = false;
+            const qint64 t = cr.mid(slash + 1).trimmed().toLongLong(&ok);
+            if (ok && t > 0) r.totalHint = t;
+        }
+        reply->deleteLater();
+        if (r.code == 200 || r.code == 206) break;
+        if (r.code != 403 && r.code != 429) break;
     }
-    reply->deleteLater();
     return r;
 }
 

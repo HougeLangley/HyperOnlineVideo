@@ -56,8 +56,30 @@ bool UrlResolver::isDirectMedia(const QString &url) {
 
 UrlResolver::UrlResolver(QObject *parent) : QObject(parent) {}
 
+static void killProc(QProcess *&p) {
+    if (!p) return;
+    QProcess *gone = p;
+    p = nullptr;
+    gone->disconnect();
+    if (gone->state() != QProcess::NotRunning) {
+        gone->kill();
+        gone->waitForFinished(800);
+    }
+    gone->deleteLater();
+}
+
+void UrlResolver::cancelInflight() {
+    if (resolveProc_ || subProc_)
+        hovLog("[PLAY] 取消上一次解析/字幕 yt-dlp\n");
+    ++gen_;
+    killProc(resolveProc_);
+    killProc(subProc_);
+}
+
 void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     if (pageUrl.isEmpty()) return;
+    cancelInflight();                                  // 立刻作废上一次解析/字幕 yt-dlp
+    const quint64 gen = gen_;
 
     if (isDirectMedia(pageUrl)) {                                // 已经是直链/本地文件
         Stream s;
@@ -81,12 +103,14 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     }
 
     auto *p = new QProcess(this);
+    resolveProc_ = p;
     // ⚠ 超时保护（v1.2.0）：yt-dlp 在网络受限/被风控时会**长时间无任何输出** →
     // 界面表现为"点了没反应、视频区全黑、无任何提示"（用户实测）。这里 45 秒兜底终止并提示。
     auto *deadline = new QTimer(p);
     deadline->setSingleShot(true);
     deadline->setInterval(45000);
-    connect(deadline, &QTimer::timeout, this, [this, p, service] {
+    connect(deadline, &QTimer::timeout, this, [this, p, service, gen] {
+        if (gen != gen_) return;                 // 已被新点击取消
         if (p->state() == QProcess::NotRunning) return;
         p->kill();
         hovLog("[PLAY] 解析超时（45s）→ 已终止 yt-dlp\n");
@@ -110,10 +134,14 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     args << pageUrl;
 
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [this, p, service, pageUrl, deadline](int code, QProcess::ExitStatus) {
+            [this, p, service, pageUrl, deadline, gen](int code, QProcess::ExitStatus) {
                 deadline->stop();
+                if (resolveProc_ == p) resolveProc_ = nullptr;
                 const QByteArray out = p->readAllStandardOutput();
                 const QByteArray err = p->readAllStandardError();
+                p->deleteLater();
+                if (gen != gen_) return;             // 用户已点了别的：不报失败、不起播
+
                 // v1.2.0：把 yt-dlp 的 WARNING/ERROR 摘要**送到状态行**。
                 // 以前只在退出码非 0 时显示 stderr → "能解析但拿不到正常格式"（n challenge 失败、
                 // YouTube 强制 SABR、版本过期等）用户**完全看不到原因**，只看到黑屏（实测踩到）。
@@ -127,7 +155,6 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                         break;              // 只报第一条避免刷屏（完整信息仍在 yt-dlp 自身日志里）
                     }
                 }
-                p->deleteLater();
 
                 if (code != 0) {
                     if (status_) {
@@ -202,8 +229,9 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                     status_(QString("正在播放：%1（%2）")
                                 .arg(s.title.left(60), s.audioUrl.isEmpty() ? "单流" : "视频+音频分轨"));
                 }
-                // 在线视频：顺带抓字幕（best-effort，失败照样播）
-                fetchSubtitles(pageUrl, service, s);
+                // 先起播，字幕后台抓（以前等字幕 → 点下一首也卡住、还叠多个 yt-dlp）
+                if (play_) play_(s);
+                fetchSubtitles(pageUrl, service, gen);
             });
 
     p->start("yt-dlp", args);
@@ -410,20 +438,16 @@ void UrlResolver::applyProxy() {
                                 : QNetworkProxy::applicationProxy());
 }
 
-void UrlResolver::fetchSubtitles(const QString &pageUrl, const QString &service, Stream result) {
-    if (service != "bilibili" && service != "youtube") {       // 其他站点：直接播，不做字幕尝试
-        if (play_) play_(result);
-        return;
-    }
-    auto shared = std::make_shared<Stream>(std::move(result));
-    auto done = [this, shared](const QVector<SubtitleTrack> &tracks, const QString &err) {
+void UrlResolver::fetchSubtitles(const QString &pageUrl, const QString &service, quint64 gen) {
+    if (service != "bilibili" && service != "youtube") return;
+    auto done = [this, gen](const QVector<SubtitleTrack> &tracks, const QString &err) {
+        if (gen != gen_) return;
         if (!err.isEmpty() && status_) status_(err);
-        shared->subtitles = tracks;
         if (status_ && !tracks.isEmpty())
             status_(QString("已获取 %1 条字幕轨（按 C 键切换）").arg(tracks.size()));
         else if (status_ && err.isEmpty())
             status_("未获取到字幕轨（可继续观看）");
-        if (play_) play_(*shared);
+        if (tracksReady_ && !tracks.isEmpty()) tracksReady_(tracks);
     };
     if (service == "bilibili") fetchBiliCc(pageUrl, done);
     else fetchByYtDlp(pageUrl, done);
@@ -520,8 +544,9 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
     const QString dir = (dirBase.isEmpty() ? QDir::homePath() + "/.cache" : dirBase) + "/hov/subs/" + hash;
     QDir().mkpath(dir);
     if (status_) status_("正在获取字幕轨…");
-
+    killProc(subProc_);
     auto *p = new QProcess(this);
+    subProc_ = p;
     QStringList args{"--skip-download", "--no-warnings", "--no-playlist",
                      "--write-subs", "--write-auto-subs",
                      // 字幕语言随**系统语言**（中文系统仍中文优先 ✓ 德语系统会抓 de ✓ 与另两端一致 ✓）
@@ -532,7 +557,8 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
     qInfo() << "在线字幕：yt-dlp 抓取（" << args.size() << "个参数）→" << dir;
 
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [p, dir, done](int code, QProcess::ExitStatus) {
+            [this, p, dir, done](int code, QProcess::ExitStatus) {
+                if (subProc_ == p) subProc_ = nullptr;
                 const QString errText = QString::fromUtf8(p->readAllStandardError()).trimmed();
                 p->deleteLater();
                 // 扫描落地文件：<id>.<lang>.<ext>

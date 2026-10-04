@@ -342,6 +342,9 @@ MainWindow::MainWindow() {
                                       .arg(playPlatform_.isEmpty() ? "在线" : playPlatform_, s.title));
             if (!s.subtitles.isEmpty()) player_->addSubtitleTracks(s.subtitles);   // 在线字幕轨（追加，不覆盖本地轨）
         });
+        resolver_->setTracksHandler([this](const QVector<SubtitleTrack> &tracks) {
+            if (player_ && !tracks.isEmpty()) player_->addSubtitleTracks(tracks);
+        });
         split->addWidget(results_);
         split->addWidget(player_);
         player_->installEventFilter(this);   // v1.2.0：双击画面 = 视频全屏（对齐 macOS/Android）

@@ -115,6 +115,7 @@ private:
     //   光栅绘制（fillRect/drawImage）全部不显示 ✗ 仅 glyph 文本可见 ✗；子控件经实测可见 ✓✓）
     QLabel *coverLabel_ = nullptr;
     std::atomic<bool> wantPlaying_{false};   // keep-open 继承暂停的竞态加固（快照线程自动纠正 ✓）
+    std::atomic<int> playEpoch_{0};          // 点下一首时作废未执行的 audio-add / 取消暂停
     QImage     glassBase_;           // 玻璃底图缓存（磨砂+渐变+压暗；仅封面变化时重建 ✓）
     QString    glassBaseKey_;        // 底图缓存键（封面 URL ✓）
     QLabel *glassLabel_ = nullptr;

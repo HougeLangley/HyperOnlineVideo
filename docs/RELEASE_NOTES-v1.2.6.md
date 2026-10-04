@@ -21,8 +21,8 @@ v1.2.5 的 4MB 预检只测 capped Range → 会误报「可播 ✓」，而播�
 - **预检**：改为探测开放式 GET；若仅开放式失败则提示「已启用本机分块代理」。
 - **自愈**：`switchVideoQuality` 在 `duration<1`（起播失败）时仍重新解析；HEAL 日志区分强制/TTL。
 - **解码兼容**：自动档优先非 AV1 且 ≤1080p；mpv `hwdec=vaapi,no`（避开无效 Vulkan/CUDA）。
-- **YouTube 客户端**：强制 `web_embedded,mweb`——默认 `android_vr` 在 SoSim 等出口上
-  **只能读文件头约 10MB**（之后分块 403，播十几秒即断）；`web_embedded` 可完整拉 1080p。
+- **点播抢占**：新点击立即 `stop` 播放器并杀掉进行中的 yt-dlp（解析+字幕）；过期回调不再起播。
+  字幕改为起播后再抓，避免卡在 429。
 
 ## 工作区绕过
 仍无法播放时（连 capped Range 也被拒）才需要更换代理节点。

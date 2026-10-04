@@ -29,6 +29,8 @@ void MainWindow::downloadCurrent() {
 
 void MainWindow::playItem(const QString &key, const QString &label) {
         hovLog("[PLAY] 点击/请求: %s\n", qPrintable(key.left(110)));
+        if (player_) player_->stop();                 // 立刻停掉当前片（含未执行的 audio-add）
+        if (resolver_) resolver_->cancelInflight();   // 立刻杀掉上一次 yt-dlp（解析+字幕）
         beginPlayback(key, label);
         // 与队列同步下标（用户在列表里点哪首，队列就跳到哪首 → ⏭/⏮ 接得上）
         for (int i = 0; i < queue_.size(); ++i) {

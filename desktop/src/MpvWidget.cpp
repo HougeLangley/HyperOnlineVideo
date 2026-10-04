@@ -457,6 +457,7 @@ static QString refererForUrl(const QString &u) {
 }
 
 void MpvWidget::stop() {
+    ++playEpoch_;
     if (!mpv_) return;
     const char *cmd[] = { "stop", nullptr };
     mpv_command(mpv_, cmd);
@@ -478,17 +479,20 @@ void MpvWidget::playResolved(const QString &videoUrl, const QString &audioUrl) {
     mpv_set_option_string(mpv_, "http-header-fields", headers.constData());
 
     wantPlaying_ = true;                              // 竞态加固：加载完成后仍 paused 则由快照线程纠正 ✓
+    const int epoch = ++playEpoch_;
     QByteArray v = videoUrl.toUtf8();
     const char *cmd[] = {"loadfile", v.constData(), nullptr};
     mpv_command(mpv_, cmd);
     // keep-open=yes 会让新文件继承"已暂停"状态 → 显式取消暂停（实测踩到：自动续播后停在 0:00 不动）
-    QTimer::singleShot(150, this, [this] {
+    QTimer::singleShot(150, this, [this, epoch] {
+        if (epoch != playEpoch_.load()) return;
         int no = 0;
         mpv_set_property(mpv_, "pause", MPV_FORMAT_FLAG, &no);
     });
     qInfo() << "播放视频流:" << videoUrl.left(80);
     if (!audioUrl.isEmpty()) {
-        QTimer::singleShot(700, this, [this, audioUrl] {
+        QTimer::singleShot(700, this, [this, audioUrl, epoch] {
+            if (epoch != playEpoch_.load()) return;
             QByteArray a = audioUrl.toUtf8();
             const char *c[] = {"audio-add", a.constData(), "select", nullptr};   // 必须有 NULL 终止符：缺了会越界 strlen 崩溃（实测）
             mpv_command(mpv_, c);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(HyperOnlineVideo VERSION 1.2.6 LANGUAGES CXX)
+project(HyperOnlineVideo VERSION 1.2.7 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets Network DBus)

@@ -31,6 +31,7 @@
 #include <iostream>
 
 #include "GpuCompat.h"
+#include "YtRangeProxy.h"
 
 void SelfTest::runQueueSelfTest(const Ctx &ctx) {
         int pass = 0, total = 0;
@@ -416,6 +417,23 @@ void SelfTest::runQueueSelfTest(const Ctx &ctx) {
               "GPU 兼容：重复 token 不叠加");
         check(GpuCompat::mergeFlags("--disable-gpu-compositing", "--disable-gpu") == "--disable-gpu-compositing --disable-gpu",
               "GPU 兼容：前缀相近不误判为已含（逐 token 比较）");
+
+        {
+            const QString raw = QStringLiteral(
+                "http://127.0.0.1:34527/s/75efb51eb42e4e60a2b0e1f791d947af");
+            check(MpvWidget::mpvPathListItemCount(raw.toUtf8()) == 3,
+                  "mpv 路径列表：未转义 localhost URL 会被 ':' 拆成 3 段");
+            const QByteArray esc = MpvWidget::mpvEscapePathListItem(raw);
+            check(MpvWidget::mpvPathListItemCount(esc) == 1,
+                  "mpv 路径列表：转义后仍是 1 段（音轨 URL 可交给 audio-files）");
+            check(esc.contains("http\\://") && esc.contains("\\:34527"),
+                  "mpv 路径列表：每个 ':' 前插入反斜杠");
+            check(YtRangeProxy::contentLengthFromUrl(
+                      QStringLiteral("https://rr.googlevideo.com/videoplayback?clen=4096&dur=1")) == 4096,
+                  "YtRangeProxy：从 clen= 解析内容长度");
+            check(YtRangeProxy::contentLengthFromUrl(QStringLiteral("https://example.com/a")) == 0,
+                  "YtRangeProxy：无 clen 时长度为 0");
+        }
 
         qInfo() << "队列自检:" << pass << "/" << total << "通过";
         std::cerr << "[SELFTEST] 队列自检: " << pass << "/" << total << " 通过" << std::endl;   // 无人值守（CI/SSH）时也能读到汇总

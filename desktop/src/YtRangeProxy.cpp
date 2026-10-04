@@ -114,8 +114,10 @@ private:
 YtRangeProxy::YtRangeProxy(QObject *parent) : QObject(parent) {}
 
 YtRangeProxy::~YtRangeProxy() {
-    if (server_)
-        QMetaObject::invokeMethod(server_, "close", Qt::BlockingQueuedConnection);
+    if (server_) {
+        QTcpServer *s = server_;
+        QMetaObject::invokeMethod(s, [s] { s->close(); }, Qt::BlockingQueuedConnection);
+    }
     if (ioThread_) {
         ioThread_->quit();
         ioThread_->wait(2000);

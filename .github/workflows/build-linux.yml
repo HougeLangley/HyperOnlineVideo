@@ -25,9 +25,10 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git \
+            ca-certificates git python3 \
             build-essential cmake ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev libmpv-dev \
+            qt6-qpa-plugins \
             dpkg-dev
 
       - name: Checkout
@@ -41,6 +42,11 @@ jobs:
             -DHOV_WEBENGINE=OFF
           cmake --build build -j"$(nproc)"
 
+      - name: Local path-list unit test
+        run: |
+          python3 scripts/test_mpv_pathlist.py
+          QT_QPA_PLATFORM=offscreen ./build/hov-qt --queue-selftest --exit-after 12
+
       - name: Package .deb
         run: |
           set -euo pipefail
@@ -50,7 +56,7 @@ jobs:
           mkdir -p "$ROOT/DEBIAN"
           printf '%s\n' \
             'Package: hov-qt' \
-            'Version: 1.2.6-1' \
+            'Version: 1.2.7-1' \
             'Section: video' \
             'Priority: optional' \
             'Architecture: amd64' \
@@ -59,23 +65,22 @@ jobs:
             'Recommends: qt6-wayland' \
             'Description: Hyper Online Video Qt6 client (fork)' \
             ' YouTube/Bilibili/NetEase/QQ Music aggregator with libmpv.' \
-            ' 1.2.6: googlevideo chunked Range proxy (Issue #1); co-developed with Cursor.' \
+            ' 1.2.7: escape mpv audio-files colons so DASH audio plays; co-developed with Cursor.' \
             > "$ROOT/DEBIAN/control"
-          dpkg-deb --build "$ROOT" hov-qt_1.2.6-1_amd64.deb
-          dpkg-deb -I hov-qt_1.2.6-1_amd64.deb
-          ls -lh hov-qt_1.2.6-1_amd64.deb
+          dpkg-deb --build "$ROOT" hov-qt_1.2.7-1_amd64.deb
+          dpkg-deb -I hov-qt_1.2.7-1_amd64.deb
+          ls -lh hov-qt_1.2.7-1_amd64.deb
 
       - name: Publish .deb on GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.6
-          name: hov-qt v1.2.6 (Ubuntu 26.04)
+          tag_name: v1.2.7
+          name: hov-qt v1.2.7 (Ubuntu 26.04)
           body: |
-            Issue #1 修复包（SoSim / 受限出口）
-            - googlevideo 分块 Range 代理
-            - YouTube `web_embedded` 客户端（避开 android_vr 10MB 墙）
-            - 自动档优先非 AV1 ≤1080p；`hwdec=vaapi,no`
+            Fix silent YouTube DASH audio (mpv audio-files split on ':')
+            - Escape localhost proxy URLs before setting audio-files
+            - QTcpServer close on IO thread (no missing-slot warning)
             - Co-developed with Cursor (https://cursor.com)
-          files: hov-qt_1.2.6-1_amd64.deb
+          files: hov-qt_1.2.7-1_amd64.deb
           make_latest: true
           fail_on_unmatched_files: true

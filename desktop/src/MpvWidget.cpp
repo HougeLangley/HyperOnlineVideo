@@ -456,6 +456,28 @@ static QString refererForUrl(const QString &u) {
     return QString();
 }
 
+QByteArray MpvWidget::mpvEscapePathListItem(const QString &path) {
+    const QByteArray in = path.toUtf8();
+    QByteArray out;
+    out.reserve(in.size() + 8);
+    for (char c : in) {
+        if (c == '\\' || c == ':' || c == ';') out += '\\';
+        out += c;
+    }
+    return out;
+}
+
+int MpvWidget::mpvPathListItemCount(const QByteArray &value) {
+    int n = 1;
+    bool escaped = false;
+    for (char c : value) {
+        if (escaped) { escaped = false; continue; }
+        if (c == '\\') { escaped = true; continue; }
+        if (c == ':' || c == ';') ++n;
+    }
+    return n;
+}
+
 void MpvWidget::stop() {
     ++playEpoch_;
     if (mpv_) mpv_set_property_string(mpv_, "audio-files", "");
@@ -483,10 +505,13 @@ void MpvWidget::playResolved(const QString &videoUrl, const QString &audioUrl) {
     const int epoch = ++playEpoch_;
     // DASH 分轨必须在 loadfile 之前挂上：延迟 audio-add 会碰到
     // 「主线程卡在 loadfile + 代理 accept 也在主线程」的死锁，音轨约 60s 超时失败、无声。
-    if (!audioUrl.isEmpty())
-        mpv_set_property_string(mpv_, "audio-files", audioUrl.toUtf8().constData());
-    else
+    QByteArray audioFiles;
+    if (!audioUrl.isEmpty()) {
+        audioFiles = mpvEscapePathListItem(audioUrl);
+        mpv_set_property_string(mpv_, "audio-files", audioFiles.constData());
+    } else {
         mpv_set_property_string(mpv_, "audio-files", "");
+    }
     QByteArray v = videoUrl.toUtf8();
     const char *cmd[] = {"loadfile", v.constData(), nullptr};
     mpv_command(mpv_, cmd);

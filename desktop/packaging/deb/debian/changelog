@@ -1,3 +1,13 @@
+hov-qt (1.2.7-1) resolute; urgency=medium
+
+  * Fix silent YouTube DASH: escape ':' in mpv audio-files so
+    http://127.0.0.1:PORT/s/TOKEN is not split into three fake paths.
+  * Close YtRangeProxy with a functor (QTcpServer::close is not a slot).
+  * Local tests: --queue-selftest path-list asserts + scripts/test_mpv_pathlist.py.
+  * Credits: co-developed with Cursor (https://cursor.com).
+
+ -- HyperVideo fork <noreply@users.noreply.github.com>  Sun, 04 Oct 2026 15:00:00 +0800
+
 hov-qt (1.2.6-1) resolute; urgency=medium
 
   * Fix Issue #1 for real: local chunked Range proxy for googlevideo

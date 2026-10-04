@@ -58,6 +58,11 @@ public:
     void setVolume(int v);
     // ADR-002：显式选流后播放（视频先播，音轨延迟挂载）
     void playResolved(const QString &videoUrl, const QString &audioUrl);
+    /** mpv 路径列表（audio-files）把未转义的 ':' / ';' 当分隔符。
+     *  `http://127.0.0.1:PORT/...` 会被拆成 http / //127.0.0.1 / PORT/...，音轨永远打不开。 */
+    static QByteArray mpvEscapePathListItem(const QString &path);
+    /** 按 mpv 规则数未转义分隔符切出的段数（Unix ':' 与 Windows ';' 都算）。 */
+    static int mpvPathListItemCount(const QByteArray &value);
     // 字幕/歌词（App 层渲染；播放本地文件时自动加载**同名**外挂字幕）
     void toggleSubtitles();
     bool subtitlesAvailable() const;

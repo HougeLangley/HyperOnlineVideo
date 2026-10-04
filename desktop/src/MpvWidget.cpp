@@ -503,12 +503,22 @@ void MpvWidget::playResolved(const QString &videoUrl, const QString &audioUrl) {
 
     wantPlaying_ = true;
     const int epoch = ++playEpoch_;
-    // DASH 分轨必须在 loadfile 之前挂上：延迟 audio-add 会碰到
-    // 「主线程卡在 loadfile + 代理 accept 也在主线程」的死锁，音轨约 60s 超时失败、无声。
-    QByteArray audioFiles;
+    // DASH 分轨必须在 loadfile 之前挂上。libmpv 的 STRING 路径列表会按 ':' 切开
+    // `http://127.0.0.1:PORT/...`（日志：Cannot open file 'http'）。用 NODE 数组绕过。
     if (!audioUrl.isEmpty()) {
-        audioFiles = mpvEscapePathListItem(audioUrl);
-        mpv_set_property_string(mpv_, "audio-files", audioFiles.constData());
+        QByteArray au = audioUrl.toUtf8();
+        mpv_node item{};
+        item.format = MPV_FORMAT_STRING;
+        item.u.string = au.data();
+        mpv_node_list list{};
+        list.num = 1;
+        list.values = &item;
+        mpv_node arr{};
+        arr.format = MPV_FORMAT_NODE_ARRAY;
+        arr.u.list = &list;
+        const int err = mpv_set_property(mpv_, "audio-files", MPV_FORMAT_NODE, &arr);
+        if (err < 0)
+            qWarning() << "audio-files node failed:" << mpv_error_string(err);
     } else {
         mpv_set_property_string(mpv_, "audio-files", "");
     }
@@ -522,7 +532,7 @@ void MpvWidget::playResolved(const QString &videoUrl, const QString &audioUrl) {
     });
     qInfo() << "play video:" << videoUrl.left(80);
     if (!audioUrl.isEmpty())
-        qInfo() << "play audio-files:" << audioUrl.left(80);
+        qInfo() << "play audio-files node:" << audioUrl.left(80) << "hov-qt" << HOV_VERSION;
 }
 
 // ---------- 属性快照：后台线程采集，GUI 只读快照 ----------

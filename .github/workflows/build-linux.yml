@@ -56,7 +56,7 @@ jobs:
           mkdir -p "$ROOT/DEBIAN"
           printf '%s\n' \
             'Package: hov-qt' \
-            'Version: 1.2.7-1' \
+            'Version: 1.2.8-1' \
             'Section: video' \
             'Priority: optional' \
             'Architecture: amd64' \
@@ -65,22 +65,21 @@ jobs:
             'Recommends: qt6-wayland' \
             'Description: Hyper Online Video Qt6 client (fork)' \
             ' YouTube/Bilibili/NetEase/QQ Music aggregator with libmpv.' \
-            ' 1.2.7: escape mpv audio-files colons so DASH audio plays; co-developed with Cursor.' \
+            ' 1.2.8: DASH audio-files via mpv NODE array; co-developed with Cursor.' \
             > "$ROOT/DEBIAN/control"
-          dpkg-deb --build "$ROOT" hov-qt_1.2.7-1_amd64.deb
-          dpkg-deb -I hov-qt_1.2.7-1_amd64.deb
-          ls -lh hov-qt_1.2.7-1_amd64.deb
+          dpkg-deb --build "$ROOT" hov-qt_1.2.8-1_amd64.deb
+          dpkg-deb -I hov-qt_1.2.8-1_amd64.deb
+          ls -lh hov-qt_1.2.8-1_amd64.deb
 
       - name: Publish .deb on GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.7
-          name: hov-qt v1.2.7 (Ubuntu 26.04)
+          tag_name: v1.2.8
+          name: hov-qt v1.2.8 (Ubuntu 26.04)
           body: |
-            Fix silent YouTube DASH audio (mpv audio-files split on ':')
-            - Escape localhost proxy URLs before setting audio-files
-            - QTcpServer close on IO thread (no missing-slot warning)
+            DASH audio: set audio-files as mpv NODE array (no colon split)
+            - Play log includes hov-qt version
             - Co-developed with Cursor (https://cursor.com)
-          files: hov-qt_1.2.7-1_amd64.deb
+          files: hov-qt_1.2.8-1_amd64.deb
           make_latest: true
           fail_on_unmatched_files: true

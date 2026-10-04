@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(HyperOnlineVideo VERSION 1.2.7 LANGUAGES CXX)
+project(HyperOnlineVideo VERSION 1.2.8 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets Network DBus)
@@ -68,6 +68,7 @@ add_executable(hov-qt src/main.cpp src/MpvWidget.cpp
                          src/CookieImport.cpp src/CookieImport.h
                          src/LoginDialog.cpp src/LoginDialog.h)
 target_link_libraries(hov-qt PRIVATE Qt6::Widgets Qt6::OpenGLWidgets Qt6::Network Qt6::DBus PkgConfig::MPV)
+target_compile_definitions(hov-qt PRIVATE "HOV_VERSION=\"${PROJECT_VERSION}\"")
 # 编译期体检：-Wall -Wextra 能挡住「无返回值 / 未初始化 / 未使用」这一类隐性问题
 # （本项目曾因误删 `return d;` 造成未定义行为 → 主线程自旋，见踩坑百科 #106）
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -1,5 +1,5 @@
 # 远程构建 Linux 桌面包（不占用本机轻薄本算力）
-# 上游要求 Qt ≥ 6.5；GHA 默认 ubuntu-24.04 的 Qt 6.4 不够 → 用 Ubuntu 25.04 容器
+# 上游要求 Qt ≥ 6.5；GHA 默认 ubuntu-24.04 的 Qt 6.4 不够 → 用 Ubuntu 26.04 容器（与本机一致）
 name: Build Linux (hov-qt)
 
 on:
@@ -18,7 +18,7 @@ jobs:
     name: Ubuntu .deb + tar.gz
     runs-on: ubuntu-24.04
     container:
-      image: ubuntu:25.04
+      image: ubuntu:26.04
     timeout-minutes: 90
     steps:
       - name: Install build dependencies

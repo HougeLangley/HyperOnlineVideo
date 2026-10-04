@@ -1,3 +1,12 @@
+hov-qt (1.2.6-1) resolute; urgency=medium
+
+  * Fix Issue #1 for real: local chunked Range proxy for googlevideo
+    (restricted carrier/SoSim exits allow capped Range but 403 open GET).
+  * Correct preflight (detect open GET); heal re-resolve when duration<1.
+  * Credits: co-developed with Cursor (https://cursor.com).
+
+ -- HyperVideo fork <noreply@users.noreply.github.com>  Sun, 04 Oct 2026 13:40:00 +0800
+
 hov-qt (1.2.5-1) resolute; urgency=medium
 
   * YouTube direct-link playability preflight (4MB Range probe) + exit

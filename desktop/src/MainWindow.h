@@ -93,6 +93,7 @@ QString titleOf(const QString &fmt);
 
 class DownloadPanel;
 class FavoritesPanel;
+class YtRangeProxy;
 
 class MainWindow : public QMainWindow {
 public:
@@ -421,6 +422,7 @@ protected:
 private:
     Playlist playlist_;
     UrlResolver *resolver_ = nullptr;
+    YtRangeProxy *ytProxy_ = nullptr;   // Issue #1：googlevideo 分块 Range 本地代理
     Settings settings_;      // 设置（~/.config/hov/settings.json）
     PlayQueue queue_;        // 播放队列（顺序/单曲/随机）
     ProgressStore prog_;     // 进度记忆（~/.config/hov/progress.json）

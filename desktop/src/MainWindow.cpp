@@ -407,12 +407,20 @@ qint64 MainWindow::ttlMs() const {
 
 void MainWindow::healIfExpired(bool force) {
         if (healTried_ || resolutionKey_.isEmpty()) return;
-        const qint64 age = QDateTime::currentMSecsSinceEpoch() - resolvedAtMs_;
+        const qint64 age = resolvedAtMs_ > 0
+                               ? (QDateTime::currentMSecsSinceEpoch() - resolvedAtMs_)
+                               : -1;
         if (!force && (resolvedAtMs_ == 0 || age < ttlMs())) return;
         healTried_ = true;
-        qInfo() << "[HEAL] 直链已" << age / 1000 << "秒（> TTL" << ttlMs() / 1000 << "秒）→ 重新解析";
-        hovLog("[HEAL] 直链过期 %llds → 重新解析并回原位\n", static_cast<long long>(age / 1000));
-        setStatusLine("直链已过期，正在重新解析…");
+        if (force)
+            qInfo() << "[HEAL] 进度停滞强制自愈（直链年龄"
+                    << (age < 0 ? QStringLiteral("未知") : QString::number(age / 1000) + "s")
+                    << "，TTL" << ttlMs() / 1000 << "s）→ 重新解析";
+        else
+            qInfo() << "[HEAL] 直链已" << age / 1000 << "秒（> TTL" << ttlMs() / 1000 << "秒）→ 重新解析";
+        hovLog("[HEAL] 自愈 age=%llds force=%d → 重新解析并回原位\n",
+               static_cast<long long>(age < 0 ? -1 : age / 1000), force ? 1 : 0);
+        setStatusLine("直链异常，正在重新解析…");
         switchVideoQuality(effectiveVideoHeight());      // 内含重新解析 + pendingResume_ 回原进度
 }
 

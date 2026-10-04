@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(HyperOnlineVideo VERSION 1.2.5 LANGUAGES CXX)
+project(HyperOnlineVideo VERSION 1.2.6 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets Network DBus)
@@ -34,6 +34,7 @@ add_executable(hov-qt src/main.cpp src/MpvWidget.cpp
     src/ThemeWatcher.cpp src/MpvWidget.h
                          src/MasonryView.cpp src/MasonryView.h
                          src/NetPolicy.cpp src/NetPolicy.h
+                         src/YtRangeProxy.cpp src/YtRangeProxy.h
                          src/Playlist.cpp src/Playlist.h
                          src/UrlResolver.cpp src/UrlResolver.h
                          src/Subtitles.cpp src/Subtitles.h

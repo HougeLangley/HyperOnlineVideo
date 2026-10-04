@@ -184,11 +184,15 @@ void MainWindow::switchVideoQuality(int h) {
             results_->addItem("当前不是在线视频，下次播放生效");
             return;
         }
-        if (!player_ || player_->durationSec() < 1.0) return;
+        if (!player_ || !resolver_) return;
+        // 起播失败时 duration 仍为 0 —— 旧逻辑直接 return，导致 HEAL/切档「只打日志不重解析」✗
+        // （Issue #1 日志：清晰度已切到、却无「重新解析」行）。duration<1 时仍重解析，仅跳过无效 seek。
         const double pos = player_->positionSec();
-        pendingResume_ = pos;                       // 复用"就绪后 seek"机制
-        results_->addItem(QString("重新解析（%1），完成后回到 %2").arg(label, fmtClock(pos)));
-        qInfo() << "[清晰度] 重新解析" << label << "→ 回到" << fmtClock(pos) << "秒";
+        if (pos > 0.5) pendingResume_ = pos;
+        results_->addItem(QString("重新解析（%1），完成后回到 %2")
+                              .arg(label, fmtClock(pendingResume_ > 0.5 ? pendingResume_ : 0.0)));
+        qInfo() << "[清晰度] 重新解析" << label << "→ 回到"
+                << fmtClock(pendingResume_ > 0.5 ? pendingResume_ : 0.0) << "秒";
         resolver_->setMaxHeight(h);
         resolver_->resolveAndPlay(resolutionKey_);
 }

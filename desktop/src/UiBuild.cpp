@@ -3,25 +3,43 @@
 #include <QNetworkReply>
 #include <QUrl>
 
-// ── 可流播性预检（Issue #1 ✓ 2026-10-01）──────────────────────────────
-// 背景：部分网络出口（代理/VPS/数据中心 IP ✗）对 googlevideo 直链只放行 ≤64KB 的 Range ✗，
-// 真实播放（开放式/大 Range ✗）必 403 ✗ → 表现"解析成功但 mpv 打不开" ✓（用户实测 ✓）。
-// 判据（实测 2026-10-01）：正常出口 4MB Range → 200/206 ✓；受限出口 → 403 ✗。
+#include "YtRangeProxy.h"
+
+// ── 可流播性预检（Issue #1 ✓ 2026-10-04 修正）──────────────────────────
+// 真因：受限出口对 **capped Range** 放行（206），对 **无 Range / bytes=0-** 的开放式 GET 403。
+// mpv/ffmpeg 起播用开放式 → 403；旧 4MB 预检只会测 capped → 误报「可播 ✓」。
+// 现：预检改为探测「开放式 GET」；播放路径一律走 YtRangeProxy 分块拉取。
 static void preflightPlayable(const QString &url) {
     if (!url.startsWith("https://") || !url.contains("googlevideo.com")) return;
     static QNetworkAccessManager nam;
-    QNetworkRequest r{QUrl(url)};
-    r.setRawHeader("Range", "bytes=0-4194304");
-    auto *rep = nam.get(r);
-    QObject::connect(rep, &QNetworkReply::finished, rep, [rep] {
-        const int code = rep->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (code == 200 || code == 206) {
-            qInfo() << "[PREFLIGHT] YouTube 流可播 ✓（HTTP" << code << "）";
-        } else {
-            qWarning() << "[PREFLIGHT] YouTube 拒绝该网络出口获取视频流（HTTP" << code
-                       << "）→ 请更换代理节点/线路，或改用直连（常见于 VPS/数据中心出口 ✗）";
+    // ① capped：确认出口至少能拉媒体块
+    QNetworkRequest capped{QUrl(url)};
+    capped.setRawHeader("Range", "bytes=0-65535");
+    capped.setRawHeader("Referer", "https://www.youtube.com/");
+    auto *cap = nam.get(capped);
+    QObject::connect(cap, &QNetworkReply::finished, cap, [cap, url] {
+        const int capCode = cap->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        cap->deleteLater();
+        if (capCode != 200 && capCode != 206) {
+            qWarning() << "[PREFLIGHT] YouTube 连 capped Range 也被拒（HTTP" << capCode
+                       << "）→ 请更换代理节点/线路（常见于被彻底封锁的出口 ✗）";
+            return;
         }
-        rep->deleteLater();
+        // ② 开放式：模拟 mpv；若 403 则说明必须走本地分块代理（已在 playHandler 启用）
+        static QNetworkAccessManager nam2;
+        QNetworkRequest open{QUrl(url)};
+        open.setRawHeader("Referer", "https://www.youtube.com/");
+        auto *op = nam2.get(open);
+        QObject::connect(op, &QNetworkReply::finished, op, [op] {
+            const int code = op->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (code == 200 || code == 206) {
+                qInfo() << "[PREFLIGHT] YouTube 开放式 GET 可播 ✓（HTTP" << code << "）";
+            } else {
+                qInfo() << "[PREFLIGHT] 开放式 GET → HTTP" << code
+                        << "（受限出口常见）→ 已启用本机分块 Range 代理绕过";
+            }
+            op->deleteLater();
+        });
     });
 }
 
@@ -292,23 +310,31 @@ MainWindow::MainWindow() {
         // 在线播放：网页 URL 由 App 层解析成直链（mpv 的 ytdl 钩子已禁用，见 MpvWidget 注释）
         player_->setFocus();   // 快捷键立即生效（否则焦点在搜索框）
         resolver_ = new UrlResolver(this);
+        ytProxy_ = new YtRangeProxy(this);
         resolver_->setStatusHandler([this](const QString &m) { results_->addItem(m); });
         resolver_->setPlayHandler([this](const UrlResolver::Stream &s) {
             player_->setCoverArt(QString(), QString(), QString());   // 视频：清掉音乐封面
-            player_->playResolved(s.videoUrl, s.audioUrl);
+            // Issue #1：googlevideo 直链经本机分块代理再交给 mpv（开放式 GET 在受限出口会 403）
+            const QString playVideo = ytProxy_ ? ytProxy_->map(s.videoUrl) : s.videoUrl;
+            const QString playAudio = (ytProxy_ && !s.audioUrl.isEmpty()) ? ytProxy_->map(s.audioUrl) : s.audioUrl;
+            if (playVideo != s.videoUrl)
+                hovLog("[YT-PROXY] 视频流改走本机代理 %s\n", qPrintable(playVideo));
+            if (!playAudio.isEmpty() && playAudio != s.audioUrl)
+                hovLog("[YT-PROXY] 音轨改走本机代理 %s\n", qPrintable(playAudio));
+            player_->playResolved(playVideo, playAudio);
             resolvedAtMs_ = QDateTime::currentMSecsSinceEpoch();
             healTried_ = false;   // 新内容重新允许自愈
-            preflightPlayable(s.videoUrl);
-    hovLog("[PLAY] 交给 mpv: host=%s len=%lld\n", QUrl(s.videoUrl).host().toUtf8().constData(), (long long)s.videoUrl.size());
+            preflightPlayable(s.videoUrl);   // 仍探测原始直链（诊断用；播放已走代理）
+    hovLog("[PLAY] 交给 mpv: host=%s len=%lld\n", QUrl(playVideo).host().toUtf8().constData(), (long long)playVideo.size());
               hovLog("[PLAY] 已解析: 视频=%s(%lld) 音频=%s(%lld) 标题=%s\n",
                            QUrl(s.videoUrl).host().toUtf8().constData(), (long long)s.videoUrl.size(),
                            QUrl(s.audioUrl).host().toUtf8().constData(), (long long)s.audioUrl.size(),
                            s.title.toUtf8().constData());
-            lastAudioUrl_ = s.audioUrl;      // ③ 下载混流用（音乐单路时为空串，无副作用）
+            lastAudioUrl_ = s.audioUrl;      // ③ 下载混流用（音乐单路时为空串，无副作用）——保留**原始**直链
             // ③ **Bug3 修复** ✗→✓：此前这里**只记了音频**，没记主直链 ✗
             //    → 视频正在播时点「下载」，downloadCurrent() 报“当前没有可下载的直链” ✗
             //    （用户 2026-09-23 实测截图 ✓）。macOS 端在 AppDelegate.swift:295 早已记录 ✓ → 两端对齐 ✓
-            lastStreamUrl_   = s.videoUrl;
+            lastStreamUrl_   = s.videoUrl;   // 下载用原始 CDN URL（下载器可自带 Range）
             lastStreamTitle_ = s.title.isEmpty() ? playLabel_ : s.title;
             lastLRC_.clear();                // ③ 歌词异步到达，先清上一首避免错配
             if (!s.title.isEmpty())

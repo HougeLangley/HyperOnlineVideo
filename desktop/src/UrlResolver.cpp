@@ -70,7 +70,7 @@ static void killProc(QProcess *&p) {
 
 void UrlResolver::cancelInflight() {
     if (resolveProc_ || subProc_)
-        hovLog("[PLAY] 取消上一次解析/字幕 yt-dlp\n");
+        hovLog("[PLAY] cancel previous yt-dlp (resolve/subs)\n");
     ++gen_;
     killProc(resolveProc_);
     killProc(subProc_);

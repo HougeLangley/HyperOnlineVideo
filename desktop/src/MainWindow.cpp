@@ -413,12 +413,12 @@ void MainWindow::healIfExpired(bool force) {
         if (!force && (resolvedAtMs_ == 0 || age < ttlMs())) return;
         healTried_ = true;
         if (force)
-            qInfo() << "[HEAL] 进度停滞强制自愈（直链年龄"
-                    << (age < 0 ? QStringLiteral("未知") : QString::number(age / 1000) + "s")
-                    << "，TTL" << ttlMs() / 1000 << "s）→ 重新解析";
+            qInfo() << "[HEAL] stall force-heal (stream age"
+                    << (age < 0 ? QStringLiteral("unknown") : QString::number(age / 1000) + "s")
+                    << ", TTL" << ttlMs() / 1000 << "s) → re-resolve";
         else
-            qInfo() << "[HEAL] 直链已" << age / 1000 << "秒（> TTL" << ttlMs() / 1000 << "秒）→ 重新解析";
-        hovLog("[HEAL] 自愈 age=%llds force=%d → 重新解析并回原位\n",
+            qInfo() << "[HEAL] stream age" << age / 1000 << "s (> TTL" << ttlMs() / 1000 << "s) → re-resolve";
+        hovLog("[HEAL] heal age=%llds force=%d → re-resolve and seek back\n",
                static_cast<long long>(age < 0 ? -1 : age / 1000), force ? 1 : 0);
         setStatusLine("直链异常，正在重新解析…");
         switchVideoQuality(effectiveVideoHeight());      // 内含重新解析 + pendingResume_ 回原进度

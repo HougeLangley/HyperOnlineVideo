@@ -21,8 +21,8 @@ static void preflightPlayable(const QString &url) {
         const int capCode = cap->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         cap->deleteLater();
         if (capCode != 200 && capCode != 206) {
-            qWarning() << "[PREFLIGHT] YouTube 连 capped Range 也被拒（HTTP" << capCode
-                       << "）→ 请更换代理节点/线路（常见于被彻底封锁的出口 ✗）";
+            qWarning() << "[PREFLIGHT] YouTube rejected even capped Range (HTTP" << capCode
+                       << ") — try another exit/proxy";
             return;
         }
         // ② 开放式：模拟 mpv；若 403 则说明必须走本地分块代理（已在 playHandler 启用）
@@ -33,10 +33,10 @@ static void preflightPlayable(const QString &url) {
         QObject::connect(op, &QNetworkReply::finished, op, [op] {
             const int code = op->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (code == 200 || code == 206) {
-                qInfo() << "[PREFLIGHT] YouTube 开放式 GET 可播 ✓（HTTP" << code << "）";
+                qInfo() << "[PREFLIGHT] YouTube open GET playable (HTTP" << code << ")";
             } else {
-                qInfo() << "[PREFLIGHT] 开放式 GET → HTTP" << code
-                        << "（受限出口常见）→ 已启用本机分块 Range 代理绕过";
+                qInfo() << "[PREFLIGHT] open GET → HTTP" << code
+                        << " (restricted exit) — using local chunked Range proxy";
             }
             op->deleteLater();
         });
@@ -318,9 +318,9 @@ MainWindow::MainWindow() {
             const QString playVideo = ytProxy_ ? ytProxy_->map(s.videoUrl) : s.videoUrl;
             const QString playAudio = (ytProxy_ && !s.audioUrl.isEmpty()) ? ytProxy_->map(s.audioUrl) : s.audioUrl;
             if (playVideo != s.videoUrl)
-                hovLog("[YT-PROXY] 视频流改走本机代理 %s\n", qPrintable(playVideo));
+                hovLog("[YT-PROXY] video via localhost %s\n", qPrintable(playVideo));
             if (!playAudio.isEmpty() && playAudio != s.audioUrl)
-                hovLog("[YT-PROXY] 音轨改走本机代理 %s\n", qPrintable(playAudio));
+                hovLog("[YT-PROXY] audio via localhost %s\n", qPrintable(playAudio));
             player_->playResolved(playVideo, playAudio);
             resolvedAtMs_ = QDateTime::currentMSecsSinceEpoch();
             healTried_ = false;   // 新内容重新允许自愈

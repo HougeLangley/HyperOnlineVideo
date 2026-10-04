@@ -129,11 +129,11 @@ bool YtRangeProxy::ensureListening() {
     auto *ps = new ProxyServer([this](qintptr fd) { handleClient(fd); }, this);
     server_ = ps;
     if (!server_->listen(QHostAddress::LocalHost, 0)) {
-        hovLog("[YT-PROXY] listen 失败: %s\n", qPrintable(server_->errorString()));
+        hovLog("[YT-PROXY] listen failed: %s\n", qPrintable(server_->errorString()));
         return false;
     }
     port_ = int(server_->serverPort());
-    hovLog("[YT-PROXY] 已监听 127.0.0.1:%d（googlevideo 分块 Range）\n", port_);
+    hovLog("[YT-PROXY] listening 127.0.0.1:%d (googlevideo chunked Range)\n", port_);
     return true;
 }
 
@@ -206,7 +206,7 @@ void YtRangeProxy::handleClient(qintptr socketDescriptor) {
         else if (probe.code == 200 || probe.code == 206)
             total = std::max<qint64>(probe.data.size(), 1);
         else {
-            hovLog("[YT-PROXY] 上游探针失败 HTTP %d\n", probe.code);
+            hovLog("[YT-PROXY] upstream probe failed HTTP %d\n", probe.code);
             writeSimple(&sock, probe.code > 0 ? probe.code : 502, "Upstream probe failed");
             sock.waitForBytesWritten(3000);
             sock.disconnectFromHost();
@@ -249,7 +249,7 @@ void YtRangeProxy::handleClient(qintptr socketDescriptor) {
         const qint64 chunkEnd = std::min(pos + kChunk - 1, end);
         const UpstreamResult chunk = fetchRange(nam, upstream, pos, chunkEnd);
         if ((chunk.code != 200 && chunk.code != 206) || chunk.data.isEmpty()) {
-            hovLog("[YT-PROXY] 分块失败 pos=%lld HTTP %d bytes=%d\n",
+            hovLog("[YT-PROXY] chunk failed pos=%lld HTTP %d bytes=%d\n",
                    static_cast<long long>(pos), chunk.code, int(chunk.data.size()));
             break;
         }

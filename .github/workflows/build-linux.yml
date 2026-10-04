@@ -51,7 +51,7 @@ jobs:
 
           Co-developed with Cursor (https://cursor.com).
           Upstream: https://github.com/HougeLangley/HyperOnlineVideo
-          Built on Ubuntu 25.04 (Qt ≥ 6.5). On Ubuntu 26.04 install runtime deps below.
+          Built on Ubuntu 26.04 (matches target laptop).
 
           Runtime deps:
             sudo apt-get install -y libmpv2 yt-dlp ffmpeg \

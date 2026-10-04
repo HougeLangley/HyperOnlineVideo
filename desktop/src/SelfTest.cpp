@@ -211,10 +211,16 @@ void SelfTest::runQueueSelfTest(const Ctx &ctx) {
 
         // B1 清晰度（纯函数 + 设置校验）
         {
-            check(UrlResolver::formatArgsFor(0) == QStringList{"-f", "bv*+ba/b"}, "清晰度：自动档保持原行为");
+            {
+                const QStringList a0 = UrlResolver::formatArgsFor(0);
+                check(a0.size() == 2 && a0.at(1).contains("vcodec!~='av01'")
+                          && a0.at(1).contains("height<=1080") && a0.at(1).endsWith("bv*+ba/b"),
+                      "清晰度：自动档优先非 AV1≤1080，末档兜底 bv*+ba/b");
+            }
             check(UrlResolver::formatArgsFor(-1) == QStringList{"-f", "ba/b"}, "清晰度：仅音频档");
             const QStringList a720 = UrlResolver::formatArgsFor(720);
             check(a720.size() == 2 && a720.at(1).contains("height<=720"), "清晰度：720 档带上限");
+            check(a720.at(1).contains("vcodec!~='av01'"), "清晰度：720 档优先非 AV1");
             check(a720.at(1).contains("+ba/b[height<="), "清晰度：音频部分不设 height 过滤（否则整条失配）");
             check(a720.at(1).endsWith("/bv*+ba/b"), "清晰度：拿不到该高度时有兜底");
             check(UrlResolver::qualityLabel(0) == "自动" && UrlResolver::qualityLabel(-1) == "仅音频"
@@ -326,8 +332,9 @@ void SelfTest::runQueueSelfTest(const Ctx &ctx) {
             // 清晰度格式串：只限制视频部分；高档位也要带上限
             const QStringList a2160 = UrlResolver::formatArgsFor(2160);
             check(a2160.size() == 2 && a2160.at(1).contains("height<=2160"), "清晰度：2160 档带上限");
-            check(a2160.at(1).contains("+ba/b[height<=2160]") && a2160.at(1).endsWith("/bv*+ba/b"),
-                  "清晰度：2160 档音频不设限且有兜底");
+            check(a2160.at(1).contains("vcodec!~='av01'") && a2160.at(1).contains("+ba/b[height<=2160]")
+                      && a2160.at(1).endsWith("/bv*+ba/b"),
+                  "清晰度：2160 档优先非 AV1、音频带上限且有兜底");
             // 来源识别与直链判定（下载/播放都依赖）
             check(UrlResolver::serviceOf("https://www.bilibili.com/video/BV1xx") == "bilibili",
                   "来源识别：B 站");

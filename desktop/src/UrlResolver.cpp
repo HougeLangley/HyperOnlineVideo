@@ -360,13 +360,20 @@ QString UrlResolver::cookieHeaderFor(const QString &site) const {
 
 QStringList UrlResolver::formatArgsFor(int maxHeight) {
     if (maxHeight == -1) return {"-f", "ba/b"};                       // 仅音频
-    if (maxHeight <= 0) return {"-f", "bv*+ba/b"};                    // 自动
+    // 自动档：优先非 AV1 + ≤1080p（轻薄本常无 AV1 硬解；2160p AV1 软解会黑屏/报错，见用户日志）
+    // 再退非 AV1 任意高度，最后才允许 AV1（老行为兜底）
+    if (maxHeight <= 0)
+        return {"-f", "bv*[vcodec!~='av01'][height<=1080]+ba/b/"
+                      "bv*[vcodec!~='av01']+ba/b/"
+                      "bv*+ba/b"};
     // 只给**视频部分**设 height 上限：音频格式没有 height，加了过滤会让整条失配、
     // 悄悄退回不设限的兜底（macOS 端实测踩到，两端统一修正）
     const QString cap = QString::number(maxHeight);
     // 同一个 %1 出现两次：只传一个参数（Qt 会替换所有 %1）。传两个会触发
     // "1 argument(s) missing" 警告——因为字符串里并没有 %2。
-    return {"-f", QString("bv*[height<=%1]+ba/b[height<=%1]/bv*+ba/b").arg(cap)};
+    // 指定档位同样优先非 AV1（Intel/AMD 核显对 VP9/H.264 更稳）
+    return {"-f", QString("bv*[vcodec!~='av01'][height<=%1]+ba/b[height<=%1]/"
+                          "bv*[height<=%1]+ba/b[height<=%1]/bv*+ba/b").arg(cap)};
 }
 
 QString UrlResolver::qualityLabel(int h) {

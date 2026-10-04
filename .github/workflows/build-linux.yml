@@ -1,6 +1,5 @@
 # 远程构建 Linux 桌面包（不占用本机轻薄本算力）
-# 触发：push main / 手动 workflow_dispatch
-# 产物：hov-qt .deb + 便携 tar.gz
+# 上游要求 Qt ≥ 6.5；GHA 默认 ubuntu-24.04 的 Qt 6.4 不够 → 用 Ubuntu 25.04 容器
 name: Build Linux (hov-qt)
 
 on:
@@ -18,17 +17,22 @@ jobs:
   package:
     name: Ubuntu .deb + tar.gz
     runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:25.04
     timeout-minutes: 90
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git \
             build-essential cmake ninja-build pkg-config \
-            qt6-base-dev qt6-declarative-dev libmpv-dev
+            qt6-base-dev qt6-declarative-dev libmpv-dev \
+            dpkg-dev
+
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure & build (Release, no WebEngine)
         run: |
@@ -47,8 +51,9 @@ jobs:
 
           Co-developed with Cursor (https://cursor.com).
           Upstream: https://github.com/HougeLangley/HyperOnlineVideo
+          Built on Ubuntu 25.04 (Qt ≥ 6.5). On Ubuntu 26.04 install runtime deps below.
 
-          Runtime deps (Ubuntu/Debian):
+          Runtime deps:
             sudo apt-get install -y libmpv2 yt-dlp ffmpeg \
               libqt6widgets6 libqt6openglwidgets6 libqt6network6 libqt6dbus6
 

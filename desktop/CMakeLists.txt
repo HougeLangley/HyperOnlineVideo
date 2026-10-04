@@ -29,7 +29,7 @@ else()
 endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
-add_executable(hov-qt src/main.cpp src/MpvWidget.cpp
+add_executable(hov-qt src/main.cpp src/CliHelp.cpp src/CliHelp.h src/MpvWidget.cpp
     src/ColorTheme.cpp
     src/ThemeWatcher.cpp src/MpvWidget.h
                          src/MasonryView.cpp src/MasonryView.h
@@ -68,6 +68,9 @@ add_executable(hov-qt src/main.cpp src/MpvWidget.cpp
                          src/CookieImport.cpp src/CookieImport.h
                          src/LoginDialog.cpp src/LoginDialog.h)
 target_link_libraries(hov-qt PRIVATE Qt6::Widgets Qt6::OpenGLWidgets Qt6::Network Qt6::DBus PkgConfig::MPV)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/HovVersion.h.in
+               ${CMAKE_CURRENT_BINARY_DIR}/HovVersion.h @ONLY)
+target_include_directories(hov-qt PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_compile_definitions(hov-qt PRIVATE "HOV_VERSION=\"${PROJECT_VERSION}\"")
 # 编译期体检：-Wall -Wextra 能挡住「无返回值 / 未初始化 / 未使用」这一类隐性问题
 # （本项目曾因误删 `return d;` 造成未定义行为 → 主线程自旋，见踩坑百科 #106）

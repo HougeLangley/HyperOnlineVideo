@@ -82,6 +82,7 @@
 
 #include <algorithm>
 #include "MainWindow.h"
+#include "CliHelp.h"
 
 
 // 数值 locale 必须是 C：Qt/Chromium/mpv/ffmpeg 内部都按 C 解析小数点。
@@ -116,6 +117,8 @@ static void hovMsgHandler(QtMsgType type, const QMessageLogContext &, const QStr
 }
 
 int main(int argc, char **argv) {
+    if (hovHandleHelpOrVersion(argc, argv))
+        return 0;
     // 虚拟化环境：QtWebEngine 关闭 GPU（GL 上下文创建失败会导致登录窗首帧渲染异常 ✗ 见 GpuCompat.h）
     // ⚠ 必须在 QApplication 之前（Chromium 只读一次环境）
     qInstallMessageHandler(hovMsgHandler);
@@ -177,7 +180,8 @@ int main(int argc, char **argv) {
     {
         static const QStringList kHeadlessCmds{
             "--import-cookies", "--cleanup-downloads", "--progress-show", "--progress-clear",
-            "--show-settings", "--set", "--queue-selftest"};
+            "--show-settings", "--set", "--queue-selftest",
+            "--help", "-h", "--version", "-V", "-v"};
         bool headlessCmd = false;
         for (int i = 1; i < argc; ++i)
             if (kHeadlessCmds.contains(QString::fromLocal8Bit(argv[i]))) { headlessCmd = true; break; }

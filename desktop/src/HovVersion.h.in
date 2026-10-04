@@ -1,0 +1,2 @@
+#pragma once
+#define HOV_APP_VERSION "@PROJECT_VERSION@"

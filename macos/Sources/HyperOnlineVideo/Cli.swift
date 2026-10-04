@@ -18,6 +18,15 @@ enum Cli {
     }
 
     static func run(_ args: [String]) -> CliDecision {
+        if args.contains("--help") || args.contains("-h") {
+            print(helpText)
+            return .exit(0)
+        }
+        if args.contains("--version") || args.contains("-V") || args.contains("-v") {
+            let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+            print("hov \(v)")
+            return .exit(0)
+        }
         // 自检：--selftest-logic / --queue-selftest（与 Qt 端的参数名保持一致）
         if args.contains("--selftest-logic") || args.contains("--queue-selftest") {
             let r = SelfTest.run()
@@ -161,4 +170,25 @@ enum Cli {
         print("---- 交给播放器验证：\(label) ----")
         return .play(video: url, audio: audio, label: label)
     }
+
+    private static let helpText = """
+        hov — Hyper Online Video
+        Usage: HyperOnlineVideo [options]
+
+          -h, --help              Show this help and exit
+          -V, -v, --version       Print version and exit
+
+          --queue-selftest        Logic self-test (same as Linux hov-qt)
+          --selftest-logic        Alias of --queue-selftest
+          --show-settings         Dump settings and exit
+          --set key=value         Change a setting and exit
+          --resolve <url>         Resolve a watch page to stream URLs
+          --video-quality <auto|audio|360|480|720|1080>
+          --play                  After --resolve / --music / --qqmusic, hand off to the player
+          --bilicc <url>          Fetch Bilibili CC subtitles
+          --ytsubs <url>          Fetch YouTube subtitles
+          --music <keyword>       NetEase search (optional --quality / --play)
+          --qqmusic <keyword>     QQ Music search
+          --quality <standard|exhigh|lossless>
+        """
 }

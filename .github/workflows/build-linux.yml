@@ -60,10 +60,10 @@ jobs:
             'Section: video' \
             'Priority: optional' \
             'Architecture: amd64' \
-            'Maintainer: HyperVideo fork <noreply@users.noreply.github.com>' \
+            'Maintainer: Houge Langley <hougelangley@users.noreply.github.com>' \
             'Depends: libmpv2, yt-dlp, ffmpeg, libqt6widgets6, libqt6openglwidgets6, libqt6network6, libqt6dbus6' \
             'Recommends: qt6-wayland' \
-            'Description: Hyper Online Video Qt6 client (fork)' \
+            'Description: Hyper Online Video Qt6 client' \
             ' YouTube/Bilibili/NetEase/QQ Music aggregator with libmpv.' \
             ' 1.2.8: DASH audio-files via mpv NODE array; co-developed with Cursor.' \
             > "$ROOT/DEBIAN/control"

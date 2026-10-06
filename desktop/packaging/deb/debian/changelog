@@ -5,7 +5,7 @@ hov-qt (1.2.8-1) resolute; urgency=medium
   * Log hov-qt version on play so an old .deb is obvious.
   * Credits: co-developed with Cursor (https://cursor.com).
 
- -- HyperVideo fork <noreply@users.noreply.github.com>  Sun, 04 Oct 2026 15:10:00 +0800
+ -- highgogo <highgogo@pm.me>  Sun, 04 Oct 2026 15:10:00 +0800
 
 hov-qt (1.2.7-1) resolute; urgency=medium
 
@@ -15,7 +15,7 @@ hov-qt (1.2.7-1) resolute; urgency=medium
   * Local tests: --queue-selftest path-list asserts + scripts/test_mpv_pathlist.py.
   * Credits: co-developed with Cursor (https://cursor.com).
 
- -- HyperVideo fork <noreply@users.noreply.github.com>  Sun, 04 Oct 2026 15:00:00 +0800
+ -- highgogo <highgogo@pm.me>  Sun, 04 Oct 2026 15:00:00 +0800
 
 hov-qt (1.2.6-1) resolute; urgency=medium
 
@@ -24,7 +24,7 @@ hov-qt (1.2.6-1) resolute; urgency=medium
   * Correct preflight (detect open GET); heal re-resolve when duration<1.
   * Credits: co-developed with Cursor (https://cursor.com).
 
- -- HyperVideo fork <noreply@users.noreply.github.com>  Sun, 04 Oct 2026 13:40:00 +0800
+ -- highgogo <highgogo@pm.me>  Sun, 04 Oct 2026 13:40:00 +0800
 
 hov-qt (1.2.5-1) resolute; urgency=medium
 

@@ -299,7 +299,9 @@ final class FavoritesPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate
         root.addArrangedSubview(btns)
 
         // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
-        Panels.installGlassBackground(on: window, root: root)   // 审计 P1-2 ✓ 原 9 行×4 → helper
+        // 2026-10-08 透明标题栏修复 ✓：窗口非全尺寸内容（缺 .fullSizeContentView ✗）时标题栏条带
+        // 下方无内容绘制 → 透出桌面 ✗（用户实测截图 ✓）。与 SettingsPanel 的正确做法对齐 → false ✓
+        Panels.installGlassBackground(on: window, root: root, transparentTitlebar: false)
         Panels.activeWindow = window
         Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
         window.center()
@@ -398,7 +400,9 @@ final class QueuePanel: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         root.addArrangedSubview(btns)
 
         // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
-        Panels.installGlassBackground(on: window, root: root)   // 审计 P1-2 ✓ 原 9 行×4 → helper
+        // 2026-10-08 透明标题栏修复 ✓：窗口非全尺寸内容（缺 .fullSizeContentView ✗）时标题栏条带
+        // 下方无内容绘制 → 透出桌面 ✗（用户实测截图 ✓）。与 SettingsPanel 的正确做法对齐 → false ✓
+        Panels.installGlassBackground(on: window, root: root, transparentTitlebar: false)
         Panels.activeWindow = window
         Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
         window.center()
@@ -552,7 +556,9 @@ final class DownloadsPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate
         root.addArrangedSubview(btns)
 
         // 与主窗口一致的毛玻璃底（放在最底层，避免盖住控件）
-        Panels.installGlassBackground(on: window, root: root)   // 审计 P1-2 ✓ 原 9 行×4 → helper
+        // 2026-10-08 透明标题栏修复 ✓：窗口非全尺寸内容（缺 .fullSizeContentView ✗）时标题栏条带
+        // 下方无内容绘制 → 透出桌面 ✗（用户实测截图 ✓）。与 SettingsPanel 的正确做法对齐 → false ✓
+        Panels.installGlassBackground(on: window, root: root, transparentTitlebar: false)
         Panels.activeWindow = window
         Panels.activeDumpText = { [weak self] in self?.dumpText() ?? "" }
         window.center()

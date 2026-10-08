@@ -274,7 +274,19 @@ object Repo {
             rq.addOption("--dump-single-json")
             rq.addOption("--no-warnings")
             // 2026-10-08 清晰度修复：tv 优先（高清 ✓），失败再由低清客户端兜底 ✓
-            rq.addOption("--extractor-args", "youtube:player_client=web_embedded,mweb")
+            // 2026-10-08 画质正解（Android 无 JS 运行时 → yt-dlp 自动降级到免 JS 客户端 = 只有 360p ✗）：
+            // youtubedl-android 自带 libqjs.so（QuickJS，与 ffmpeg 同为"库目录内的可执行体" ✓）→
+            // 指给 yt-dlp 作为 JS 运行时，恢复完整客户端与高清格式 ✓（mac 侧靠 deno ✓ 同原理）
+            run {
+                val qjs = java.io.File(appContext.applicationInfo.nativeLibraryDir, "libqjs.so")
+                if (qjs.exists()) {
+                    rq.addOption("--js-runtimes", "quickjs:${qjs.absolutePath}")
+                    android.util.Log.i("HOV", "JS 运行时: quickjs=${qjs.absolutePath}（canExec=${qjs.canExecute()}）")
+                } else {
+                    android.util.Log.w("HOV", "JS 运行时缺失：libqjs.so 不在 nativeLibraryDir ✗")
+                }
+            }
+            rq.addOption("--extractor-args", "youtube:player_client=tv,web_embedded,mweb")
             if (useCookies) applyCookies(rq, "youtube")
             val rs = YoutubeDL.getInstance().execute(rq, "resolve-${System.currentTimeMillis()}")
             if (rs.exitCode != 0) throw Exception(rs.err.take(300))

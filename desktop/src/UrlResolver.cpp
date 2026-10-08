@@ -543,6 +543,20 @@ void UrlResolver::fetchBiliCc(const QString &pageUrl,
 }
 
 // ② yt-dlp 路线（YouTube；B站 API 失败时的兜底）
+// 2026-10-08 修复（mac 同案 ✓ 用户实测）：YouTube 的**自动翻译**字幕语言码是 `xx-en`（"Chinese from
+// English" ✓ 而非 `zh-Hans` ✗ —— 请求不存在的 zh-Hans 会 429 并令 yt-dlp 放弃整批 ✗）。
+// 策略：取系统语言前 2 项 → 各自优先 `/^[a-z]{2}(-[A-Za-z]+)?$/` 的 `-en` 翻译变体 ✓，末位补 `en` 原轨 ✓
+//（条目 ≤3 ✓ 全部真实存在 ✓ 不再触发"请求不存在语言 → 429"✗）
+static QString translatedSubLangs() {
+    // 2026-10-08 v2（429 根治 ✓）：**用 yt-dlp 的 --sub-langs 正则**匹配"真实存在"的轨 ——
+    //   之前手拼 `zh-hans-cn-en`（非法码 ✗）仍触发 429 ✗；正则只在**已解析出的轨清单**内匹配 ✗
+    //   → 不存在的语言根本不发请求 ✓ 零 429 ✓；`zh.*-en` 命中 zh-Hans-en/zh-Hant-en（中文自动翻译 ✓）
+    QString base = QLocale::system().name().section('_', 0, 0).toLower();   // zh / de / en …
+    if (base.isEmpty()) base = "en";
+    if (base == "en") return "en";
+    return base + ".*-en,en";      // 系统语言翻译轨（含简/繁 ✓）→ 原轨兜底 ✓（≤2 条 ✓）
+}
+
 void UrlResolver::fetchByYtDlp(const QString &pageUrl,
                                std::function<void(QVector<SubtitleTrack>, QString)> done) {
     const QString dirBase = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
@@ -557,7 +571,7 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
     QStringList args{"--skip-download", "--no-warnings", "--no-playlist",
                      "--write-subs", "--write-auto-subs",
                      // 字幕语言随**系统语言**（中文系统仍中文优先 ✓ 德语系统会抓 de ✓ 与另两端一致 ✓）
-                     "--sub-langs", Subtitles::subLangsForSystem(),
+                     "--sub-langs", translatedSubLangs(),
                      "--sub-format", "srt/vtt/best",
                      "-o", dir + "/%(id)s.%(ext)s", pageUrl};
     // 2026-10-08 修复（与 mac/Android 对齐 ✓）：字幕抓取**匿名优先** —— 失效 cookie 会让 YouTube
@@ -579,6 +593,12 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
                     if (fi.size() <= 0) continue;
                     QString lang = fi.completeBaseName();
                     lang = lang.section('.', 1);                     // 去掉视频 id
+                    {   // 2026-10-08：翻译轨规范化（zh-Hans-en → zh-Hans（翻译）✓）
+                        const QStringList pp = lang.split('-');
+                        if (pp.size() >= 2 && pp.last().compare("en", Qt::CaseInsensitive) == 0 && lang != "en") {
+                            lang = QStringList(pp.mid(0, pp.size() - 1)).join('-') + "（翻译）";
+                        }
+                    }
                     if (lang.isEmpty()) lang = "默认";
                     SubtitleTrack t;
                     t.label = QString("%1 · %2").arg(lang, fi.suffix().toUpper());
@@ -592,11 +612,19 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
                                  });
                 if (!tracks.isEmpty()) {
                     subsWantCookies_ = false;
+                    subs429Retried_ = false;
                     qInfo() << "在线字幕：yt-dlp 取回" << tracks.size() << "条";
                     done(tracks, QString());
                 } else {
                     // 把 yt-dlp 的真实原因带出来（实测本环境是 timedtext HTTP 429）
                     const QString tail = errText.section('\n', -3).trimmed();
+                    if (!subs429Retried_ && tail.contains("429")) {
+                        subs429Retried_ = true;
+                        qInfo() << "在线字幕：429 限流 → 2.5 秒后退避重试一次";
+                        QTimer::singleShot(2500, this, [this, pageUrl, done] { fetchByYtDlp(pageUrl, done); });
+                        return;
+                    }
+                    subs429Retried_ = false;
                     if (!subsWantCookies_ && !cookieArgsFor(pageUrl).isEmpty()) {
                         subsWantCookies_ = true;
                         qInfo() << "在线字幕：匿名未取到 → 带 cookie 重试一次";

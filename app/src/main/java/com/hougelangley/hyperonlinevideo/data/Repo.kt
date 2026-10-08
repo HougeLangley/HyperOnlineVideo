@@ -434,16 +434,43 @@ object Repo {
             }
             val u = best?.optString("url").orEmpty()
             if (u.isEmpty()) return
-            val name = best?.optString("name").orEmpty().ifEmpty { langKey }
+            // 2026-10-08：翻译变体规范化（zh-Hans-en → zh-Hans（翻译）✓）
+            var name = best?.optString("name").orEmpty().ifEmpty { langKey }
+            run {
+                val p2 = langKey.split("-")
+                if (p2.size >= 2 && p2.last().equals("en", true) && langKey != "en") {
+                    name = p2.dropLast(1).joinToString("-") + "（翻译）"
+                }
+            }
             subTracks.add(SubTrack(if (auto) "$name（自动）" else name, u, langKey, auto))
         }
         val manualSubs = j.optJSONObject("subtitles")
         manualSubs?.keys()?.forEach { lang -> pickCaption(lang, manualSubs.optJSONArray(lang), false) }
         val autoCaps = j.optJSONObject("automatic_captions")
-        val wanted = listOf(j.optString("language"), "zh-Hans", "zh-CN", "zh-Hant", "en")
-            .filter { it.isNotEmpty() }.distinct()
-        autoCaps?.keys()?.forEach { lang ->
-            if (lang in wanted) pickCaption(lang, autoCaps.optJSONArray(lang), true)
+        // 2026-10-08 修复（与 mac 同案 ✓）：YouTube 自动**翻译**轨语言码是 `xx-en`（如 zh-Hans-en ✗
+        // 而非 zh-Hans ✗）；且必须按"系统语言索引"排序（zh 排 en 前 ✓ 否则默认显英文 ✗ 用户实测）
+        fun baseSubCode(c: String): String {
+            val p2 = c.split("-")
+            return if (p2.size >= 2 && p2.last().equals("en", true)) p2.dropLast(1).joinToString("-") else c
+        }
+        val subLangTag = java.util.Locale.getDefault().toLanguageTag().lowercase()
+        val sysOrder = listOf(subLangTag, "zh-hans", "zh-cn", "zh", "zh-hant", "en")
+        fun subSysIdx(c: String): Int {
+            val b = baseSubCode(c).lowercase()
+            for (i in sysOrder.indices) {
+                val s0 = sysOrder[i]
+                if (b == s0 || b.startsWith(s0) || s0.startsWith(b)) return i
+            }
+            return Int.MAX_VALUE
+        }
+        fun orderedAutoLangs(m: org.json.JSONObject?): List<String> {
+            val keys = m?.keys()?.asSequence()?.toList() ?: emptyList()
+            val pref = keys.filter { subSysIdx(it) != Int.MAX_VALUE }.sortedBy { subSysIdx(it) }
+            val rest = keys.filter { subSysIdx(it) == Int.MAX_VALUE }
+            return pref + rest
+        }
+        orderedAutoLangs(autoCaps).take(2).forEach { lang ->
+            pickCaption(lang, autoCaps?.optJSONArray(lang), true)
         }
 
         // 2026-10-08（Android 字幕"经常加载失败" ✗ 与 macOS 正常对比定位 ✓）：主解析为绕 android_vr
@@ -465,7 +492,7 @@ object Repo {
                         m.keys().forEach { lang -> pickCaption(lang, m.optJSONArray(lang), false) }
                     }
                     sj.optJSONObject("automatic_captions")?.let { m ->
-                        m.keys().forEach { lang -> if (lang in wanted) pickCaption(lang, m.optJSONArray(lang), true) }
+                        orderedAutoLangs(m).take(2).forEach { lang -> pickCaption(lang, m.optJSONArray(lang), true) }
                     }
                     android.util.Log.i("HOV", "字幕二次解析: 候选=${subTracks.map { it.label }}")
                 } else {

@@ -18,7 +18,7 @@ makedepends=('cmake' 'ninja' 'pkgconf' 'clang' 'lld')
 # source=("$pkgname-$pkgver.tar.gz::https://github.com/HougeLangley/HyperOnlineVideo/archive/refs/tags/v$pkgver.tar.gz")
 # 开发阶段：本地源码 tarball + 真实校验和（比 git 源可复现：包含未提交改动，且 sha256 固定）
 source=("hov-qt-$pkgver-src.tar.gz")
-sha256sums=('1bce3f610880ac09a61ddae01d3d90173ff7c7aa4188607465eac386a64957cd')
+sha256sums=('57ea8f06aa1947848bad4260598e1b9831a3a210c416c58ba741a444e2624bb3')
 
 build() {
   cd "$srcdir/HyperOnlineVideo-$pkgver/desktop"

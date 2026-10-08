@@ -145,14 +145,19 @@ final class UrlResolver {
 
     // MARK: 解析直链
     func resolve(_ pageUrl: String) -> Stream? {
-        var args = ["-J", "--no-warnings", "--no-playlist"] + Self.formatArgs(forMaxHeight: Self.maxHeight)
-        args += Self.cookieArgs(for: pageUrl)          // A0：支持从系统浏览器读 cookie 并导出
-        args.append(pageUrl)
+        let baseArgs = ["-J", "--no-warnings", "--no-playlist"] + Self.formatArgs(forMaxHeight: Self.maxHeight)
+        // 2026-10-08 画质对齐：**匿名优先**（失效 cookie 会让 YouTube 静默降级到 360p ✗，Android A/B 实证 ✓）；
+        // 匿名失败（如年龄限制/会员视频）再带 cookie 重试一次 ✓（有界 ✓）
+        let cookieArgs = Self.cookieArgs(for: pageUrl)
         guard let ytdlp = Self.findExecutable("yt-dlp") else {
             Config.log("找不到 yt-dlp（brew install yt-dlp）")
             return nil
         }
-        let r = Self.runProcess(ytdlp, args)
+        var r = Self.runProcess(ytdlp, baseArgs + [pageUrl])
+        if r.code != 0 {
+            Config.log("匿名解析失败 → 带 cookie 重试一次")
+            r = Self.runProcess(ytdlp, baseArgs + cookieArgs + [pageUrl])
+        }
         guard r.code == 0 else {
             Config.log("解析失败（yt-dlp 退出码 \(r.code)）")
             let tail = r.err.components(separatedBy: "\n").suffix(3).joined(separator: "\n")

@@ -126,12 +126,13 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     });
     QStringList args{"-J", "--no-warnings", "--no-playlist"};
     args << formatArgsFor(maxHeight_);
-    // Issue #1 / SoSim：默认 android_vr 直链只允许读文件头 ~10MB（之后 Range/开放式皆 403），
-    // 表现为播十几秒就断。web_embedded 可完整拉流（含 1080p 分轨）；mweb 兜底（常为 360p 单流）。
-    if (service == "youtube")
-        args << "--extractor-args" << "youtube:player_client=web_embedded,mweb";
-    args << cookieArgsFor(pageUrl);
+    // 2026-10-08 画质对齐（Android A/B 实证 ✓）：**不再强制客户端** —— 默认客户端 + JS 挑战
+    // （mac=deno ✓；Linux 随系统 ✓）可给出完整档位（含 HLS 主清单 ✓，HLS 分片天然无 10MB 墙 ✗）；
+    // 强制 web_embedded/mweb 会把上限压到 360p ✗（mac 未强制 → 故一直正常 ✓）
+    if (wantCookies_) args << cookieArgsFor(pageUrl);   // 匿名优先 ✓（失效 cookie → YouTube 降级 360p ✗）
     args << pageUrl;
+    lastLaunchCookies_ = wantCookies_;
+    wantCookies_ = false;
 
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
             [this, p, service, pageUrl, deadline, gen](int code, QProcess::ExitStatus) {
@@ -157,6 +158,12 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                 }
 
                 if (code != 0) {
+                    if (!lastLaunchCookies_) {              // 匿名失败 → 带 cookie 重试一次 ✓（有界 ✓）
+                        wantCookies_ = true;
+                        hovLog("[PLAY] 匿名解析失败 → 带 cookie 重试一次\n");
+                        resolveAndPlay(pageUrl);
+                        return;
+                    }
                     if (status_) {
                         status_(QString("解析失败（yt-dlp 退出码 %1）").arg(code));
                         hovLog("[PLAY] 解析失败 rc=%d\n", code);

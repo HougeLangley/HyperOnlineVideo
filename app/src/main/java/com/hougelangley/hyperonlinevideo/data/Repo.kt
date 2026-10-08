@@ -400,6 +400,7 @@ object Repo {
         val subTracks = ArrayList<SubTrack>()
         fun pickCaption(langKey: String, arr: JSONArray?, auto: Boolean) {
             if (arr == null || subTracks.size >= 8) return
+            if (langKey.contains("live_chat", true) || langKey.startsWith("live_")) return   // 直播聊天/回放轨 ✗ 非字幕 ✓
             var best: JSONObject? = null
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
@@ -421,6 +422,36 @@ object Repo {
             .filter { it.isNotEmpty() }.distinct()
         autoCaps?.keys()?.forEach { lang ->
             if (lang in wanted) pickCaption(lang, autoCaps.optJSONArray(lang), true)
+        }
+
+        // 2026-10-08（Android 字幕"经常加载失败" ✗ 与 macOS 正常对比定位 ✓）：主解析为绕 android_vr
+        // 10MB 墙改用 web_embedded/mweb ✗，但该客户端几乎不返回字幕轨（实测候选仅 [live_chat] ✗）→ 无字幕可选 ✗。
+        // 此处补一次**仅取字幕**的二次解析（网页客户端 ✓ --skip-download 很快 ✓），并入 subTracks ✓；
+        // 顺带天然规避 timedtext 直链过期（每次解析都拿到新鲜 URL ✓）。
+        if (subTracks.isEmpty()) {
+            try {
+                val sr = YoutubeDLRequest(url)
+                sr.addOption("--dump-single-json")
+                sr.addOption("--no-warnings")
+                sr.addOption("--skip-download")
+                sr.addOption("--extractor-args", "youtube:player_client=web,tv")
+                applyCookies(sr, "youtube")
+                val srs = YoutubeDL.getInstance().execute(sr, "subs-${System.currentTimeMillis()}")
+                if (srs.exitCode == 0) {
+                    val sj = JSONObject(srs.out)
+                    sj.optJSONObject("subtitles")?.let { m ->
+                        m.keys().forEach { lang -> pickCaption(lang, m.optJSONArray(lang), false) }
+                    }
+                    sj.optJSONObject("automatic_captions")?.let { m ->
+                        m.keys().forEach { lang -> if (lang in wanted) pickCaption(lang, m.optJSONArray(lang), true) }
+                    }
+                    android.util.Log.i("HOV", "字幕二次解析: 候选=${subTracks.map { it.label }}")
+                } else {
+                    android.util.Log.w("HOV", "字幕二次解析 rc=${srs.exitCode}: ${srs.err.take(80)}")
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("HOV", "字幕二次解析异常: ${t.message?.take(80)}")
+            }
         }
 
         // 2026-10-08（Android"无可用播放格式"根因 ✗）：web_embedded/mweb 返回"合流"格式（vcodec 与
@@ -588,14 +619,14 @@ object Repo {
     /** 普通 GET（系统默认网络，用于字幕等不需要直连策略的请求）——429/403 退避重试一次 ✓ */
     private fun plainGet(url: String, referer: String): String {
         var lastErr: Exception? = null
-        repeat(2) { attempt ->
+        repeat(3) { attempt ->
             try {
                 return plainGetOnce(url, referer)
             } catch (e: Exception) {
                 lastErr = e
                 val msg = e.message.orEmpty()
-                if (attempt == 0 && (msg.contains("429") || msg.contains("403") || msg.contains("50"))) {
-                    Thread.sleep(800)   // 限流退避 ✓
+                if (msg.contains("429") || msg.contains("403") || msg.contains("50")) {
+                    Thread.sleep(if (attempt == 0) 1200L else 2500L)   // 限流退避：3 次机会 ✓
                 } else if (attempt == 0) {
                     throw e              // 网络类错误直接抛（重试无益 ✗）
                 }
@@ -612,6 +643,18 @@ object Repo {
             conn.setRequestProperty("User-Agent", MusicHttp.UA)
             conn.setRequestProperty("Referer", referer)
             conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+            // 2026-10-08（Android 字幕 429 "Sorry" 页 ✗ / macOS 正常）：Google timedtext 对裸请求/缺 cookie
+            // 极敏感 ✗ → YouTube 类请求补**桌面 Chrome UA + 登录 Cookie**（有则带 ✓）
+            if (referer.contains("youtube") || url.contains("googlevideo") || url.contains("timedtext")) {
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+                val ck = cookieFile("youtube")
+                if (ck.exists()) {
+                    val pairs = ck.readLines()
+                        .filter { it.isNotBlank() && !it.startsWith("#") }
+                        .mapNotNull { it.split("\t").takeIf { p -> p.size >= 7 }?.let { p -> "${p[5]}=${p[6]}" } }
+                    if (pairs.isNotEmpty()) conn.setRequestProperty("Cookie", pairs.joinToString("; "))
+                }
+            }
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()

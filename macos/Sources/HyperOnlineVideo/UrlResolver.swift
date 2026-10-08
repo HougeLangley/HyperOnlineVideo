@@ -351,14 +351,18 @@ final class UrlResolver {
         guard let ytdlp = Self.findExecutable("yt-dlp") else { return nil }
         let r = Self.runProcess(ytdlp, ytdlpArgs)
         guard r.code == 0 else { return nil }
+        let text = String(data: r.out, encoding: .utf8) ?? ""
         var out: [String] = []
-        for line in r.out.components(separatedBy: "\n") {
+        for line in text.components(separatedBy: "\n") {
             let t = line.trimmingCharacters(in: .whitespaces)
-            guard !t.isEmpty, !t.hasPrefix("["), !t.hasSuffix(":") else { continue }
+            if t.isEmpty { continue }
+            if t.hasPrefix("[") { continue }
+            if t.hasSuffix(":") { continue }
             // 形如 "zh-Hans            vtt, ttml, srv3, ..., json3"
             let parts = t.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-            guard let code = parts.first, code.count >= 2, code.count <= 12 else { continue }
-            guard code.range(of: "^[A-Za-z][A-Za-z0-9_-]+$", options: .regularExpression) != nil else { continue }
+            guard let code = parts.first else { continue }
+            if code.count < 2 || code.count > 12 { continue }
+            if code.range(of: "^[A-Za-z][A-Za-z0-9_-]+$", options: .regularExpression) == nil { continue }
             if !out.contains(code) { out.append(code) }
         }
         return out
@@ -370,9 +374,17 @@ final class UrlResolver {
         var prefer: [String] = []
         for a in available {
             let la = a.lowercased()
-            if sys.contains(where: { la == $0 || la.hasPrefix($0) || $0.hasPrefix(la) }) { prefer.append(a) }
+            var hit = false
+            for sy in sys {
+                if la == sy { hit = true; break }
+                if la.hasPrefix(sy) { hit = true; break }
+                if sy.hasPrefix(la) { hit = true; break }
+            }
+            if hit { prefer.append(a) }
         }
-        let rest = available.filter { !prefer.contains($0) }.sorted { Subtitles.languageRank($0) < Subtitles.languageRank($1) }
-        return Array((prefer + rest).prefix(limit))
+        var rest = available.filter { !prefer.contains($0) }
+        rest.sort { Subtitles.languageRank($0) < Subtitles.languageRank($1) }
+        let merged = prefer + rest
+        return Array(merged.prefix(limit))
     }
 }

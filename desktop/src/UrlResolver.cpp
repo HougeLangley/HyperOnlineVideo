@@ -560,11 +560,13 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
                      "--sub-langs", Subtitles::subLangsForSystem(),
                      "--sub-format", "srt/vtt/best",
                      "-o", dir + "/%(id)s.%(ext)s", pageUrl};
-    args << cookieArgsFor(pageUrl);
+    // 2026-10-08 修复（与 mac/Android 对齐 ✓）：字幕抓取**匿名优先** —— 失效 cookie 会让 YouTube
+    // 返回降级响应（无字幕轨 ✗，实测「yt-dlp 未取到字幕」✓）→ 匿名为空再带 cookie 重试一次 ✓
+    if (subsWantCookies_) args << cookieArgsFor(pageUrl);
     qInfo() << "在线字幕：yt-dlp 抓取（" << args.size() << "个参数）→" << dir;
 
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [this, p, dir, done](int code, QProcess::ExitStatus) {
+            [this, p, dir, done, pageUrl](int code, QProcess::ExitStatus) {
                 if (subProc_ == p) subProc_ = nullptr;
                 const QString errText = QString::fromUtf8(p->readAllStandardError()).trimmed();
                 p->deleteLater();
@@ -589,11 +591,19 @@ void UrlResolver::fetchByYtDlp(const QString &pageUrl,
                                      return Subtitles::languageRank(a.label) < Subtitles::languageRank(b.label);
                                  });
                 if (!tracks.isEmpty()) {
+                    subsWantCookies_ = false;
                     qInfo() << "在线字幕：yt-dlp 取回" << tracks.size() << "条";
                     done(tracks, QString());
                 } else {
                     // 把 yt-dlp 的真实原因带出来（实测本环境是 timedtext HTTP 429）
                     const QString tail = errText.section('\n', -3).trimmed();
+                    if (!subsWantCookies_ && !cookieArgsFor(pageUrl).isEmpty()) {
+                        subsWantCookies_ = true;
+                        qInfo() << "在线字幕：匿名未取到 → 带 cookie 重试一次";
+                        fetchByYtDlp(pageUrl, done);
+                        return;
+                    }
+                    subsWantCookies_ = false;
                     qInfo() << "在线字幕：yt-dlp 未取到字幕 exit=" << code << tail;
                     done({}, QString("字幕获取失败（exit=%1）%2").arg(code).arg(tail.left(160)));
                 }

@@ -122,6 +122,7 @@ private:
     QProcess *resolveProc_ = nullptr;
     bool wantCookies_ = false;        // 2026-10-08：下次启动是否带 cookie（匿名优先 ✓ 失效 cookie 触发降级 ✗）
     bool lastLaunchCookies_ = false;  // 本次启动实际是否带 cookie（供失败判定 ✓ 防重试死循环 ✓）
+    bool subsWantCookies_ = false;    // 2026-10-08：字幕抓取是否带 cookie（匿名优先 → 空则重试一次 ✓ 防循环 ✓）
     QProcess *subProc_ = nullptr;
 
 public:

@@ -224,11 +224,14 @@ final class MpvView: NSOpenGLView {
     }
 
     func playResolved(video: String, audio: String) {
-        // Issue #1 ✓：googlevideo 直链先做 4MB Range 预检 → 受限出口（403）打明确指引 ✓
+        // Issue #1 ✓：googlevideo 直链 4MB Range 预检 → 受限出口（403）打明确指引 ✓
+        // 2026-10-08 冷启动修复 ✗：预检**改异步**（原来在主线程同步阻塞最多 10s，会卡住"就绪后补发"的首播 ✗）
         if video.contains("googlevideo.com") {
-            let code = Http.streamRangeOk(video)
-            if code != 200 && code != 206 {
-                print("[PREFLIGHT] YouTube 拒绝该网络出口获取视频流（HTTP \(code)）→ 请更换代理节点/线路，或改用直连（常见于 VPS/数据中心出口 ✗）")
+            DispatchQueue.global().async {
+                let code = Http.streamRangeOk(video)
+                if code != 200 && code != 206 {
+                    print("[PREFLIGHT] YouTube 拒绝该网络出口获取视频流（HTTP \(code)）→ 请更换代理节点/线路，或改用直连（常见于 VPS/数据中心出口 ✗）")
+                }
             }
         }
         guard mpv != nil else {          // 还没就绪：排队，等 render context 起来再发
@@ -241,6 +244,12 @@ final class MpvView: NSOpenGLView {
         let ref = Self.referer(for: video.isEmpty ? audio : video)
         if let mpv { mpv_set_option_string(mpv, "http-header-fields", ref.isEmpty ? "" : "Referer: " + ref) }
         if !ref.isEmpty { Config.log("[播放] 设置 Referer=\(ref)（媒体流需要）") }
+        // 2026-10-08 冷启动修复 ✓（对齐 Linux 已验证方案 ✓）：**loadfile 之前**用 audio-files 预挂音轨，
+        // 消除"loadfile 后 0.2s 再 audio-add"的首播竞态 ✗（首点无声/无画面的根因 ✓）
+        if let mpv {
+            mpv_set_property_string(mpv, "audio-files", audio.isEmpty ? "" : audio)
+            if !audio.isEmpty { Config.log("[AUDIO] 预挂音轨（loadfile 之前，与 Linux 同款 ✓）") }
+        }
         command(["loadfile", video])
         // keep-open=yes 会让新文件继承"已暂停"状态 → 连播第二条会停在 0:00 不动（Qt 端踩过同一个坑）。
         // 这里显式取消暂停；无条件执行（暂停状态下用户点别的内容也应该开播）。
@@ -248,9 +257,11 @@ final class MpvView: NSOpenGLView {
             self?.command(["set", "pause", "no"])
         }
         guard !audio.isEmpty else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.command(["audio-add", audio, "select"])
-            Config.log("[AUDIO] 已向 mpv 添加独立音轨（长度=\(audio.count) 字符）")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            // 预挂之后仍主动确认一次（轻量幂等 ✓）；此后仍有 10s 看门狗兜底 ✓
+            let st = self?.audioStatus() ?? ""
+            if st.contains("已加载=无") { self?.command(["audio-add", audio, "select"]) }
+            Config.log("[AUDIO] 复核音轨状态：\(st)（预挂方案 ✓）")
             // 音轨看门狗：部分网络/CDN 情况下 audio-add 可能没真正生效（用户实测「有画面没声音」）
             // → 10 秒后若仍检测不到已加载音轨，自动重挂一次（幂等；成功则不动作）
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in

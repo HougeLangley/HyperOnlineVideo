@@ -287,6 +287,7 @@ final class UrlResolver {
     // MARK: YouTube 字幕（yt-dlp 落地文件）
     func fetchYouTubeSubs(_ pageUrl: String) -> [SubtitleTrack] {
         let dir = NSTemporaryDirectory() + "/hov-subs-" + String(abs(pageUrl.hashValue))
+        try? FileManager.default.removeItem(atPath: dir)            // 2026-10-08：预清目录（防旧字幕文件掩盖新结果 ✗）
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var args = ["--skip-download", "--no-warnings", "--no-playlist",
                     "--write-subs", "--write-auto-subs",
@@ -294,14 +295,24 @@ final class UrlResolver {
                     "--sub-langs", Self.subLangsForSystem(),
                     "--sub-format", "srt/vtt/best",
                     "-o", dir + "/%(id)s.%(ext)s"]
+        // 2026-10-08 修复（对齐 Android 已验证方案 ✓）：字幕抓取**匿名优先** —— 失效 cookie 会让
+        // YouTube 返回降级响应（无字幕轨 ✗ 用户实测"字幕没有了"✓）→ 匿名为空再用 cookie 重试一次 ✓
         let cookies = Self.cookieFileFor(pageUrl)
-        if !cookies.isEmpty { args.append(contentsOf: ["--cookies", cookies]) }
-        args.append(pageUrl)
+        var argsCookie = args
+        if !cookies.isEmpty { argsCookie.append(contentsOf: ["--cookies", cookies]) }
         guard let ytdlp = Self.findExecutable("yt-dlp") else {
             Config.log("找不到 yt-dlp（brew install yt-dlp）")
             return []
         }
-        let r = Self.runProcess(ytdlp, args)
+        var r = Self.runProcess(ytdlp, args + [pageUrl])
+        func subCount() -> Int {
+            let fs = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+            return fs.filter { ["srt", "vtt", "json3", "json"].contains(($0 as NSString).pathExtension.lowercased()) }.count
+        }
+        if subCount() == 0 && !cookies.isEmpty {
+            Config.log("在线字幕：匿名未取到 → 带 cookie 重试一次")
+            r = Self.runProcess(ytdlp, argsCookie + [pageUrl])
+        }
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return [] }
         var tracks: [SubtitleTrack] = []
         for f in files.sorted() {

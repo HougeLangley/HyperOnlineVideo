@@ -131,6 +131,7 @@ class PlayerActivity : Activity() {
     // 现象：暂停很久后继续播 → 播一会儿停住 → 手动切分辨率才恢复。
     // 根因：解析出的直链有有效期（googlevideo / B站 数小时失效），切档会重新解析 → 与用户观察完全吻合。
     private var resolvedAtMs = 0L          // 本直链的解析时刻
+    private var audioAttached = false      // 2026-10-08 冷启动修复：音频是否已挂（file-loaded 事件驱动 ✓ 幂等 ✓）
     private var healTried = false          // 每条内容最多自愈一次（避免抖动）
     private var lastPos = -1.0             // 停滞检测：上次进度
     private var lastPosAtMs = 0L
@@ -363,7 +364,15 @@ class PlayerActivity : Activity() {
                 override fun eventProperty(property: String, value: String) {}
                 override fun eventProperty(property: String, value: Double) {}
                 override fun eventProperty(property: String, value: MPVNode) {}
-                override fun event(eventId: Int, data: MPVNode) {}
+                override fun event(eventId: Int, data: MPVNode) {
+                    // 2026-10-08 冷启动修复（三端同类 bug ✗）：固定 700ms 定时挂音频必与 loadfile/surface 竞态 ✗ →
+                    // 改为 file-loaded(=8) 事件驱动，幂等标志防重复叠加 ✓
+                    if (eventId == 8 && currentAudioUrl.isNotEmpty() && !audioAttached) {
+                        mpvView.mpv.command("audio-add", currentAudioUrl, "select")
+                        audioAttached = true
+                        android.util.Log.i("HOV", "audio-add(loaded) 已执行 ✓")
+                    }
+                }
                 override fun eventProperty(property: String, value: Boolean) {
                     if (value && (property == "eof-reached" || property == "idle-active")) {
                         handler.post { onPlaybackEnded() }
@@ -413,14 +422,8 @@ class PlayerActivity : Activity() {
         PlaybackController.title = videoTitle
         PlaybackController.playing = true
         PlaybackService.start(this, videoTitle)
-        // YouTube DASH/HLS 分离音轨：延迟 700ms 发 audio-add 命令
-        // （playFile 内部异步 loadfile，必须保证命令次序在它之后；命令参数原样传递无解析问题）
-        if (audioUrl.isNotEmpty()) {
-            handler.postDelayed({
-                mpvView.mpv.command("audio-add", audioUrl, "select")
-                android.util.Log.i("HOV", "audio-add 已执行")
-            }, 700)
-        }
+        // 2026-10-08 冷启动修复 ✓：音频改由 file-loaded 事件挂载（下方 event 回调 ✓），此处仅复位标志
+        audioAttached = false
         startProgressLoop()
         loadLyricsAsync()          // 首次播放即尝试拉歌词（音乐平台）
         showControls(autoHide = true)
@@ -914,11 +917,7 @@ class PlayerActivity : Activity() {
         if (newUrl.isNotEmpty()) { currentPlayUrl = newUrl; resolvedAtMs = System.currentTimeMillis() }
         val seekTarget = pendingReloadSeek
         mpvView.mpv.command("loadfile", newUrl, "replace")
-        if (currentAudioUrl.isNotEmpty()) {
-            handler.postDelayed({
-                mpvView.mpv.command("audio-add", currentAudioUrl, "select")
-            }, 700)
-        }
+        audioAttached = false      // 切档/自愈重挂：file-loaded 事件会再挂音频 ✓
         handler.postDelayed({ applyFillMode() }, 900)
         seekAfterReload(seekTarget)
         showControls(autoHide = true)

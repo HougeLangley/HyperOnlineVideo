@@ -84,6 +84,9 @@ jobs:
         run: |
           ./gradlew :app:compileReleaseKotlin --rerun-tasks --console=plain 2>&1 | tee /tmp/kt.log
           test "$(grep -c '^w:' /tmp/kt.log)" = "0"
+      - name: Android Lint（信息级 ✓ 不阻塞；阈值收紧作为后续 ✓）
+        continue-on-error: true
+        run: ./gradlew :app:lintRelease --console=plain 2>&1 | tail -20
 
   # ④ 内网打包机（self-hosted · 出站连接 ✓）：tag 发布时才跑；含隔离容器；人工批准闸门 ✓
   packages-linux:

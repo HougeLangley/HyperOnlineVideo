@@ -1,0 +1,33 @@
+name: 🐛 Bug 报告
+description: 报告一个可复现的问题
+labels: [bug]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options: [Android, macOS, Linux]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: 版本（应用内「设置 → 关于」可查）
+      placeholder: "例如 1.3.0"
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好（点了哪里、搜索什么、什么网络环境）
+    validations: { required: true }
+  - type: textarea
+    id: expect
+    attributes:
+      label: 期望结果 / 实际结果
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（强烈建议）
+      description: 应用内「日志」面板内容；Linux 端可附终端输出
+    validations: { required: false }

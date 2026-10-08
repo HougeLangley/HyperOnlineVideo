@@ -271,10 +271,10 @@ enum SelfTest {
 
         // ---- 语言优先级 ----
         // 字幕默认轨由**系统语言**决定（用户要求）：中文系统仍应命中最优先
-        check(Subtitles.languageRank("zh-Hans · SRT", systemTagOverride: "zh-Hans-CN") <= Subtitles.languageRank("en · SRT", systemTagOverride: "zh-Hans-CN"), "字幕排序：中文系统的简体优先于英文")
+        check(Subtitles.languageRank("zh-Hans · SRT") <= Subtitles.languageRank("en · SRT"), "字幕排序：中文系统的简体优先于英文")
         // 2026-09-25 ✓ B站裸"中文"/YouTube "Chinese (Simplified)（自动）"也要命中中文系统（此前漏判 ✗）
-        check(Subtitles.languageRank("中文 · CC", systemTagOverride: "zh-Hans-CN") < Subtitles.languageRank("en · SRT", systemTagOverride: "zh-Hans-CN"), "排序：B站裸「中文」轨命中中文系统")
-        check(Subtitles.languageRank("Chinese (Simplified, systemTagOverride: "zh-Hans-CN")（自动）") < Subtitles.languageRank("en · SRT", systemTagOverride: "zh-Hans-CN"), "排序：YouTube 中文标签命中中文系统")
+        check(Subtitles.languageRank("中文 · CC") < Subtitles.languageRank("en · SRT"), "排序：B站裸「中文」轨命中中文系统")
+        check(Subtitles.languageRank("Chinese (Simplified)（自动）") < Subtitles.languageRank("en · SRT"), "排序：YouTube 中文标签命中中文系统")
         check(Subtitles.systemLanguageHints.first != nil, "字幕排序：能读到系统语言偏好")
         // 音频兜底（竖屏/短视频"有画面没声音"的修复）：从 formats 里挑最佳纯音轨
         let fakeRoot: [String: Any] = ["formats": [
@@ -286,9 +286,9 @@ enum SelfTest {
         check(UrlResolver.bestAudioOnlyUrl(from: ["formats": [["vcodec": "avc1", "acodec": "none", "url": "V"]]]) == "",
               "音频兜底：无音轨时返回空（上层会提示）")
 
-        check(Subtitles.languageRank("zh-Hans · SRT", systemTagOverride: "zh-Hans-CN") < Subtitles.languageRank("en · SRT", systemTagOverride: "zh-Hans-CN"), "排序：系统语言（中文）的简体排在英文之前")
+        check(Subtitles.languageRank("zh-Hans · SRT") < Subtitles.languageRank("en · SRT"), "排序：系统语言（中文）的简体排在英文之前")
         check(Subtitles.languageRank("中文（中国）· CC") <= Subtitles.languageRank("zh-Hans · SRT"), "排序：B站中文（中国）不劣于 zh-Hans")
-        check(Subtitles.languageRank("zh-Hans · SRT", systemTagOverride: "zh-Hans-CN", systemTagOverride: "zh-Hans-CN") < Subtitles.languageRank("zh-Hant · SRT", systemTagOverride: "zh-Hans-CN", systemTagOverride: "zh-Hans-CN"), "排序：简体排在繁体之前")
+        check(Subtitles.languageRank("zh-Hans · SRT") < Subtitles.languageRank("zh-Hant · SRT"), "排序：简体排在繁体之前")
         check(Subtitles.languageRank("zh-Hant · SRT") < Subtitles.languageRank("ja · SRT"), "排序：中文（含繁体）排在其它语种之前")
         check(Subtitles.languageRank("zh-Hans-en") >= 0, "排序：复合语言标签不崩溃")
 

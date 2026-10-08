@@ -335,7 +335,12 @@ final class UrlResolver {
             guard !cues.isEmpty else { continue }
             var lang = ((f as NSString).deletingPathExtension as NSString).pathExtension
             if lang.isEmpty { lang = "默认" }
-            tracks.append(SubtitleTrack(label: "\(lang) · \(ext.uppercased())", source: path, cues: [], karaoke: false))
+            // 2026-10-08：翻译变体规范化（zh-Hans-en → zh-Hans（翻译）✓）→ 语言排序/默认选轨认中文 ✓
+            var translated = false
+            let base = Self.baseLangCode(lang)
+            if base != lang { translated = true; lang = base }
+            let label = translated ? "\(lang)（翻译） · \(ext.uppercased())" : "\(lang) · \(ext.uppercased())"
+            tracks.append(SubtitleTrack(label: label, source: path, cues: [], karaoke: false))
         }
         if tracks.isEmpty {
             let tail = r.err.components(separatedBy: "\n").filter { !$0.isEmpty }.suffix(2).joined(separator: " ")
@@ -368,21 +373,31 @@ final class UrlResolver {
         return out
     }
 
-    /// 从可用语言里按"系统语言优先"挑 ≤limit 个（复用 Subtitles.languageRank 语义 ✓）
+    /// 翻译变体归一：`zh-Hans-en`（"Chinese from English" ✓）→ base `zh-Hans` ✓
+    static func baseLangCode(_ c: String) -> String {
+        var parts = c.split(separator: "-").map(String.init)
+        if parts.count >= 2 && parts.last!.lowercased() == "en" { parts.removeLast() }
+        return parts.joined(separator: "-")
+    }
+
+    /// 从可用语言里按"系统语言优先"挑 ≤limit 个（2026-10-08 修 ✓：处理 `xx-en` 自动翻译轨，
+    /// 且**按系统语言索引排序**——此前 en 排在了 zh-Hans-en 前面 → 默认显示英文 ✗ 用户实测反馈 ✓）
     static func pickLangs(available: [String], limit: Int) -> [String] {
         let sys = Locale.preferredLanguages.map { $0.lowercased() } + ["zh-hans", "zh-cn", "zh", "zh-hant", "en"]
-        var prefer: [String] = []
-        for a in available {
-            let la = a.lowercased()
-            var hit = false
-            for sy in sys {
-                if la == sy { hit = true; break }
-                if la.hasPrefix(sy) { hit = true; break }
-                if sy.hasPrefix(la) { hit = true; break }
+        func sysIndex(_ a: String) -> Int {
+            let b = baseLangCode(a).lowercased()
+            for (i, s0) in sys.enumerated() {
+                if b == s0 || b.hasPrefix(s0) || s0.hasPrefix(b) { return i }
             }
-            if hit { prefer.append(a) }
+            return Int.max
         }
-        var rest = available.filter { !prefer.contains($0) }
+        var prefer = available.filter { sysIndex($0) != Int.max }
+        prefer.sort { a, b in
+            let ia = sysIndex(a), ib = sysIndex(b)
+            if ia != ib { return ia < ib }
+            return a.count < b.count          // 并列时原轨（更短）优先 ✓
+        }
+        var rest = available.filter { sysIndex($0) == Int.max }
         rest.sort { Subtitles.languageRank($0) < Subtitles.languageRank($1) }
         let merged = prefer + rest
         return Array(merged.prefix(limit))

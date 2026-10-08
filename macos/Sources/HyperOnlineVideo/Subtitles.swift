@@ -24,11 +24,22 @@ enum Subtitles {
         return hints.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
-    static func languageRank(_ lang: String) -> Int {
+    static func languageRank(_ lang: String, systemTagOverride: String? = nil) -> Int {
         let l = lang.trimmingCharacters(in: .whitespaces).lowercased()
         // 字幕标签形如 "zh-Hans · SRT" / "en · SRT" / "中文（中国）· CC" → 取分隔符前部分做语言判定
         let label = l.components(separatedBy: "·").first?.trimmingCharacters(in: .whitespaces) ?? l
-        let hints = systemLanguageHints
+        // 2026-10-08：可注入系统 tag（自检用 ✓ 使断言与运行环境 locale 解耦 ✗——CI runner 是 en ✗ 昔测必挂 ✗）
+        let hints: [String]
+        if let t = systemTagOverride {
+            let low = t.lowercased()
+            let pp = low.split(separator: "-").map(String.init)
+            var h = [low]
+            if pp.count >= 2 { h.append(pp[0] + "-" + pp[1]) }
+            if let f = pp.first { h.append(f) }
+            hints = h
+        } else {
+            hints = systemLanguageHints
+        }
         let systemIsChinese = hints.contains { $0.hasPrefix("zh") }
 
         // ① 系统语言驱动：**按 hint 下标打分**（下标越小越优先）。

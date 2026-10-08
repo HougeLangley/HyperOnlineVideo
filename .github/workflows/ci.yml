@@ -95,18 +95,42 @@ jobs:
     runs-on: [self-hosted, linux, x64, hov-ubuntu]      # 10.6.146.152 上的 runner ✓
     environment: release-approval                        # ← 人工批准后才执行 ✓（规则 #8 ✓）
     timeout-minutes: 120
+    permissions:
+      contents: write      # Release 资产上传 ✓
+      packages: write      # GHCR（GitHub Packages）✓
     steps:
       - uses: actions/checkout@v5
       - name: deb（隔离容器 · 用后即毁 ✓）
         run: bash desktop/packaging/ci/build-deb-container.sh
-      - name: rpm（mock 隔离 ✓）
-        run: bash desktop/packaging/ci/build-rpm-mock.sh
+      - name: rpm（COPR 服务端构建 ✓ 取回成品 ✓）
+        env: { HOVBUILD: '${{ secrets.HOVBUILD }}' }
+        run: bash desktop/packaging/ci/fetch-rpm-from-copr.sh
       - name: AppImage（容器 ✓）
         run: bash desktop/packaging/ci/build-appimage-container.sh
-      - name: 上传到 Release（**草稿** ✓ 转正由人决定 ✓）
+      - name: 发布到 GitHub Packages（GHCR · OCI 制品 ✓）
+        # GitHub Packages 没有「通用文件」仓库 ✗ → 官方等效 = GHCR OCI 制品 ✓
+        # 用户侧：oras pull ghcr.io/hougelangley/hov-qt:<版本> ✓（公开包 ✓ 无需登录 ✓）
+        run: |
+          curl -fsSL -o /tmp/oras.tgz https://github.com/oras-project/oras/releases/download/v1.2.3/oras_1.2.3_linux_amd64.tar.gz
+          tar xzf /tmp/oras.tgz -C /tmp oras && export PATH="/tmp:$PATH"
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          VER="${GITHUB_REF_NAME#v}"
+          cd out
+          FILES=(); for f in *; do case "$f" in
+            *.deb) FILES+=("$f:application/vnd.debian.binary-package");;
+            *.rpm) FILES+=("$f:application/vnd.rpm");;
+            *.AppImage) FILES+=("$f:application/vnd.appimage");;
+            *) FILES+=("$f");; esac; done
+          oras push "ghcr.io/hougelangley/hov-qt:${VER}" --artifact-type application/vnd.hov.release "${FILES[@]}"
+      - name: 上传到 Release（草稿自动创建 ✓ 转正由人决定 ✓）
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
-          for f in out/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --draft --title "聚合视频 $TAG" \
+              --notes-file "docs/RELEASE_NOTES-${TAG}.md" || \
+            gh release create "$TAG" --draft --title "聚合视频 $TAG" --notes "自动草稿（详见 docs/）"
+          for f in out/*; do gh release upload "$TAG" "$f" --clobber; done
       - name: 渠道排队（COPR · AUR · OBS —— 都属发布动作 → 同受 environment 闸门 ✓）
         # 凭据统一来自仓库单条 Secret **HOVBUILD**（KEY=VALUE 多行 env 包 ✓ 脚本按需取用；
         # 只打印"存在哪些键"✗ 绝不打印值 ✓）
@@ -130,6 +154,8 @@ jobs:
 # ── 依赖脚本清单（desktop/packaging/ci/，随下次推送一并就绪 ✓）──
 #   build-deb-container.sh      隔离容器构建 deb（用后即毁 ✓）
 #   build-rpm-mock.sh           mock 隔离构建 rpm ✓
+#   fetch-rpm-from-copr.sh      从 COPR 取回 rpm 成品 ✓（Fedora 由服务端构建 ✓）
 #   build-appimage-container.sh 容器内构建 AppImage ✓
 #   dispatch-channels.sh        解析 $HOVBUILD 的 KEY=VALUE → copr-cli / AUR / OBS ✓
+#   （GHCR 发布内联于 packages-linux ✓ 见上）
 #   nightly-probes.sh           B站 wbi / 网易云 / QQ / yt-dlp 版本探针 ✓

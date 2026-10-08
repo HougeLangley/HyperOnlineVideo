@@ -286,19 +286,22 @@ object Repo {
                     android.util.Log.w("HOV", "JS 运行时缺失：libqjs.so 不在 nativeLibraryDir ✗")
                 }
             }
-            rq.addOption("--extractor-args", "youtube:player_client=tv,web_embedded,mweb")
+            // 2026-10-08（画质终解 ✗）：quickjs 运行时已就位后，**不再强制客户端** —— 默认客户端此前
+            // 因缺 JS 运行时返回空 URL（被过滤→"无可用播放格式" ✗），现已能给出高清分轨/合流 ✓；
+            // 如默认失败，再由下方"空格式→匿名重试"与"合流兜底"接住 ✓（稳定链保持 ✓）
             if (useCookies) applyCookies(rq, "youtube")
             val rs = YoutubeDL.getInstance().execute(rq, "resolve-${System.currentTimeMillis()}")
             if (rs.exitCode != 0) throw Exception(rs.err.take(300))
             return JSONObject(rs.out)
         }
-        var j = runResolve(true)
+        // 2026-10-08 实验：失效 cookie 可能让 YouTube 返回降级播放器响应（仅 360p ✗）→ 先匿名试 ✓
+        var j = runResolve(false)
         var nf = j.optJSONArray("formats")?.length() ?: 0
-        android.util.Log.i("HOV", "resolve: formats=$nf cookies=yes extarg=web_embedded,mweb")
+        android.util.Log.i("HOV", "resolve: formats=$nf anonymous=true（失效 cookie 会触发 YouTube 降级 ✗）")
         if (nf == 0) {
-            j = runResolve(false)
+            j = runResolve(true)
             nf = j.optJSONArray("formats")?.length() ?: 0
-            android.util.Log.i("HOV", "resolve(匿名重试): formats=$nf")
+            android.util.Log.i("HOV", "resolve(带 cookie 重试): formats=$nf")
         }
         run {
             val fa = j.optJSONArray("formats") ?: return@run

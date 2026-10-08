@@ -266,13 +266,34 @@ object Repo {
     suspend fun resolve(url: String, platform: String): VideoDetail = withContext(Dispatchers.IO) {
         if (platform == "bilibili") return@withContext BiliApi.resolve(url)
 
-        val req = YoutubeDLRequest(url)
-        req.addOption("--dump-single-json")
-        req.addOption("--no-warnings")
-        applyCookies(req, "youtube")
-        val resp = YoutubeDL.getInstance().execute(req, "resolve-${System.currentTimeMillis()}")
-        if (resp.exitCode != 0) throw Exception(resp.err.take(300))
-        val j = JSONObject(resp.out)
+        // 2026-10-08（Android"无可用播放格式"与 macOS 差异定位 ✗）：macOS 靠 deno 解 YouTube JS 挑战 ✓，
+        // Android 无 JS 引擎 ✗ → 锁定 web_embedded/mweb 客户端（无需 nsig ✓，与桌面 fork 修复同款 ✓）；
+        // 叠加"空格式 → 去 cookie 匿名重试"（失效 cookie 会造成格式全空 ✗）+ 一行诊断日志 ✓
+        fun runResolve(useCookies: Boolean): JSONObject {
+            val rq = YoutubeDLRequest(url)
+            rq.addOption("--dump-single-json")
+            rq.addOption("--no-warnings")
+            rq.addOption("--extractor-args", "youtube:player_client=web_embedded,mweb")
+            if (useCookies) applyCookies(rq, "youtube")
+            val rs = YoutubeDL.getInstance().execute(rq, "resolve-${System.currentTimeMillis()}")
+            if (rs.exitCode != 0) throw Exception(rs.err.take(300))
+            return JSONObject(rs.out)
+        }
+        var j = runResolve(true)
+        var nf = j.optJSONArray("formats")?.length() ?: 0
+        android.util.Log.i("HOV", "resolve: formats=$nf cookies=yes extarg=web_embedded,mweb")
+        if (nf == 0) {
+            j = runResolve(false)
+            nf = j.optJSONArray("formats")?.length() ?: 0
+            android.util.Log.i("HOV", "resolve(匿名重试): formats=$nf")
+        }
+        run {
+            val fa = j.optJSONArray("formats") ?: return@run
+            for (i in 0 until minOf(fa.length(), 10)) {
+                val f = fa.optJSONObject(i) ?: continue
+                android.util.Log.i("HOV", "fmt#${f.optString("format_id")} proto=${f.optString("protocol")} v=${f.optString("vcodec").take(10)} a=${f.optString("acodec").take(10)} h=${f.optInt("height")} ext=${f.optString("ext")}")
+            }
+        }
 
         // ---- 选流策略（2026 YouTube 无合流格式）----
         // 播放：HLS 媒体列表精确配对（视频变体 + EXT-X-MEDIA 音频轨，ffmpeg 秒开）
@@ -400,6 +421,21 @@ object Repo {
             .filter { it.isNotEmpty() }.distinct()
         autoCaps?.keys()?.forEach { lang ->
             if (lang in wanted) pickCaption(lang, autoCaps.optJSONArray(lang), true)
+        }
+
+        // 2026-10-08（Android"无可用播放格式"根因 ✗）：web_embedded/mweb 返回"合流"格式（vcodec 与
+        // acodec 同时存在 ✗），上面策略只认分离轨 → 候选全空 ✗。此兜底保证"yt-dlp 有格式 ⇒ 一定能播" ✓。
+        if (formats.isEmpty()) {
+            val muxed = cands.filter { it.vcodec != "none" && it.acodec != "none" }
+            val cap = if (capH > 0) capH else 1080
+            val pick = muxed.filter { it.height in 1..cap }
+                .maxWithOrNull(compareBy<Cand> { it.height }.thenBy { vRank(it.vcodec) }.thenBy { it.tbr })
+                ?: muxed.maxWithOrNull(compareBy<Cand> { it.height }.thenBy { vRank(it.vcodec) }.thenBy { it.tbr })
+            if (pick != null) {
+                formats.add(pick.mf)
+                audioUrl = ""
+                android.util.Log.i("HOV", "合流兜底: ${pick.fid} ${pick.vcodec}/${pick.acodec} h=${pick.height}")
+            }
         }
 
         VideoDetail(

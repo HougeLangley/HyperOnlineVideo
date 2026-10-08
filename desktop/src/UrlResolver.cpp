@@ -108,14 +108,14 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     // 界面表现为"点了没反应、视频区全黑、无任何提示"（用户实测）。这里 45 秒兜底终止并提示。
     auto *deadline = new QTimer(p);
     deadline->setSingleShot(true);
-    deadline->setInterval(45000);
+    deadline->setInterval(75000);
     connect(deadline, &QTimer::timeout, this, [this, p, service, gen] {
         if (gen != gen_) return;                 // 已被新点击取消
         if (p->state() == QProcess::NotRunning) return;
         p->kill();
-        hovLog("[PLAY] 解析超时（45s）→ 已终止 yt-dlp\n");
+        hovLog("[PLAY] 解析超时（75s）→ 已终止 yt-dlp\n");
         if (status_)
-            status_(QString("解析超时（45 秒）：%1 无响应 —— 可能是网络受限或站点风控，请检查网络/登录状态")
+            status_(QString("解析超时（75 秒）：%1 无响应 —— 可能是网络受限或站点风控，请检查网络/登录状态")
                         .arg(service.isEmpty() ? QString("yt-dlp") : service));
     });
     deadline->start();

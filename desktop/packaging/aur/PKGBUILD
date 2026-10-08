@@ -6,7 +6,7 @@
 #   2) scripts/publish-aur.sh --push   → 自动算 sha256 + 生成 .SRCINFO + 推送 AUR ✓
 #   sha256sums 里的 PLACEHOLDER 必须在发布前替换，否则 makepkg 会校验失败 ✗（这是故意的 ✗ 防误发）
 pkgname=hov-qt
-pkgver=1.2.5
+pkgver=1.3.0
 pkgrel=1
 pkgdesc="Aggregated YouTube/Bilibili/NetEase/QQ Music client (Qt6 desktop)"
 arch=('x86_64' 'aarch64' 'riscv64')

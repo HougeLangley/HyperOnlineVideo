@@ -4,7 +4,7 @@
 # 手册的**唯一真相**是 desktop/packaging/man/hov-qt.1（deb/rpm 共用 ✓ 防漂移 ✗）
 
 Name:           hov-qt
-Version:        1.2.5
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
@@ -70,6 +70,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 %{_mandir}/man1/hov-qt-bin.1*
 
 %changelog
+* Fri Oct  3 2026 Houge Langley <hougelangley1987@gmail.com> - 1.3.0-1
+- Integrate fork contributions: YtRangeProxy chunked-range relay, web_embedded player client, DASH audio via mpv NODE array
+- CLI --help/--version; adaptive playback fixes; hwdec audit fix
+
 * Thu Oct  2 2026 Houge Langley <hougelangley1987@gmail.com> - 1.2.5-1
 - YouTube direct-link playability preflight (4MB Range probe) + exit guidance
 - Log time prefixes (HH:MM:SS) on all stderr/qInfo lines

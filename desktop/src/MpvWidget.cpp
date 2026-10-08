@@ -74,7 +74,7 @@ MpvWidget::MpvWidget(QWidget *parent) : QOpenGLWidget(parent) {
     mpv_set_option_string(mpv_, "vo", "libmpv");
     // 轻薄本常无 Vulkan video decode / CUDA：auto-safe 会先踩 vulkan 再失败（日志刷屏、偶发起播异常）。
     // 优先 VAAPI（Intel/AMD），没有则软解；不碰 vulkan/cuda/vdpau_nvidia。
-    mpv_set_option_string(mpv_, "hwdec", "vaapi,no");
+    mpv_set_option_string(mpv_, "hwdec", "vaapi,auto-safe");   // 审计修正：VAAPI 优先 + auto-safe 回退（NVIDIA/无 VAAPI ✗）
     mpv_set_option_string(mpv_, "ytdl", "no");
     // 直链由 App 层解析（UrlResolver 调 yt-dlp），mpv 只负责播放：
     // 这里只设 UA；Referer 按站点在 playResolved 里逐次设置

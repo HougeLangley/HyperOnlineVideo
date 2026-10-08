@@ -103,12 +103,11 @@ jobs:
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
           for f in out/*; do gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; done
-      - name: 渠道排队（COPR · AUR · OBS —— 只"排队/推送元数据"，均属发布动作 → 同受 environment 闸门 ✓）
+      - name: 渠道排队（COPR · AUR · OBS —— 都属发布动作 → 同受 environment 闸门 ✓）
+        # 凭据统一来自仓库单条 Secret **HOVBUILD**（KEY=VALUE 多行 env 包 ✓ 脚本按需取用；
+        # 只打印"存在哪些键"✗ 绝不打印值 ✓）
         env:
-          COPR_TOKEN: '${{ secrets.COPR_TOKEN }}'
-          AUR_SSH_KEY: '${{ secrets.AUR_SSH_KEY }}'
-          OBS_USER: '${{ secrets.OBS_USER }}'
-          OBS_PASS: '${{ secrets.OBS_PASS }}'
+          HOVBUILD: '${{ secrets.HOVBUILD }}'
         run: bash desktop/packaging/ci/dispatch-channels.sh
 
   # ⑤ 夜巡：国内服务探针 + yt-dlp 版本监测 → 失败自动开 issue ✓
@@ -123,3 +122,10 @@ jobs:
         if: failure()
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: gh issue create --title "夜巡失败 $(date +%F)" --body "$(tail -40 /tmp/probe.log)"
+
+# ── 依赖脚本清单（desktop/packaging/ci/，随下次推送一并就绪 ✓）──
+#   build-deb-container.sh      隔离容器构建 deb（用后即毁 ✓）
+#   build-rpm-mock.sh           mock 隔离构建 rpm ✓
+#   build-appimage-container.sh 容器内构建 AppImage ✓
+#   dispatch-channels.sh        解析 $HOVBUILD 的 KEY=VALUE → copr-cli / AUR / OBS ✓
+#   nightly-probes.sh           B站 wbi / 网易云 / QQ / yt-dlp 版本探针 ✓

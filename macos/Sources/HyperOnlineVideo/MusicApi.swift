@@ -1,3 +1,16 @@
+/// 共享：Netscape cookie 文件 → Cookie 头（2026-10-08 去重 ✓：NetEase/QQ 两处解析环合并 ✓）
+func hovCookieHeaderFromFile(_ path: String) -> String {
+    guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return "" }
+    var pairs: [String] = []
+    for line in text.components(separatedBy: "\n") {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        if t.isEmpty || t.hasPrefix("#") { continue }
+        let f = t.components(separatedBy: "\t")
+        if f.count >= 7 { pairs.append("\(f[5])=\(f[6])") }
+    }
+    return pairs.joined(separator: "; ")
+}
+
 import Foundation
 
 // MARK: - 网易云音乐（旧版公开接口；与 Qt 端、Android 端同一套端点）
@@ -9,17 +22,7 @@ final class NetEaseApi {
     struct StreamInfo { var url = "", br = 0, type = "", level = "", error = "" }
 
     static func cookieHeader() -> String {
-        // Netscape cookie 文件 → Cookie 头（与另两端一致；没有文件则匿名）
-        let path = Config.cookiePath("netease")
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return "" }
-        var pairs: [String] = []
-        for line in text.components(separatedBy: "\n") {
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if t.isEmpty || t.hasPrefix("#") { continue }
-            let f = t.components(separatedBy: "\t")
-            if f.count >= 7 { pairs.append("\(f[5])=\(f[6])") }
-        }
-        return pairs.joined(separator: "; ")
+        hovCookieHeaderFromFile(Config.cookiePath("netease"))   // 2026-10-08 去重 ✓
     }
 
     private static func headers() -> [String: String] {
@@ -164,16 +167,7 @@ final class QQMusicApi {
     private static let guid = "10000"
 
     private static func cookieHeader() -> String {
-        let path = Config.cookiePath("qqmusic")
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return "" }
-        var pairs: [String] = []
-        for line in text.components(separatedBy: "\n") {
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if t.isEmpty || t.hasPrefix("#") { continue }
-            let f = t.components(separatedBy: "\t")
-            if f.count >= 7 { pairs.append("\(f[5])=\(f[6])") }
-        }
-        return pairs.joined(separator: "; ")
+        hovCookieHeaderFromFile(Config.cookiePath("qqmusic"))   // 2026-10-08 去重 ✓
     }
 
     func search(_ keyword: String, page: Int = 1, limit: Int = 20) -> [Song] {

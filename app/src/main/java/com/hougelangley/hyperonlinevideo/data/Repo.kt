@@ -140,6 +140,7 @@ object Repo {
 
     /** 把登录 Cookie 注入音乐 API（每次搜索/解析前调用，登录后即时生效） */
     /** 当前是否 WiFi / 以太网（"仅 WiFi 下载"开关判断用） */
+    @Suppress("DEPRECATION")   // allNetworks 弃用：同步路由判定场景 ✓ 2026-10-08
     private fun isOnWifiOrEthernet(): Boolean {
         return try {
             val cm = appContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)

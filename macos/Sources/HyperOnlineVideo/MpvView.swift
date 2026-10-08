@@ -345,8 +345,7 @@ final class MpvView: NSOpenGLView {
         if diag, drawCount <= 8 {
             var vp = [GLint](repeating: 0, count: 4)
             glGetIntegerv(GLenum(GL_VIEWPORT), &vp)
-            let isFlipped = openGLContext?.view?.isFlipped ?? false
-            Config.log("[diag] draw #\(drawCount) bounds=\(Int(bounds.width))x\(Int(bounds.height)) scale=\(scale) viewport=\(vp[0]),\(vp[1]),\(vp[2]),\(vp[3]) flipped=\(isFlipped)")
+            Config.log("[diag] draw #\(drawCount) bounds=\(Int(bounds.width))x\(Int(bounds.height)) scale=\(scale) viewport=\(vp[0]),\(vp[1]),\(vp[2]),\(vp[3])")
         }
         let lines = overlay.lines(at: position(), viewSize: viewSizePx)
         if diag, drawCount % 20 == 0 {

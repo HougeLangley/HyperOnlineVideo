@@ -158,8 +158,9 @@ class LoginActivity : Activity() {
             v.requestFocus()
             // 仅账号密码型页面自动弹键盘；扫码/一键登录页面不弹（避免遮挡二维码）
             if (event.action == android.view.MotionEvent.ACTION_UP && platform != "qqmusic") {
+                // 曾用 SHOW_IMPLICIT（已弃用且自 API 23 起为 no-op ✓）→ 0
                 (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
-                    .showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
+                    .showSoftInput(v, 0)
             }
             false
         }

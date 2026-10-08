@@ -203,11 +203,11 @@ class PlayerActivity : Activity() {
         videoTitle = title.ifEmpty { "正在播放" }
         progressKey = intent.getStringExtra("key").orEmpty()
         @Suppress("UNCHECKED_CAST")
-        qualitiesList = (intent.getSerializableExtra("qualities") as? ArrayList<QualityOption>) ?: arrayListOf()
+        qualitiesList = (intent.getSerializableExtra("qualities", ArrayList::class.java) as? ArrayList<QualityOption>) ?: arrayListOf()
         currentQualityId = intent.getStringExtra("currentQualityId").orEmpty()
         currentAudioUrl = audioUrl
         @Suppress("UNCHECKED_CAST")
-        subtitleTracks = (intent.getSerializableExtra("subtitles") as? ArrayList<SubTrack>) ?: arrayListOf()
+        subtitleTracks = (intent.getSerializableExtra("subtitles", ArrayList::class.java) as? ArrayList<SubTrack>) ?: arrayListOf()
         autoSelectSubtitleBySystemLanguage()      // 默认按系统语言选中并显示字幕（用户要求 ✓）
         // 音乐平台：构建音质档位（受设置上限裁剪）+ 从当前音质标签推断档位（M20 播放器内切音质）
         songId = intent.getStringExtra("songId").orEmpty()
@@ -363,7 +363,7 @@ class PlayerActivity : Activity() {
                 override fun eventProperty(property: String, value: String) {}
                 override fun eventProperty(property: String, value: Double) {}
                 override fun eventProperty(property: String, value: MPVNode) {}
-                override fun event(event: Int, data: MPVNode) {}
+                override fun event(eventId: Int, data: MPVNode) {}
                 override fun eventProperty(property: String, value: Boolean) {
                     if (value && (property == "eof-reached" || property == "idle-active")) {
                         handler.post { onPlaybackEnded() }

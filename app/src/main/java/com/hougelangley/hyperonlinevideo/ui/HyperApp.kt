@@ -621,6 +621,7 @@ private fun VideoRow(
     }
 }
 
+@Suppress("DEPRECATION")   // confirmValueChange 弃用：动态锚点迁移待专项（行为等价 ✓）2026-10-08
 @Composable
 private fun DownloadCard(task: DownloadTask, onCancel: () -> Unit, onRetry: () -> Unit) {
     // 完成态 3.5 秒后自动淡出（不挡视野）

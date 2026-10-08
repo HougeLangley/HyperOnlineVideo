@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")   // allNetworks 弃用：现代 NetworkCallback 不适配此处同步判定 ✓ 2026-10-08
 package com.hougelangley.hyperonlinevideo.data
 
 import android.content.Context

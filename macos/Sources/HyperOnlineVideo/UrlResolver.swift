@@ -289,10 +289,22 @@ final class UrlResolver {
         let dir = NSTemporaryDirectory() + "/hov-subs-" + String(abs(pageUrl.hashValue))
         try? FileManager.default.removeItem(atPath: dir)            // 2026-10-08：预清目录（防旧字幕文件掩盖新结果 ✗）
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        // 2026-10-08 429 根治（GUI 日志实锤 ✗）：8 语言齐发时，打头的 zh-Hans（视频无此轨 ✗）返回
+        //   HTTP 429 → yt-dlp 直接放弃整批 ✗ → 0 轨 ✓。两步法：① --list-subs（1 次请求 ✓）拿**实际可用语言**
+        //   ② 仅下载"系统语言优先中确实存在"的 1 条（请求数 8+ → 2 ✓ 不再触发限流 ✓）
+        var langsArg = Self.subLangsForSystem()
+        let listArgs = ["--skip-download", "--no-warnings", "--no-playlist", "--list-subs", pageUrl]
+        if let avail = Self.listAvailableSubLangs(ytdlpArgs: listArgs), !avail.isEmpty {
+            let pick = Self.pickLangs(available: avail, limit: 2)
+            if !pick.isEmpty {
+                langsArg = pick.joined(separator: ",")
+                Config.log("在线字幕：可用=\(avail.prefix(6).joined(separator: ",")) → 选中=\(langsArg)（两步法 ✓）")
+            }
+        }
         var args = ["--skip-download", "--no-warnings", "--no-playlist",
                     "--write-subs", "--write-auto-subs",
                     // 字幕语言随**系统语言**（中文系统仍中文优先；德语系统会抓 de）
-                    "--sub-langs", Self.subLangsForSystem(),
+                    "--sub-langs", langsArg,
                     "--sub-format", "srt/vtt/best",
                     "-o", dir + "/%(id)s.%(ext)s"]
         // 2026-10-08 修复（对齐 Android 已验证方案 ✓）：字幕抓取**匿名优先** —— 失效 cookie 会让
@@ -332,5 +344,35 @@ final class UrlResolver {
             Config.log("在线字幕：yt-dlp 取回 \(tracks.count) 条")
         }
         return tracks.sorted { Subtitles.languageRank($0.label) < Subtitles.languageRank($1.label) }
+    }
+
+    /// 2026-10-08：`--list-subs` 输出 → 实际可用字幕语言码集合（英文标题行跳掉 ✓）
+    static func listAvailableSubLangs(ytdlpArgs: [String]) -> [String]? {
+        guard let ytdlp = Self.findExecutable("yt-dlp") else { return nil }
+        let r = Self.runProcess(ytdlp, ytdlpArgs)
+        guard r.code == 0 else { return nil }
+        var out: [String] = []
+        for line in r.out.components(separatedBy: "\n") {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty, !t.hasPrefix("["), !t.hasSuffix(":") else { continue }
+            // 形如 "zh-Hans            vtt, ttml, srv3, ..., json3"
+            let parts = t.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard let code = parts.first, code.count >= 2, code.count <= 12 else { continue }
+            guard code.range(of: "^[A-Za-z][A-Za-z0-9_-]+$", options: .regularExpression) != nil else { continue }
+            if !out.contains(code) { out.append(code) }
+        }
+        return out
+    }
+
+    /// 从可用语言里按"系统语言优先"挑 ≤limit 个（复用 Subtitles.languageRank 语义 ✓）
+    static func pickLangs(available: [String], limit: Int) -> [String] {
+        let sys = Locale.preferredLanguages.map { $0.lowercased() } + ["zh-hans", "zh-cn", "zh", "zh-hant", "en"]
+        var prefer: [String] = []
+        for a in available {
+            let la = a.lowercased()
+            if sys.contains(where: { la == $0 || la.hasPrefix($0) || $0.hasPrefix(la) }) { prefer.append(a) }
+        }
+        let rest = available.filter { !prefer.contains($0) }.sorted { Subtitles.languageRank($0) < Subtitles.languageRank($1) }
+        return Array((prefer + rest).prefix(limit))
     }
 }

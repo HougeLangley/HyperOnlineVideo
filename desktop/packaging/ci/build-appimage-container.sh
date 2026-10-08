@@ -13,7 +13,13 @@ sudo systemd-nspawn -D "$ROOT" --resolv-conf=copy-host -q -- \
   bash -c 'export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq build-essential cmake ninja-build pkgconf curl file zsync \
-      qt6-base-dev qt6-declarative-dev qt6-wayland libmpv-dev ffmpeg clang lld >/dev/null
+      qt6-base-dev qt6-declarative-dev qt6-wayland libmpv-dev ffmpeg clang lld fuse3 >/dev/null
+    # 容器内无 FUSE ✗ → 自解压运行 ✓；plugin-qt 必须在 PATH ✓（build-appimage.sh 注释 #5 ✓）
+    export APPIMAGE_EXTRACT_AND_RUN=1
+    curl -fsSLo /usr/local/bin/linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+    curl -fsSLo /usr/local/bin/linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+    chmod +x /usr/local/bin/linuxdeploy /usr/local/bin/linuxdeploy-plugin-qt
+    export PATH="/usr/local/bin:$PATH"; export QMAKE="$(command -v qmake6)"
     cd /build/desktop && bash packaging/build-appimage.sh >/tmp/ai.log 2>&1 || { tail -30 /tmp/ai.log; exit 1; }'
 sudo find "$ROOT/build/desktop" -maxdepth 1 -name "*.AppImage" -exec cp {} "$OUT/" \;
 ls -la "$OUT"/*.AppImage

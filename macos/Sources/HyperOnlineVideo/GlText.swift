@@ -170,29 +170,7 @@ final class GlText {
             x1, y1, 1, 0,
         ]
 
-        glEnable(GLenum(GL_BLEND))
-        // RGB 正常 alpha 混合；**alpha 通道**用 (ONE, ONE_MINUS_SRC_ALPHA)：目标不透明就保持不透明
-        // （透明 GL 表面下很关键：否则文字/图片边缘会把 surface alpha 压低，整片发虚透出窗口背景）
-        glBlendFuncSeparate(GLenum(GL_SRC_ALPHA), GLenum(GL_ONE_MINUS_SRC_ALPHA),
-                            GLenum(GL_ONE), GLenum(GL_ONE_MINUS_SRC_ALPHA))
-        glUseProgram(program)
-        glUniform1i(glGetUniformLocation(program, "tex"), 0)
-        glUniform1f(glGetUniformLocation(program, "u_alpha"), Float(alpha))
-        glActiveTexture(GLenum(GL_TEXTURE0))
-        glBindTexture(GLenum(GL_TEXTURE_2D), tex)
-        glBindVertexArray(vao)
-        glBindBuffer(GLenum(GL_ARRAY_BUFFER), vbo)
-        verts.withUnsafeBytes { buf in
-            glBufferData(GLenum(GL_ARRAY_BUFFER), buf.count, buf.baseAddress, GLenum(GL_DYNAMIC_DRAW))
-        }
-        let stride = GLsizei(4 * MemoryLayout<Float>.size)
-        glEnableVertexAttribArray(0)
-        glVertexAttribPointer(0, 2, GLenum(GL_FLOAT), GLboolean(GL_FALSE), stride, nil)
-        glEnableVertexAttribArray(1)
-        glVertexAttribPointer(1, 2, GLenum(GL_FLOAT), GLboolean(GL_FALSE), stride,
-                              UnsafeRawPointer(bitPattern: 2 * MemoryLayout<Float>.size))
-        glDrawArrays(GLenum(GL_TRIANGLE_STRIP), 0, 4)
-        glBindVertexArray(0)
+        submitDraw(program: program, tex: tex, vao: vao, vbo: vbo, verts: verts, alpha: Float(alpha))
         // 纹理归缓存所有：不删（原来每帧建一次删一次 = 每帧重传）
     }
 
@@ -234,29 +212,7 @@ final class GlText {
             x0, y1, 0, 0,
             x1, y1, 1, 0,
         ]
-        glEnable(GLenum(GL_BLEND))
-        // RGB 正常 alpha 混合；**alpha 通道**用 (ONE, ONE_MINUS_SRC_ALPHA)：目标不透明就保持不透明
-        // （透明 GL 表面下很关键：否则文字/图片边缘会把 surface alpha 压低，整片发虚透出窗口背景）
-        glBlendFuncSeparate(GLenum(GL_SRC_ALPHA), GLenum(GL_ONE_MINUS_SRC_ALPHA),
-                            GLenum(GL_ONE), GLenum(GL_ONE_MINUS_SRC_ALPHA))
-        glUseProgram(program)
-        glUniform1i(glGetUniformLocation(program, "tex"), 0)
-        glUniform1f(glGetUniformLocation(program, "u_alpha"), Float(alpha))
-        glActiveTexture(GLenum(GL_TEXTURE0))
-        glBindTexture(GLenum(GL_TEXTURE_2D), tex)
-        glBindVertexArray(vao)
-        glBindBuffer(GLenum(GL_ARRAY_BUFFER), vbo)
-        verts.withUnsafeBytes { buf in
-            glBufferData(GLenum(GL_ARRAY_BUFFER), buf.count, buf.baseAddress, GLenum(GL_DYNAMIC_DRAW))
-        }
-        let stride = GLsizei(4 * MemoryLayout<Float>.size)
-        glEnableVertexAttribArray(0)
-        glVertexAttribPointer(0, 2, GLenum(GL_FLOAT), GLboolean(GL_FALSE), stride, nil)
-        glEnableVertexAttribArray(1)
-        glVertexAttribPointer(1, 2, GLenum(GL_FLOAT), GLboolean(GL_FALSE), stride,
-                              UnsafeRawPointer(bitPattern: 2 * MemoryLayout<Float>.size))
-        glDrawArrays(GLenum(GL_TRIANGLE_STRIP), 0, 4)
-        glBindVertexArray(0)
+        submitDraw(program: program, tex: tex, vao: vao, vbo: vbo, verts: verts, alpha: Float(alpha))
         glDeleteTextures(1, &tex)
     }
 
@@ -339,5 +295,32 @@ final class GlText {
         }
         NSGraphicsContext.restoreGraphicsState()
         return ctx.makeImage()
+    }
+
+    // 2026-10-08 去重（审核 #297 ✓）：文字/图片两条绘制路径的 GL 状态准备与提交（行为零改动 ✓）
+    private func submitDraw(program: GLuint, tex: GLuint, vao: GLuint, vbo: GLuint, verts: [Float], alpha: Float) {
+        glEnable(GLenum(GL_BLEND))
+        // RGB 正常 alpha 混合；**alpha 通道**用 (ONE, ONE_MINUS_SRC_ALPHA)：目标不透明就保持不透明
+        // （透明 GL 表面下很关键：否则文字/图片边缘会把 surface alpha 压低，整片发虚透出窗口背景）
+        glBlendFuncSeparate(GLenum(GL_SRC_ALPHA), GLenum(GL_ONE_MINUS_SRC_ALPHA),
+                            GLenum(GL_ONE), GLenum(GL_ONE_MINUS_SRC_ALPHA))
+        glUseProgram(program)
+        glUniform1i(glGetUniformLocation(program, "tex"), 0)
+        glUniform1f(glGetUniformLocation(program, "u_alpha"), alpha)
+        glActiveTexture(GLenum(GL_TEXTURE0))
+        glBindTexture(GLenum(GL_TEXTURE_2D), tex)
+        glBindVertexArray(vao)
+        glBindBuffer(GLenum(GL_ARRAY_BUFFER), vbo)
+        verts.withUnsafeBytes { buf in
+            glBufferData(GLenum(GL_ARRAY_BUFFER), buf.count, buf.baseAddress, GLenum(GL_DYNAMIC_DRAW))
+        }
+        let stride = GLsizei(4 * MemoryLayout<Float>.size)
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 2, GLenum(GL_FLOAT), GLboolean(GL_FALSE), stride, nil)
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(1, 2, GLenum(GL_FLOAT), GLboolean(GL_FALSE), stride,
+                              UnsafeRawPointer(bitPattern: 2 * MemoryLayout<Float>.size))
+        glDrawArrays(GLenum(GL_TRIANGLE_STRIP), 0, 4)
+        glBindVertexArray(0)
     }
 }

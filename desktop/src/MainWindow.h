@@ -123,6 +123,7 @@ template <typename T>
 
     /** 取网易云歌词并合并翻译后交给字幕层（匿名接口即可，实测部分曲目 40+ 行） */
     void loadLyricsFor(const QString &id, const QString &label, NetEaseApi *api);
+    void applyLoadedLyrics(QVector<SubtitleCue> cues, const QString &trans, const QString &label);
 
     /** 队列 / 收藏逻辑自检（--queue-selftest）：纯逻辑，不触网、不动真实收藏文件 */
     /** 队列 / 收藏逻辑自检（--queue-selftest）：纯逻辑，不触网、不动真实收藏文件。

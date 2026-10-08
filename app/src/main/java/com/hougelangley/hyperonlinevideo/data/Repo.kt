@@ -364,10 +364,15 @@ object Repo {
             else -> 0
         }
         // 视频候选：优先 HLS 视频变体（vcodec 有、acodec 空）
-        val hlsVideos = cands.filter { isHls(it) && it.vcodec != "none" && it.acodec == "none" }
+        val hlsVideosAll = cands.filter { isHls(it) && it.vcodec != "none" && it.acodec == "none" }
         val dashVideos = cands.filter { !isHls(it) && it.vcodec != "none" && it.acodec == "none" }
         // 音频候选
-        val hlsAudios = cands.filter { isHls(it) && it.vcodec == "none" }          // 233/234
+        val hlsAudiosAll = cands.filter { isHls(it) && it.vcodec == "none" }          // 233/234
+        // 2026-10-08 静音修复 ✓（手机实况铁证 ✗）：YouTube HLS 主清单**常不含音频轨** ✗
+        //（实测：itag/312 视频流反复重开 ✗ 全程无 [ffmpeg:a] 音频打开 ✗；audio-add 执行了也不生效 ✗）
+        // → 有 DASH 分轨时**优先 DASH**（视频流 + audio-add 音轨 = 经典稳链 ✓）；仅当无 DASH 才用 HLS ✓
+        val hlsVideos = if (dashVideos.isNotEmpty()) emptyList<Cand>() else hlsVideosAll
+        val hlsAudios = if (dashVideos.isNotEmpty()) emptyList<Cand>() else hlsAudiosAll
         val dashAudios = cands.filter { !isHls(it) && it.acodec != "none" && it.vcodec == "none" }
 
         // 清晰度选项（同分辨率去重，取编码/码率最优者）

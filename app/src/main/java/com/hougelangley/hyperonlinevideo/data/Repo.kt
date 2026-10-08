@@ -273,6 +273,7 @@ object Repo {
             val rq = YoutubeDLRequest(url)
             rq.addOption("--dump-single-json")
             rq.addOption("--no-warnings")
+            // 2026-10-08 清晰度修复：tv 优先（高清 ✓），失败再由低清客户端兜底 ✓
             rq.addOption("--extractor-args", "youtube:player_client=web_embedded,mweb")
             if (useCookies) applyCookies(rq, "youtube")
             val rs = YoutubeDL.getInstance().execute(rq, "resolve-${System.currentTimeMillis()}")

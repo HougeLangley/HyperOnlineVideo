@@ -131,7 +131,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 > 每种系统**只需复制粘贴几条命令** ✓ 不需要懂原理 ✓
 > Linux 全系都**从软件源安装**（AUR / Copr / OBS / Nix flake）✓ —— 用系统包管理器一键完成 ✓ 随系统一起自动更新 ✓
 
-> 🧩 **进阶取包**：CI 每次自动打包的产物同时发布在 **[GitHub Packages · hov-qt](https://github.com/HougeLangley/HyperOnlineVideo/pkgs/container/hov-qt)**（OCI 制品 ✓）；安装 [oras](https://oras.land/) 后一条命令取全部安装包：
+> 🧩 **进阶取包**：CI 每次自动打包的产物同时发布在 **[GitHub Packages · hov-qt](https://github.com/HougeLangley/HyperOnlineVideo/pkgs/container/hov-qt)**（OCI 制品 ✓）；安装 [oras](https://oras.land/) 后一条命令取安装包（deb + AppImage ✓；rpm 亦在 Release 资产中 ✓ 下次发版起 GHCR 将含全部三件 ✓）：
 > `oras pull ghcr.io/hougelangley/hov-qt:<版本号>` ✓（公开包 ✓ 无需登录 ✓）
 >
 

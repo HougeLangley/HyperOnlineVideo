@@ -320,6 +320,12 @@ extension AppDelegate {
         var out: [Row] = []
         for v in entries {
             guard let o = v as? [String: Any], let id = o["id"] as? String else { continue }
+            // 2026-10-17（与 Android / Linux SearchController 同一案 ✗）：搜索结果混入
+            // 频道/播放列表条目 ✗ → 拼 watch?v= 后点「下一个」报 This video is unavailable ✗
+            // （用户 Android 真机复现 ✓）→ 对齐 Linux 正解：优先用 url ✓ 滤非视频形态 ✓
+            let eu = (o["url"] as? String) ?? "https://www.youtube.com/watch?v=\(id)"
+            let nonVideo = ["/channel/", "/user/", "/c/", "/@", "/playlist", "/results", "/feed/"]
+            if nonVideo.contains(where: { eu.contains($0) }) { continue }
             let title = (o["title"] as? String) ?? id
             let up = (o["uploader"] as? String) ?? ""
             let dur = (o["duration"] as? NSNumber)?.doubleValue ?? 0

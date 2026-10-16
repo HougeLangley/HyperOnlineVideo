@@ -1366,6 +1366,9 @@ class PlayerActivity : Activity() {
         playNext(auto = true)
     }
 
+    /** 连跳计数（不可播放条目自动跳过 ✗ 2026-10-17 用户真机 bug：下一个视频报错卡死 ✗）*/
+    private var playSkipStreak = 0
+
     /** 切歌：解析队列中的下一项；auto=true 表示"播完自动续播" */
     private fun playNext(auto: Boolean) {
         val entry = PlayQueue.peekNext(auto)
@@ -1374,7 +1377,7 @@ class PlayerActivity : Activity() {
             finish()          // 队列到头（顺序模式）→ 正常退出
             return
         }
-        playEntry(entry)
+        playEntry(entry, dir = 1, auto = auto)
     }
 
     private fun playPrev() {
@@ -1383,11 +1386,11 @@ class PlayerActivity : Activity() {
             Toast.makeText(this, "已经是第一首", Toast.LENGTH_SHORT).show()
             return
         }
-        playEntry(entry)
+        playEntry(entry, dir = -1)
     }
 
-    /** 异步解析并播放队列项（音乐走 resolveMusic，视频走 resolve，本地直读文件） */
-    private fun playEntry(entry: PlayQueue.Entry) {
+    /** 异步解析并播放队列项（音乐走 resolveMusic，视频走 resolve，本地直读文件）；dir=1 下一 / -1 上一 ✓ */
+    private fun playEntry(entry: PlayQueue.Entry, dir: Int = 1, auto: Boolean = false) {
         Toast.makeText(this, "切换: ${entry.item.title.take(24)}", Toast.LENGTH_SHORT).show()
         playerScope.launch {
             try {
@@ -1407,7 +1410,22 @@ class PlayerActivity : Activity() {
             } catch (e: Exception) {
                 android.util.Log.w("HOV", "切歌失败: ${e.message}")
                 switching = false
-                Toast.makeText(this@PlayerActivity, "切歌失败: ${e.message?.take(60)}", Toast.LENGTH_LONG).show()
+                // 2026-10-17 修复用户真机 bug ✗：队列里混入不可播放条目时（失效/删除视频 ✗）
+                // 以前直接卡死停在错误上 ✗（用户看到"点击下一个视频会出错" ✓）
+                // → 现在：标记该条已跳过（推进队列指针 ✓ 防死循环 ✗）+ 自动尝试下一条（最多连跳 5 条 ✓）
+                PlayQueue.moveTo(entry)
+                playSkipStreak += 1
+                if (playSkipStreak <= 5) {
+                    Toast.makeText(
+                        this@PlayerActivity,
+                        "跳过无法播放：${entry.item.title.take(20)}（第 $playSkipStreak 条）",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    if (dir < 0) playPrev() else playNext(auto)
+                } else {
+                    playSkipStreak = 0
+                    Toast.makeText(this@PlayerActivity, "连续 5 条无法播放，已停下（可能网络受限 ✗）", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -1415,6 +1433,7 @@ class PlayerActivity : Activity() {
     /** 切歌落地：更新界面状态并换流 */
     private fun applyEntry(entry: PlayQueue.Entry, d: VideoDetail) {
         PlayQueue.moveTo(entry)
+        playSkipStreak = 0            // 成功落地 → 连跳计数复位 ✓（2026-10-17 ✓）
         platform = entry.platform
         progressKey = entry.item.url
         videoTitle = d.title.ifEmpty { entry.item.title }

@@ -248,6 +248,13 @@ object Repo {
             val e = entries.optJSONObject(i) ?: continue
             val id = e.optString("id")
             if (id.isEmpty()) continue
+            // 2026-10-17 修复用户真机 bug ✗（与 Linux SearchController 同一案 ✓ 那边早已修过 ✓）：
+            // YouTube 搜索结果会混入频道/播放列表条目 ✗——此前无条件拼 watch?v=<id> ✗
+            // → 点「下一条」撞上就报 [youtube] UC…: This video is unavailable ✗（mac/Linux 靠过滤 ✓）。
+            // 对齐 Linux 正解：优先用 yt-dlp 给的 url ✓ 并滤掉非视频形态地址 ✓
+            val eu0 = e.optString("url")
+            val nonVideo = listOf("/channel/", "/user/", "/c/", "/@", "/playlist", "/results", "/feed/")
+            if (eu0.isNotEmpty() && nonVideo.any { eu0.contains(it) }) continue
             out.add(
                 VideoItem(
                     id = id,

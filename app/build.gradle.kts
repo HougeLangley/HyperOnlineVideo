@@ -74,7 +74,7 @@ android {
 dependencies {
     implementation(project(":core"))          // 共享核心（P1 抽取）
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")   // 单测环境提供真实 JSONObject
+    testImplementation("org.json:json:20260814")   // 单测环境提供真实 JSONObject
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")

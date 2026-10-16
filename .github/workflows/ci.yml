@@ -28,7 +28,7 @@ jobs:
     container: ubuntu:26.04          # 24.04 缺 QOverload/Qt6.5 API ✗（历史踩坑 ✓）
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: 依赖
         run: |
           apt-get update
@@ -55,7 +55,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: 依赖（libmpv ✓）
         run: brew install mpv || true
       - name: 构建
@@ -73,10 +73,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: '21' }
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: 构建 + 单测
         run: |
           ./gradlew :app:assembleDebug :app:testDebugUnitTest --console=plain
@@ -99,7 +99,7 @@ jobs:
       contents: write      # Release 资产上传 ✓
       packages: write      # GHCR（GitHub Packages）✓
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: deb（隔离容器 · 用后即毁 ✓）
         run: bash desktop/packaging/ci/build-deb-container.sh
       - name: rpm（COPR 服务端构建 ✓ 取回成品 ✓）
@@ -143,7 +143,7 @@ jobs:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: 探针（B站 wbi / 网易云 / QQ / yt-dlp 版本 ✓）
         run: bash desktop/packaging/ci/nightly-probes.sh > /tmp/probe.log 2>&1 || true
       - name: 失败则开 issue ✓

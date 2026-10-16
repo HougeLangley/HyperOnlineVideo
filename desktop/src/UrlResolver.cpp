@@ -171,6 +171,8 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                         if (!e.isEmpty()) status_(e.left(300));
                         status_(NetPolicy::hintForFailure(service.isEmpty() ? "yt-dlp" : service));
                     }
+                    // 2026-10-17：确定性失败 → 通知上层（队列驱动时自动跳过 ✓ 用户手点则仅报状态 ✓）
+                    if (fail_) fail_(pageUrl);
                     return;
                 }
 

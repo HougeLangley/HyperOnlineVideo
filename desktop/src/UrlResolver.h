@@ -74,6 +74,9 @@ public:
     void setPlayHandler(std::function<void(const Stream &)> h) { play_ = std::move(h); }
     void setTracksHandler(std::function<void(const QVector<SubtitleTrack> &)> h) { tracksReady_ = std::move(h); }
     void setStatusHandler(std::function<void(const QString &)> h) { status_ = std::move(h); }
+    // 2026-10-17（与 Android「点下一个视频出错」同案 ✗）：解析**确定性失败**回调（匿名+cookie 已重试耗尽 ✓）
+    // 供上层做"队列跳过"（超时不回调 ✗ 避免网络故障时连环空转 ✓）
+    void setFailHandler(std::function<void(const QString &pageUrl)> h) { fail_ = std::move(h); }
     /** 国内服务是否显式绕过代理（设置项 network.forceDirectDomestic，与音乐 API 一致） */
     void setForceDirect(bool b) { forceDirect_ = b; }
     /** 视频清晰度上限（0=自动，-1=仅音频，否则高度上限） */
@@ -114,6 +117,7 @@ private:
     std::function<void(const Stream &)> play_;
     std::function<void(const QVector<SubtitleTrack> &)> tracksReady_;
     std::function<void(const QString &)> status_;
+    std::function<void(const QString &)> fail_;
     QNetworkAccessManager *net_ = nullptr;
     bool forceDirect_ = false;
     QString cookiesFromBrowser_;

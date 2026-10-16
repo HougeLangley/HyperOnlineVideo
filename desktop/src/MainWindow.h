@@ -107,6 +107,7 @@ template <typename T>
 
     bool autoplay_ = false;
     bool eofLatch_ = false;   // 播完续播闩锁：eof 期间只触发一次（见 eofTimer 注释）
+    int skipStreak_ = 0;      // 解析失败自动跳过计数（上限 5 ✓ 成功解析复位 ✓ 2026-10-17）
     QLineEdit *search_;
     QComboBox *srcBox_ = nullptr;   // 搜索来源：YouTube / 网易云 / QQ音乐
     QListWidget *results_;

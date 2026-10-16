@@ -312,7 +312,24 @@ MainWindow::MainWindow() {
         resolver_ = new UrlResolver(this);
         ytProxy_ = new YtRangeProxy(this);
         resolver_->setStatusHandler([this](const QString &m) { results_->addItem(m); });
+        resolver_->setFailHandler([this](const QString &key) {
+            // 2026-10-17（与 Android「点下一个视频出错」同一案 ✗ 用户要求挖掘潜在同类 ✗）：
+            // 队列驱动的播放解析失败（条目失效/受限 ✗）→ 自动跳过（最多连跳 5 ✓ 有界 ✓ 防风暴 ✓）
+            bool inQueue = false;
+            for (int i = 0; i < queue_.size(); ++i)
+                if (queue_.at(i) && queue_.at(i)->key == key) { inQueue = true; break; }
+            if (!inQueue) return;                     // 手点单曲失败：维持原行为（只报状态 ✓）
+            if (++skipStreak_ > 5) {
+                skipStreak_ = 0;
+                results_->addItem("连续 5 条无法播放，已停止（可能网络受限 ✗）");
+                return;
+            }
+            hovLog("[SKIP] 解析失败 → 跳过（第 %d 条）：%s\n", skipStreak_, qPrintable(key.left(80)));
+            results_->addItem(QString("跳过无法播放：%1").arg(key.left(70)));
+            queueOrFileNext(/*autoAdvance=*/true);    // 前进一条 ✓（新播放成功解析后会复位 ✓）
+        });
         resolver_->setPlayHandler([this](const UrlResolver::Stream &s) {
+            skipStreak_ = 0;                // 解析成功 → 连跳计数复位 ✓（2026-10-17 ✓）
             player_->setCoverArt(QString(), QString(), QString());   // 视频：清掉音乐封面
             // Issue #1：googlevideo 直链经本机分块代理再交给 mpv（开放式 GET 在受限出口会 403）
             const QString playVideo = ytProxy_ ? ytProxy_->map(s.videoUrl) : s.videoUrl;

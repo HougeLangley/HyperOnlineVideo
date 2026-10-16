@@ -1168,7 +1168,16 @@ extension AppDelegate {
         DispatchQueue.global().async { [weak self] in
             guard let self else { return }
             guard let stream = self.resolver.resolve(pageUrl) else {
-                DispatchQueue.main.async { if reqId == self.playRequestId { self.setStatus("解析失败（检查网络/ cookie）") } }
+                Config.log("[RESOLVE] 解析失败，尝试跳过：\(String(pageUrl.prefix(60)))")
+                DispatchQueue.main.async {
+                    if reqId == self.playRequestId {
+                        self.setStatus("解析失败（检查网络/ cookie）")
+                        // 2026-10-17（与 Android「点下一个视频出错」同一案 ✗ 用户要求挖掘潜在同类 ✗）：
+                        // 视频解析失败以前只报状态不前进 ✗ → 复用音乐路径已有的 tryPlayNext
+                        // （只在 rows 内**向前**最多试 6 条 ✓ 不会死循环 ✓）
+                        self.tryPlayNext(after: pageUrl)
+                    }
+                }
                 return
             }
             guard reqId == self.playRequestId else {

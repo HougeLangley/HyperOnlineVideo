@@ -125,9 +125,15 @@ jobs:
             *.AppImage) FILES+=("$f:application/vnd.appimage");;
             *) FILES+=("$f");; esac; done
           oras push "ghcr.io/hougelangley/hov-qt:${VER}" --artifact-type application/vnd.hov.release "${FILES[@]}"
-      - name: 上传到 Release（草稿自动创建 ✓ 转正由人决定 ✓）
+      - name: 上传到 Release（gh 自装 ✓ 草稿自动创建 ✓ 转正由人决定 ✓）
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
+          # 2026-10-17 v1.3.1 首发实测：自托管 runner 无 gh ✗ → 现场自装（动态取最新版 ✓）
+          if ! command -v gh >/dev/null; then
+            URL=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep -oE 'https://[^"]+linux_amd64\.tar\.gz' | head -1)
+            curl -fsSL -o /tmp/gh.tgz "$URL" && tar xzf /tmp/gh.tgz -C /tmp && export PATH="$(dirname "$(find /tmp -name gh -type f | head -1)"):$PATH"
+            echo "gh 自装完成：$(gh --version | head -1)"
+          fi
           TAG="${GITHUB_REF_NAME}"
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --draft --title "聚合视频 $TAG" \

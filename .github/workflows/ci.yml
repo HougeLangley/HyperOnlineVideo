@@ -100,13 +100,16 @@ jobs:
       packages: write      # GHCR（GitHub Packages）✓
     steps:
       - uses: actions/checkout@v7
+      - name: 渠道推送（OBS/AUR + 自检 ✓ 先行 ✓ 非致命 ✓）
+        env: { HOVBUILD: '${{ secrets.HOVBUILD }}' }
+        run: bash desktop/packaging/ci/dispatch-channels.sh || true
       - name: deb（隔离容器 · 用后即毁 ✓）
         run: bash desktop/packaging/ci/build-deb-container.sh
-      - name: rpm（COPR 服务端构建 ✓ 取回成品 ✓）
-        env: { HOVBUILD: '${{ secrets.HOVBUILD }}' }
-        run: bash desktop/packaging/ci/fetch-rpm-from-copr.sh
       - name: AppImage（容器 ✓）
         run: bash desktop/packaging/ci/build-appimage-container.sh
+      - name: rpm（COPR 服务端构建 ✓ 取回成品 ✓ 在 deb/AppImage 之后给 COPR 留足构建时间 ✓）
+        env: { HOVBUILD: '${{ secrets.HOVBUILD }}' }
+        run: bash desktop/packaging/ci/fetch-rpm-from-copr.sh || true
       - name: 发布到 GitHub Packages（GHCR · OCI 制品 ✓）
         # GitHub Packages 没有「通用文件」仓库 ✗ → 官方等效 = GHCR OCI 制品 ✓
         # 用户侧：oras pull ghcr.io/hougelangley/hov-qt:<版本> ✓（公开包 ✓ 无需登录 ✓）
@@ -131,12 +134,7 @@ jobs:
               --notes-file "docs/RELEASE_NOTES-${TAG}.md" || \
             gh release create "$TAG" --draft --title "聚合视频 $TAG" --notes "自动草稿（详见 docs/）"
           for f in out/*; do gh release upload "$TAG" "$f" --clobber; done
-      - name: 渠道排队（COPR · AUR · OBS —— 都属发布动作 → 同受 environment 闸门 ✓）
-        # 凭据统一来自仓库单条 Secret **HOVBUILD**（KEY=VALUE 多行 env 包 ✓ 脚本按需取用；
-        # 只打印"存在哪些键"✗ 绝不打印值 ✓）
-        env:
-          HOVBUILD: '${{ secrets.HOVBUILD }}'
-        run: bash desktop/packaging/ci/dispatch-channels.sh
+      # （渠道推送已前置执行 ✓ 见上）
 
   # ⑤ 夜巡：国内服务探针 + yt-dlp 版本监测 → 失败自动开 issue ✓
   nightly:

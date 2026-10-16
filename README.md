@@ -17,6 +17,22 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 | **Fedora 44 / 45** | ✅ v1.3.0 | Copr：[`houge/hov-qt`](https://copr.fedorainfracloud.org/coprs/houge/hov-qt/) · `sudo dnf copr enable houge/hov-qt` |
 | **openSUSE Tumbleweed** | ✅ v1.3.0 | OBS `home:houge`（x86_64 / aarch64 / riscv64）|
 | **openSUSE Leap 16.0** | ✅ v1.3.0 | OBS `home:houge`（x86_64 / aarch64）|
+### 🧪 v1.3.1 开发进度（开发中 · 未发布 ✗）
+
+> 代码库当前版本号 = **v1.3.1**（本地测试中 ✓）；下方渠道仍为 v1.3.0 正式版 ✓，v1.3.1 发布后本节更新 ✓
+
+| 平台 | v1.3.1 状态 |
+|---|---|
+| Android | 🛠 v1.3.1：字幕「时有时无」四根因修复 ✓ + Kotlin 2.4.21 ✓（真机验证通过 ✓）|
+| macOS | 🛠 v1.3.1：本地 dmg 已构建 ✓（待正式发布 ✗）|
+| Arch / AUR | ⏳ v1.3.1 待打包 ✗ |
+| Fedora / COPR | ⏳ v1.3.1 待打包 ✗ |
+| openSUSE / OBS | ⏳ v1.3.1 待打包 ✗ |
+| Debian / Ubuntu（deb）| ⏳ v1.3.1 待打包 ✗ |
+| rpm | ⏳ v1.3.1 待打包 ✗ |
+| AppImage | ⏳ v1.3.1 待打包 ✗ |
+| NixOS flake | 🛠 v1.3.1：版本号已抬升 ✓（待发布 ✗）|
+
 | **NixOS** | ✅ v1.3.0 | flake：`github:HougeLangley/HyperOnlineVideo` |
 | **Ubuntu / Debian / 其它** | ✅ 源码构建 | 3 条命令、约 5 分钟（见安装指南）|
 

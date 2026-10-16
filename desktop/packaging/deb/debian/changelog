@@ -1,3 +1,15 @@
+hov-qt (1.3.1-1) resolute; urgency=medium
+
+  * Android: fix intermittent subtitles (4 root causes) - refresh online
+    subtitle tracks on track change/auto-next, anonymous-first subtitle
+    resolve with cookie retry, system-language ordered track collection,
+    3-attempt Bilibili backoff.
+  * Android: Kotlin/Compose plugin 2.2.20 -> 2.4.21 (0 warnings).
+  * Deps: Gradle 9.8.1, AGP 9.4.1, coroutines 1.11.0.
+  * CI: GHCR packages, self-hosted runner, release-approval gate.
+
+ -- Houge Langley <hougelangley1987@gmail.com>  Fri, 16 Oct 2026 18:00:00 +0800
+
 hov-qt (1.3.0-1) resolute; urgency=medium
 
   * Integrate fork contributions (YtRangeProxy, web_embedded client,

@@ -421,7 +421,7 @@ object Repo {
         // ---- 在线字幕（M14b）：人工字幕全收；自动字幕只取常见语言；优先 json3 格式 ----
         val subTracks = ArrayList<SubTrack>()
         fun pickCaption(langKey: String, arr: JSONArray?, auto: Boolean) {
-            if (arr == null || subTracks.size >= 8) return
+            if (arr == null || subTracks.size >= 12) return
             if (langKey.contains("live_chat", true) || langKey.startsWith("live_")) return   // 直播聊天/回放轨 ✗ 非字幕 ✓
             var best: JSONObject? = null
             for (i in 0 until arr.length()) {
@@ -445,7 +445,7 @@ object Repo {
             subTracks.add(SubTrack(if (auto) "$name（自动）" else name, u, langKey, auto))
         }
         val manualSubs = j.optJSONObject("subtitles")
-        manualSubs?.keys()?.forEach { lang -> pickCaption(lang, manualSubs.optJSONArray(lang), false) }
+        // （收集时机后移：需按系统语言排序 → 见 orderedAutoLangs 定义之后 ✓ 2026-10-16）
         val autoCaps = j.optJSONObject("automatic_captions")
         // 2026-10-08 修复（与 mac 同案 ✓）：YouTube 自动**翻译**轨语言码是 `xx-en`（如 zh-Hans-en ✗
         // 而非 zh-Hans ✗）；且必须按"系统语言索引"排序（zh 排 en 前 ✓ 否则默认显英文 ✗ 用户实测）
@@ -472,35 +472,45 @@ object Repo {
         orderedAutoLangs(autoCaps).take(2).forEach { lang ->
             pickCaption(lang, autoCaps?.optJSONArray(lang), true)
         }
+        // 2026-10-16（"字幕时有时无"根因之三 ✗）：manual 轨此前按 **JSON 无序键**逐个收集 + 上限 8 ✗
+        // → 多语言视频（YouTube 常见 20+ 轨 ✗）可能**中文轨根本没进候选** ✗。改为**按系统语言排序**后收 ✓
+        orderedAutoLangs(manualSubs).forEach { lang -> pickCaption(lang, manualSubs?.optJSONArray(lang), false) }
 
         // 2026-10-08（Android 字幕"经常加载失败" ✗ 与 macOS 正常对比定位 ✓）：主解析为绕 android_vr
         // 10MB 墙改用 web_embedded/mweb ✗，但该客户端几乎不返回字幕轨（实测候选仅 [live_chat] ✗）→ 无字幕可选 ✗。
         // 此处补一次**仅取字幕**的二次解析（网页客户端 ✓ --skip-download 很快 ✓），并入 subTracks ✓；
         // 顺带天然规避 timedtext 直链过期（每次解析都拿到新鲜 URL ✓）。
         if (subTracks.isEmpty()) {
-            try {
+            // 2026-10-16 修复"字幕时有时无"根因之二 ✗：此前**总带 cookie** ✗——失效 cookie 会让 web 客户端
+            // 降级（#294 同案 ✗）。改为**匿名优先 → cookie 重试** ✓（与主解析策略对齐 ✓）。
+            fun subsPass(withCookies: Boolean): Boolean = try {
                 val sr = YoutubeDLRequest(url)
                 sr.addOption("--dump-single-json")
                 sr.addOption("--no-warnings")
                 sr.addOption("--skip-download")
                 sr.addOption("--extractor-args", "youtube:player_client=web,tv")
-                applyCookies(sr, "youtube")
+                if (withCookies) applyCookies(sr, "youtube")
                 val srs = YoutubeDL.getInstance().execute(sr, "subs-${System.currentTimeMillis()}")
                 if (srs.exitCode == 0) {
                     val sj = JSONObject(srs.out)
                     sj.optJSONObject("subtitles")?.let { m ->
-                        m.keys().forEach { lang -> pickCaption(lang, m.optJSONArray(lang), false) }
+                        orderedAutoLangs(m).forEach { lang -> pickCaption(lang, m.optJSONArray(lang), false) }
                     }
                     sj.optJSONObject("automatic_captions")?.let { m ->
                         orderedAutoLangs(m).take(2).forEach { lang -> pickCaption(lang, m.optJSONArray(lang), true) }
                     }
-                    android.util.Log.i("HOV", "字幕二次解析: 候选=${subTracks.map { it.label }}")
+                    true
                 } else {
-                    android.util.Log.w("HOV", "字幕二次解析 rc=${srs.exitCode}: ${srs.err.take(80)}")
+                    android.util.Log.w("HOV", "字幕二次解析(ck=$withCookies) rc=${srs.exitCode}: ${srs.err.take(80)}")
+                    false
                 }
             } catch (t: Throwable) {
-                android.util.Log.w("HOV", "字幕二次解析异常: ${t.message?.take(80)}")
+                android.util.Log.w("HOV", "字幕二次解析(ck=$withCookies)异常: ${t.message?.take(80)}")
+                false
             }
+            subsPass(false)                                 // ① 匿名优先 ✓
+            if (subTracks.isEmpty()) subsPass(true)         // ② 兜底带登录 cookie ✓
+            android.util.Log.i("HOV", "字幕二次解析: 候选=${subTracks.map { it.label }}")
         }
 
         // 2026-10-08（Android"无可用播放格式"根因 ✗）：web_embedded/mweb 返回"合流"格式（vcodec 与
@@ -638,7 +648,7 @@ object Repo {
     /** B站字幕专用：直连网络（绕开系统 VPN ✗）+ 登录 cookie（AI 字幕对匿名不稳定 ✓）+ 429 退避重试一次 ✓ */
     private fun biliGet(url: String, referer: String): String {
         var lastErr: Exception? = null
-        repeat(2) { attempt ->
+        repeat(3) { attempt ->
             try {
                 val conn = NetRoute.open(url, 15000)      // 直连网络（不随系统 VPN ✓ 无直连时自动回退 ✓）
                 try {
@@ -660,7 +670,7 @@ object Repo {
             } catch (e: Exception) {
                 lastErr = e
             }
-            if (attempt == 0) Thread.sleep(600)          // 429 退避后重试一次 ✓
+            if (attempt < 2) Thread.sleep(if (attempt == 0) 600L else 1500L)   // 429 退避后重试（对齐 plainGet ✓）
         }
         throw lastErr ?: Exception("字幕抓取失败")
     }

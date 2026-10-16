@@ -1456,7 +1456,15 @@ class PlayerActivity : Activity() {
         val rawUrl = d.formats[0].url
         val playUrl = if (isMusicPlatform(platform)) StreamProxy.serveStream(rawUrl) ?: rawUrl else rawUrl
         reloadStream(playUrl)
-        if (platform == "local") autoLoadSubtitle(rawUrl)
+        // 2026-10-16 修复"字幕时有时无"根因之一 ✗：切歌/连播此前**从不刷新在线字幕轨** ✗
+        //（旧轨残留 + 旧 cues 残留 ✗）→ 现在：同步新轨 + 清旧状态 + 重跑系统语言自动选轨 ✓
+        //（本地文件仍走同名外挂 ✓）
+        subtitleTracks = d.subtitleTracks
+        localCues = emptyList()
+        activeSubUrl = ""
+        lastCueKey = ""
+        subtitleView?.visibility = View.GONE
+        if (platform == "local") autoLoadSubtitle(rawUrl) else autoSelectSubtitleBySystemLanguage()
         PlaybackController.title = videoTitle
         if (PlaybackController.started) PlaybackService.update(this, videoTitle, PlaybackController.playing)
         loadLyricsAsync()          // 切歌后重新拉歌词

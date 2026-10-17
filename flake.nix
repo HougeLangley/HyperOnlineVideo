@@ -82,6 +82,7 @@
             #   实测 ../LICENSE 在 stdenv 的目录型 src 下解析不到（避坑 #258 ✓）
             postInstall = ''
               install -Dm644 ${self}/LICENSE $out/share/licenses/hov-qt/LICENSE
+              install -Dm644 ${self}/desktop/resources/icons/LICENSE-material-symbols.txt $out/share/licenses/hov-qt/LICENSE-material-symbols.txt
               install -Dm644 ${self}/desktop/packaging/man/hov-qt.1 $out/share/man/man1/hov-qt.1
               ln -s hov-qt.1 $out/share/man/man1/hov-qt-bin.1
             '';
@@ -89,7 +90,7 @@
             meta = with pkgs.lib; {
               description = "Aggregated YouTube/Bilibili/NetEase/QQ Music client (Qt6 desktop)";
               homepage = "https://github.com/HougeLangley/HyperOnlineVideo";
-              license = licenses.gpl3Only;   # 与仓库 LICENSE 及全渠道声明一致 ✓
+              license = with licenses; [ gpl3Only asl20 ];   # 程序 GPL-3.0-only；内嵌图标字体 Apache-2.0
               mainProgram = "hov-qt";
               platforms = platforms.linux;
             };

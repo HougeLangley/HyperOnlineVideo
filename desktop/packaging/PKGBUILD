@@ -10,7 +10,7 @@ pkgrel=1
 pkgdesc="聚合视频 Hyper Online Video —— YouTube/Bilibili/网易云/QQ音乐 播放器（Qt6 桌面版）"
 arch=('aarch64' 'x86_64' 'riscv64')
 url="https://github.com/HougeLangley/HyperOnlineVideo"
-license=('GPL-3.0-only')
+license=('GPL-3.0-only' 'Apache-2.0')
 depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'mpv' 'ffmpeg' 'yt-dlp')
 # 玻璃质感用到的 KWindowSystem 是**可选**依赖（CMake 找不到就降级），故不进 depends
 makedepends=('cmake' 'ninja' 'pkgconf' 'clang' 'lld')
@@ -52,6 +52,7 @@ package() {
   cd "$srcdir/HyperOnlineVideo-$pkgver/desktop"
   DESTDIR="$pkgdir" cmake --install build
   install -Dm644 ../LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 resources/icons/LICENSE-material-symbols.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE-material-symbols.txt"
 }
 
 # 说明：

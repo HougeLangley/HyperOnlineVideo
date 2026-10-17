@@ -8,7 +8,7 @@ Version:        1.3.1
 Release:        1%{?dist}
 Summary:        聚合视频 —— YouTube/哔哩哔哩/网易云音乐/QQ音乐 聚合客户端（Qt6 桌面端）
 
-License:        GPL-3.0-only
+License:        GPL-3.0-only AND Apache-2.0
 URL:            https://github.com/HougeLangley/HyperOnlineVideo
 Source0:        %{name}-%{version}.tar.gz
 
@@ -60,7 +60,7 @@ ln -sf hov-qt.1 %{buildroot}%{_mandir}/man1/hov-qt-bin.1
 desktop-file-validate %{buildroot}%{_datadir}/applications/hov-qt.desktop
 
 %files
-%license LICENSE
+%license LICENSE desktop/resources/icons/LICENSE-material-symbols.txt
 %{_bindir}/hov-qt
 %{_bindir}/hov-qt-bin
 %{_datadir}/applications/hov-qt.desktop

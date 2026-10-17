@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(HyperOnlineVideo VERSION 1.3.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets Network DBus)
 # 登录窗口用 QtWebEngine（可选：Flatpak 的 KDE 运行时不含它，缺了也能正常构建运行）
 # ⚠ 默认**关闭**：QtWebEngine 内部是 Chromium，在 **非 C 的数值 locale**（如中文系统 LC_NUMERIC=zh_CN.UTF-8）
@@ -29,7 +30,8 @@ else()
 endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
-add_executable(hov-qt src/main.cpp src/CliHelp.cpp src/CliHelp.h src/MpvWidget.cpp
+add_executable(hov-qt src/main.cpp resources/icons.qrc
+    src/Icons.cpp src/Icons.h src/IconIds.h src/Tokens.h src/Ui.cpp src/Ui.h src/UiGallery.cpp src/CliHelp.cpp src/CliHelp.h src/MpvWidget.cpp
     src/ColorTheme.cpp
     src/ThemeWatcher.cpp src/MpvWidget.h
                          src/MasonryView.cpp src/MasonryView.h

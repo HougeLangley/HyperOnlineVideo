@@ -1,4 +1,5 @@
 #include "HovLog.h"
+#include "Ui.h"
 // 搬运/新增清单: FavoritesPanel（收藏面板）+ MainWindow::openFavoritesPanel
 //   W2 ✓ 用户需求「macOS 有收藏，Linux 端要对齐、功能一致」
 //   形态**逐项照搬** macOS Panels.swift FavoritesPanel（560x420 ✓ 标题"收藏（N 项）" ✓
@@ -16,41 +17,27 @@ FavoritesPanel::FavoritesPanel(Favorites *fav, QWidget *parent) : QDialog(parent
     resize(560, 420);                             // macOS 收藏面板 560x420 ✓
     setMinimumSize(460, 320);
     setWindowTitle(QStringLiteral("收藏"));
-    setStyleSheet(QStringLiteral(
-        "QListWidget { background: #171717; border: 1px solid #2E2E2E; border-radius: 8px;"
-        "  color: #DDDDDD; }"
-        "QListWidget::item { padding: 7px 9px; border-radius: 6px; }"
-        "QListWidget::item:hover { background: #222222; }"
-        "QListWidget::item:selected { background: #274A94; color: #FFFFFF; }"));
-
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(12, 12, 12, 12);     // macOS edgeInsets 12 ✓
-    root->setSpacing(10);                         // macOS spacing 10 ✓
+    root->setContentsMargins(M::space6, M::space6, M::space6, M::space6);
+    root->setSpacing(M::space3);
 
     list_ = new QListWidget(this);
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     root->addWidget(list_, 1);
 
-    auto makeBtn = [this](const QString &text) {
-        auto *b = new QPushButton(text, this);
-        b->setObjectName("pillBtn");              // R1 ✓ 全圆胶囊（与其它面板一致 ✓）
-        b->setCursor(Qt::PointingHandCursor);
-        b->setAutoDefault(false);                 // 同上：别让「播放选中」变成回车默认 ✗
-        return b;
-    };
-    auto *play  = makeBtn(QStringLiteral("播放选中"));
-    auto *del   = makeBtn(QStringLiteral("移除选中"));
-    auto *clear = makeBtn(QStringLiteral("清空"));
-    auto *close = makeBtn(QStringLiteral("关闭"));
+    auto *play  = Ui::tonalButton(IconId::PlayArrow, QStringLiteral("播放选中"), this);
+    auto *del   = Ui::tonalButton(IconId::RemoveCircle, QStringLiteral("移除选中"), this);
+    auto *clear = Ui::tonalButton(IconId::DeleteSweep, QStringLiteral("清空"), this);
+    auto *close = Ui::textButton(QStringLiteral("关闭"), this);
     // ✗ 刻意**不**设默认按钮：设了会把「关闭」渲染成蓝色主按钮（语义误导 ✗ 与 macOS 面板不一致 ✗）
     //    回车无动作、Esc=关闭（QDialog 内建 ✓）——用户 2026-09-23 截图评审后定稿 ✓
     auto *btns = new QHBoxLayout();
-    btns->setSpacing(10);                         // macOS spacing 10 ✓
+    btns->setSpacing(M::space2);
     btns->addWidget(play);
     btns->addWidget(del);
     btns->addWidget(clear);
-    btns->addWidget(close);
     btns->addStretch(1);
+    btns->addWidget(close);
     root->addLayout(btns);
 
     auto playRow = [this](int row) {

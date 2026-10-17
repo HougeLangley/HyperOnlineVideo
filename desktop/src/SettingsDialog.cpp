@@ -1,6 +1,7 @@
 // ── SettingsDialog.cpp：由 main.cpp 搬出的设置对话框（S2 ✓ 零行为改动 ✓）──
 // 搬迁记录：main.cpp 第 750-848 行（99 行）✓ 2026-09-22
 #include "SettingsDialog.h"
+#include "Ui.h"
 #include "Settings.h"
 #include "MpvWidget.h"
 #include "UrlResolver.h"
@@ -28,6 +29,9 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         dlg.setWindowTitle("设置");
         dlg.setMinimumWidth(520);
         auto *form = new QFormLayout(&dlg);
+        form->setContentsMargins(M::space6, M::space6, M::space6, M::space6);
+        form->setHorizontalSpacing(M::space4);
+        form->setVerticalSpacing(M::space3);
 
         auto *quality = new QComboBox(&dlg);
         quality->addItems({ "standard（标准 128k）", "exhigh（较高 320k）", "lossless（无损，需会员）" });
@@ -70,7 +74,8 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         auto *dirLay = new QHBoxLayout(dirRow);
         dirLay->setContentsMargins(0, 0, 0, 0);
         dirLay->addWidget(dirEdit, 1);
-        auto *browse = new QPushButton("浏览…", dirRow);
+        dirLay->setSpacing(M::space2);
+        auto *browse = Ui::tonalButton(IconId::FolderOpen, "浏览…", dirRow);
         dirLay->addWidget(browse);
         QObject::connect(browse, &QPushButton::clicked, parent, [parent, dirEdit] {
             const QString d = QFileDialog::getExistingDirectory(parent, "选择下载目录", dirEdit->text());
@@ -113,9 +118,19 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         form->addRow(QString(), direct);
         form->addRow("下载目录", dirRow);
 
-        auto *btns = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Close, &dlg);
-        form->addRow(btns);
-        QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, [quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck, videoCap] {
+        for (QComboBox *b : {quality, themeBox, videoCap}) Ui::asSelect(b);
+        // 主按钮贴右缘，与上方输入框右缘对齐；QDialogButtonBox 会按平台习惯重排顺序，所以自己排
+        auto *btnRow = new QWidget(&dlg);
+        auto *btns = new QHBoxLayout(btnRow);
+        btns->setContentsMargins(0, M::space3, 0, 0);
+        btns->setSpacing(M::space2);
+        auto *closeBtn = Ui::textButton("关闭", &dlg);
+        auto *saveBtn = Ui::filledButton(IconId::Save, "保存", &dlg);
+        btns->addStretch(1);
+        btns->addWidget(closeBtn);
+        btns->addWidget(saveBtn);
+        form->addRow(btnRow);
+        QObject::connect(saveBtn, &QPushButton::clicked, &dlg, [quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck, videoCap] {
             static const QStringList qs{ "standard", "exhigh", "lossless" };
             ctx.applySetting("music.qualityCeiling", qs.at(quality->currentIndex()));
             const int vh = videoCap->currentData().toInt();   // 单一档位表的值（0=自动 / -1=仅音频 ✓）
@@ -143,6 +158,6 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
             ctx.results->addItem("设置已保存");
             dlg.accept();
         });
-        QObject::connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        QObject::connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
         dlg.exec();
 }

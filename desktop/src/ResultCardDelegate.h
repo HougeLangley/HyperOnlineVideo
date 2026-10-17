@@ -22,8 +22,8 @@ public:
     // 字体与度量在**构造时建一次**：避免每帧新建 QFont/QFontMetrics（既省 CPU，
     // 也避免字体子系统被反复触碰 —— 与句柄泄漏排查方向一致）
     explicit ResultCardDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {
-        fTitle_ = QApplication::font(); fTitle_.setPixelSize(12); fTitle_.setWeight(QFont::DemiBold);
-        fMeta_  = QApplication::font(); fMeta_.setPixelSize(11);
+        fTitle_ = QApplication::font(); fTitle_.setPixelSize(M::fontBody); fTitle_.setWeight(QFont::Medium);
+        fMeta_  = QApplication::font(); fMeta_.setPixelSize(M::fontCaption);
         fmTitle_ = new QFontMetrics(fTitle_);
         fmMeta_  = new QFontMetrics(fMeta_);
     }
@@ -32,9 +32,9 @@ public:
     static constexpr int kCardW = 186;      // 单列最小宽（决定两列阈值）
     static constexpr int kCardH = 138;      // 兼容常量（不再用于固定高度）
     static constexpr int kRowH  = 24;       // 状态行（"共 N 条结果"等）
-    static constexpr int kPad   = 5;
-    static constexpr int kLineH = 16;       // 标题行高
-    static constexpr int kMetaH = 15;       // 元信息行高
+    static constexpr int kPad   = M::space2;
+    static constexpr int kLineH = 20;       // 标题行高（14px 字号）
+    static constexpr int kMetaH = 18;       // 元信息行高（12px 字号）
     static constexpr int kMaxTitleLines = 2;
 
     /** 卡片判定：显式标记（见 setItemThumb）或已拿到缩略图 */
@@ -89,9 +89,9 @@ public:
         const QString text = idx.data(Qt::DisplayRole).toString();
 
         if (!isCard(idx)) {                              // ── 状态行：单行暗色
-            QFont f = opt.font; f.setPixelSize(12);
+            QFont f = opt.font; f.setPixelSize(M::fontCaption);
             p->setFont(f);
-            p->setPen(QColor(Theme::textDim()));
+            p->setPen(Theme::color(Tok::OnSurfaceVariant));
             p->drawText(opt.rect.adjusted(8, 0, -8, 0), Qt::AlignLeft | Qt::AlignVCenter,
                         QFontMetrics(f).elidedText(text, Qt::ElideRight, opt.rect.width() - 16));
             p->restore();
@@ -100,24 +100,21 @@ public:
 
         // ── 卡片底（悬停/选中）
         const QRect r = opt.rect.adjusted(2, 2, -2, -2);
-        QColor bg(255, 255, 255, 12);
-        const bool dkCard = Theme::isDark();
-        if (selected)      bg = QColor(88, 136, 216, 135);
-        else if (hovered)  bg = dkCard ? QColor(255, 255, 255, 30) : QColor(0, 0, 0, 22);
+        const Tok bgTok = selected ? Tok::PrimaryContainer : (hovered ? Tok::SurfaceHigh : Tok::SurfaceContainer);
         p->setPen(Qt::NoPen);
-        p->setBrush(bg);
-        p->drawRoundedRect(r, 9, 9);
+        p->setBrush(Theme::color(bgTok));
+        p->drawRoundedRect(r, M::radiusMd, M::radiusMd);
 
         // ── 缩略图（16:9，圆角裁剪，cover 填充不裁半截）
-        const int pad = 5;
+        const int pad = kPad;
         const int iw = r.width() - pad * 2;
         const QRect ir(r.left() + pad, r.top() + pad, iw, qRound(iw * 9.0 / 16.0));
         QPainterPath clip;
-        clip.addRoundedRect(ir, 6, 6);
+        clip.addRoundedRect(ir, M::radiusSm, M::radiusSm);
         p->setClipPath(clip);
         const QIcon ic = idx.data(Qt::DecorationRole).value<QIcon>();
         if (ic.isNull()) {
-            p->fillRect(ir, dkCard ? QColor(255, 255, 255, 16) : QColor(0, 0, 0, 14));   // 占位底色（跟随主题）
+            p->fillRect(ir, Theme::color(Tok::SurfaceHighest));   // 占位底色
         } else {
             // 完整显示（fit），不裁切 —— 与瀑布流视图保持一致（用户要求缩略图必须完整）
             const QSize nat = ic.availableSizes().value(0);
@@ -137,13 +134,13 @@ public:
                              : (sub.isEmpty() ? src : src + " · " + sub);
 
         p->setFont(fTitle_);
-        p->setPen(selected ? QColor(255, 255, 255) : QColor(Theme::text()));
+        p->setPen(Theme::color(selected ? Tok::OnPrimaryContainer : Tok::OnSurface));
         const QRect tr(r.left() + pad, ir.bottom() + 4, iw, kLineH * kMaxTitleLines);
         p->drawText(tr, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, title);
 
         // ── 元信息一行：来源 · 作者/时长（暗色小字，单行省略）
         p->setFont(fMeta_);
-        p->setPen(QColor(Theme::textDim()));
+        p->setPen(Theme::color(Tok::OnSurfaceVariant));
         const QRect br(r.left() + pad, tr.top() + kLineH * titleLines(title, r.width()) + 1, iw, kMetaH);
         p->drawText(br, Qt::AlignLeft | Qt::AlignVCenter,
                     fmMeta_->elidedText(bottom, Qt::ElideRight, br.width()));

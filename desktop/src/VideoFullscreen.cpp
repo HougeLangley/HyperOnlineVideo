@@ -8,9 +8,9 @@ void MainWindow::setMasonryFloating(bool floating) {
         if (floating) {
             if (!masonryHost_) {
                 masonryHost_ = new QFrame(this);
-                masonryHost_->setObjectName("card");
+                masonryHost_->setProperty("hov", "panel");
                 auto *lay = new QVBoxLayout(masonryHost_);
-                lay->setContentsMargins(6, 6, 6, 6);
+                lay->setContentsMargins(M::space2, M::space2, M::space2, M::space2);
             }
             masonry_->setParent(masonryHost_);
             masonryHost_->layout()->addWidget(masonry_);
@@ -54,6 +54,7 @@ void MainWindow::setSidebarRevealed(bool on) {
             masonryHost_->show();
             if (masonry_) masonry_->show();     // ⚠️ 必须显式显示：它被 setPlayerOnlyVisible(true) 藏过（探针实测踩到）
             sidebarRevealed_ = true;
+            if (ctlPanel_) ctlPanel_->show();
             // 控制条（按钮/滑块）浮出 —— 但**排除顶栏卡里的控件**（顶栏在全屏时始终隐藏）
             for (auto *w2 : findChildren<QWidget *>())
                 if (qobject_cast<QPushButton *>(w2) || qobject_cast<QSlider *>(w2) || qobject_cast<QLineEdit *>(w2)) {
@@ -66,6 +67,7 @@ void MainWindow::setSidebarRevealed(bool on) {
             if (masonry_) masonry_->hide();     // 浮层收起 → 卡片也要藏（否则留在画面上）
             sidebarRevealed_ = false;
             if (videoFull_) {                   // 全屏时控制条一起收回（同样排除顶栏）
+                if (ctlPanel_) ctlPanel_->hide();
                 for (auto *w2 : findChildren<QWidget *>())
                     if (qobject_cast<QPushButton *>(w2) || qobject_cast<QSlider *>(w2) || qobject_cast<QLineEdit *>(w2)) {
                         if (topCard_ && topCard_->isAncestorOf(w2)) continue;

@@ -1,5 +1,8 @@
 #include "HovLog.h"
 #include "MasonryView.h"
+#include "Icons.h"
+
+#include <QTextLayout>
 
 #include <QScrollBar>
 #include <cstdio>
@@ -75,6 +78,7 @@ MasonryView::MasonryView(QWidget *parent) : QScrollArea(parent) {
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setFocusPolicy(Qt::StrongFocus);         // 键盘 ↑↓ 可用
     canvas_ = new Canvas(this);
+    canvas_->setObjectName("hovCanvas");
     canvas_->installEventFilter(this);
     setWidget(canvas_);
 }
@@ -99,28 +103,33 @@ void MasonryView::refreshRows(int, int) {
     rebuild();
 }
 
-/** 缩略图显示高度：按**源图真实宽高比**（16:9 ~ 1:1 之间）——
- *  这是瀑布流"错落感"的素材来源。全都压成 16:9 的话各卡片等高，列高同步增长 → 又变回整齐网格。
- *  setItemThumb 缓存的是 320×180 KeepAspectRatio 的结果，所以图标尺寸即反映源图比例。 */
-static int thumbHeightFor(const QIcon &ic, int width) {
-    const int iw = qMax(20, width - 2 * 5);
-    qreal aspect = 16.0 / 9.0;
-    if (!ic.isNull()) {
-        const QSize s = ic.availableSizes().value(0);
-        if (s.isValid() && s.height() > 0) aspect = qreal(s.width()) / s.height();
+// 按宽度折行，最多 maxLines 行，末行放不下时加省略号
+static QString elideLines(const QString &text, const QFont &font, int width, int maxLines) {
+    QTextLayout layout(text, font);
+    layout.beginLayout();
+    QStringList lines;
+    for (int i = 0; i < maxLines; ++i) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid()) break;
+        line.setLineWidth(width);
+        lines << text.mid(line.textStart(), line.textLength()).trimmed();
+        if (i == maxLines - 1 && line.textStart() + line.textLength() < text.size())
+            lines.last() = QFontMetrics(font).elidedText(text.mid(line.textStart()), Qt::ElideRight, width);
     }
-    aspect = qBound(1.0, aspect, 16.0 / 9.0);        // 宽高比夹在 1:1 ~ 16:9（原来写成 [9/16, 1]，16:9 封面被压成方框，上下留白）
-    return qRound(iw / aspect);
+    layout.endLayout();
+    return lines.join(QLatin1Char('\n'));
+}
+
+// 等高网格：缩略图一律 16:9，卡片同高，各列上下缘对齐（瀑布流的错落已取消）
+static int thumbHeightFor(const QIcon &, int width) {
+    return qRound(qMax(20, width - 2 * MasonryView::kPad) * 9.0 / 16.0);
 }
 
 QSize MasonryView::cardSizeFor(const QString &text, const QString &, int width, int thumbH) {
     const int iw = qMax(20, width - kPad * 2);
-    QFont f = QApplication::font();
-    f.setPixelSize(12);
-    f.setWeight(QFont::DemiBold);
-    const QRect br = QFontMetrics(f).boundingRect(QRect(0, 0, iw, 4000), Qt::TextWordWrap, titleOf(text));
-    const int lines = qBound(1, (br.height() + kLineH - 1) / kLineH, kMaxLines);
-    return QSize(width, kPad + thumbH + 4 + lines * kLineH + 1 + kMetaH + kPad);
+    Q_UNUSED(text);
+    Q_UNUSED(iw);
+    return QSize(width, kPad + thumbH + M::space2 + kMaxLines * kLineH + kMetaH + kPad);
 }
 
 void MasonryView::layout() {
@@ -180,11 +189,22 @@ void MasonryView::paintCanvas(QWidget *w) {
     p.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     QFont fTitle = QApplication::font();
-    fTitle.setPixelSize(12);
-    fTitle.setWeight(QFont::DemiBold);
+    fTitle.setPixelSize(M::fontBody);
+    fTitle.setWeight(QFont::Medium);
     QFont fMeta = QApplication::font();
-    fMeta.setPixelSize(11);
+    fMeta.setPixelSize(M::fontCaption);
     const QFontMetrics fmTitle(fTitle), fmMeta(fMeta);
+
+    if (rects_.isEmpty()) {   // 空状态：图标 + 一句提示，居中在可见区域
+        const QRect vis = w->visibleRegion().boundingRect();
+        const QRectF ic(vis.center().x() - M::iconHero / 2.0, vis.center().y() - M::iconHero, M::iconHero, M::iconHero);
+        Icons::paint(p, ic, IconId::Search, Theme::color(Tok::OnSurfaceVariant));
+        p.setFont(fTitle);
+        p.setPen(Theme::color(Tok::OnSurfaceVariant));
+        p.drawText(QRect(vis.left(), int(ic.bottom()) + M::space3, vis.width(), kLineH * 2),
+                   Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, QStringLiteral("输入关键词，按回车搜索"));
+        return;
+    }
 
     const QRect clip = w->rect();
     for (int i = 0; i < rects_.size(); ++i) {
@@ -199,13 +219,10 @@ void MasonryView::paintCanvas(QWidget *w) {
 
         // 卡片底
         // 跟随主题：深色用半透明白提亮、浅色用半透明黑压暗（硬编码白色在浅色主题下会看不见 ✗）
-        const bool dk = Theme::isDark();
-        QColor bg = dk ? QColor(255, 255, 255, 12) : QColor(0, 0, 0, 10);
-        if (selected)      bg = QColor(88, 136, 216, 135);
-        else if (hovered)  bg = dk ? QColor(255, 255, 255, 30) : QColor(0, 0, 0, 22);
+        const Tok bgTok = selected ? Tok::PrimaryContainer : (hovered ? Tok::SurfaceHigh : Tok::SurfaceContainer);
         p.setPen(Qt::NoPen);
-        p.setBrush(bg);
-        p.drawRoundedRect(r, 9, 9);
+        p.setBrush(Theme::color(bgTok));
+        p.drawRoundedRect(r, M::radiusMd, M::radiusMd);
 
         // 缩略图（16:9 圆角 + cover 填充）
         const int iw = r.width() - kPad * 2;
@@ -214,12 +231,12 @@ void MasonryView::paintCanvas(QWidget *w) {
         const int th = (i < thumbOf_.size()) ? thumbOf_[i] : qRound(iw * 9.0 / 16.0);
         const QRect ir(r.left() + kPad, r.top() + kPad, iw, th);
         QPainterPath clipPath;
-        clipPath.addRoundedRect(ir, 6, 6);
+        clipPath.addRoundedRect(ir, M::radiusSm, M::radiusSm);
         p.save();
         p.setClipPath(clipPath);
         const QIcon ic = it->icon();
         if (ic.isNull()) {
-            p.fillRect(ir, dk ? QColor(255, 255, 255, 16) : QColor(0, 0, 0, 14));
+            p.fillRect(ir, Theme::color(Tok::SurfaceHighest));
         } else {
             // **完整显示**（fit）而不是裁切：卡片高度已按图片真实比例算过（thumbHeightFor），
             // 所以 fit 之后几乎不会留边；用 cover 反而会把封面切掉（用户实测红框：标题字被切、图案被切）。
@@ -234,15 +251,14 @@ void MasonryView::paintCanvas(QWidget *w) {
 
         // 标题（最多两行）+ 元信息
         p.setFont(fTitle);
-        p.setPen(selected ? QColor(255, 255, 255) : QColor(Theme::text()));
-        const QRect tr(r.left() + kPad, ir.bottom() + 4, iw, kLineH * kMaxLines);
-        p.drawText(tr, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, titleOf(text));
+        p.setPen(Theme::color(selected ? Tok::OnPrimaryContainer : Tok::OnSurface));
+        const QRect tr(r.left() + kPad, ir.bottom() + 1 + M::space2, iw, kLineH * kMaxLines);
+        p.drawText(tr, Qt::AlignLeft | Qt::AlignTop, elideLines(titleOf(text), fTitle, iw, kMaxLines));
 
         p.setFont(fMeta);
-        p.setPen(QColor(Theme::textDim()));
+        p.setPen(Theme::color(selected ? Tok::OnPrimaryContainer : Tok::OnSurfaceVariant));
         // 紧跟标题（原来贴卡片底部 → 高度一旦有出入就在中间留白）
-        const int usedLines = titleLinesFor(titleOf(text), iw);
-        const QRect br(r.left() + kPad, tr.top() + usedLines * kLineH + 1, iw, kMetaH);
+        const QRect br(r.left() + kPad, tr.top() + kMaxLines * kLineH, iw, kMetaH);
         p.drawText(br, Qt::AlignLeft | Qt::AlignVCenter,
                    fmMeta.elidedText(metaOf(text, src), Qt::ElideRight, br.width()));
     }
@@ -301,15 +317,4 @@ void MasonryView::keyPressEvent(QKeyEvent *ev) {
     setSelectedRow(rowOf_[idx]);
     const QRect r = rects_[idx];
     ensureVisible(r.center().x(), r.top(), 0, 24);   // 跟随滚动
-}
-
-// 标题占几行：布局（sizeHint）与绘制（paint）**共用这一份**计算，
-// 避免两边各算各的导致卡片内留白（用户截图实测的 bug）。
-int MasonryView::titleLinesFor(const QString &t, int innerW) const {
-    QFont f = QApplication::font();
-    f.setPixelSize(12);
-    f.setWeight(QFont::DemiBold);
-    const QRect br = QFontMetrics(f).boundingRect(QRect(0, 0, qMax(20, innerW), 4000),
-                                                  Qt::TextWordWrap, titleOf(t));
-    return qBound(1, (br.height() + kLineH - 1) / kLineH, kMaxLines);
 }

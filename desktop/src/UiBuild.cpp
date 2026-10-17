@@ -47,27 +47,24 @@ static void preflightPlayable(const QString &url) {
 // ── UiBuild.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: 
 #include "MainWindow.h"
-#include "DownloadPanel.h"     // W2 ✓ 下载面板（进度回调要转发到它；仅用指针不足以调 updateJob ✗ 需完整类型 ✓）
+#include "DownloadPanel.h"
+#include "Icons.h"
+#include "Ui.h"
+
+#include <QButtonGroup>
+#include <QGridLayout>
+#include <memory>     // W2 ✓ 下载面板（进度回调要转发到它；仅用指针不足以调 updateJob ✗ 需完整类型 ✓）
 
 
 
 
-// ── 放大镜图标（UI-1 ✓）：Qt **没有**内置放大镜标准图标 ✗ →
-//    优先用系统图标主题 ✓；拿不到就用 QPainter 画一个 ✓（不依赖任何外部资源文件 ✓ 任何主题下都可见 ✓）
-
-// ── 手绘图标（UI-1 ✓ 续）：字形 ⬇ ⋯ 👤 在部分 Linux 字体下渲染成方块/三角 ✗（实测截图 ✓）→
-//    全部改用 QPainter 绘制 ✓ **不依赖字体与图标主题** ✓ 任何环境一致 ✓
-enum class IconKind { Download, More, User,
-                      Fullscreen, Pip, Subtitles,
-                      ModeSeq, ModeOne, ModeShuffle, AutoNext, ModeAll };
-
-// 播放模式 → 图标 + 提示（UI-3b ✓ 与 macOS modeButton 的四档一一对应 ✓）
-static IconKind modeIconKind(PlayQueue::Mode m) {
+// 播放模式 → 图标 + 提示（与 macOS modeButton 的四档一一对应）
+static IconId modeIcon(PlayQueue::Mode m) {
     switch (m) {
-    case PlayQueue::Mode::RepeatOne: return IconKind::ModeOne;
-    case PlayQueue::Mode::Shuffle:   return IconKind::ModeShuffle;
-    case PlayQueue::Mode::RepeatAll: return IconKind::ModeAll;
-    default:                         return IconKind::ModeSeq;
+    case PlayQueue::Mode::RepeatOne: return IconId::RepeatOne;
+    case PlayQueue::Mode::Shuffle:   return IconId::Shuffle;
+    case PlayQueue::Mode::RepeatAll: return IconId::Repeat;
+    default:                         return IconId::PlaylistPlay;
     }
 }
 static QString modeTip(PlayQueue::Mode m) {
@@ -78,93 +75,6 @@ static QString modeTip(PlayQueue::Mode m) {
     default:                         return "播放模式：顺序播放（点击切换）";
     }
 }
-static QIcon drawnIcon(IconKind k, const QColor &c = QColor(0xD8, 0xD8, 0xD8)) {
-    QPixmap pm(28, 28);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    QPen pen(c);
-    pen.setWidthF(1.8);
-    pen.setCapStyle(Qt::RoundCap);
-    p.setPen(pen);
-    switch (k) {
-    case IconKind::Download:                       // 下载：↓ + 底槽
-        p.drawLine(QPointF(14, 7.5), QPointF(14, 16));
-        p.drawLine(QPointF(14, 16), QPointF(10.5, 12.5));
-        p.drawLine(QPointF(14, 16), QPointF(17.5, 12.5));
-        p.drawLine(QPointF(8.5, 20), QPointF(19.5, 20));
-        break;
-    case IconKind::More:                           // 更多：⋯（三个圆点）
-        p.setBrush(c);
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(QPointF(9.5, 14), 1.7, 1.7);
-        p.drawEllipse(QPointF(14.0, 14), 1.7, 1.7);
-        p.drawEllipse(QPointF(18.5, 14), 1.7, 1.7);
-        break;
-    case IconKind::User:                           // 登录：头 + 肩
-        p.drawEllipse(QPointF(14, 10.5), 3.4, 3.4);
-        p.drawArc(QRectF(7.5, 15.5, 13, 10), 0, 180 * 16);
-        break;
-    case IconKind::Fullscreen:                     // 全屏：四角箭头
-        p.drawLine(QPointF(8, 13), QPointF(8, 8));  p.drawLine(QPointF(8, 8), QPointF(13, 8));
-        p.drawLine(QPointF(20, 15), QPointF(20, 20)); p.drawLine(QPointF(20, 20), QPointF(15, 20));
-        break;
-    case IconKind::Pip:                            // 画中画：大框 + 右下小框
-        p.drawRect(QRectF(7.5, 9, 13, 10));
-        p.setBrush(c); p.drawRect(QRectF(14, 14, 6.5, 5));
-        p.setBrush(Qt::NoBrush);
-        break;
-    case IconKind::Subtitles:                      // 字幕：圆角框 + 两行短线
-        p.drawRoundedRect(QRectF(7, 10, 14, 9), 2, 2);
-        p.drawLine(QPointF(9.5, 13.5), QPointF(15, 13.5));
-        p.drawLine(QPointF(9.5, 16), QPointF(18.5, 16));
-        break;
-    case IconKind::ModeSeq:                        // 顺序：→ + 竖线
-        p.drawLine(QPointF(8, 14), QPointF(19, 14));
-        p.drawLine(QPointF(15.5, 10.8), QPointF(19, 14));
-        p.drawLine(QPointF(15.5, 17.2), QPointF(19, 14));
-        p.drawLine(QPointF(8, 10.5), QPointF(8, 17.5));
-        break;
-    case IconKind::ModeOne:                        // 单曲：↻ + 1
-        p.drawArc(QRectF(8.5, 8.5, 11, 11), 40 * 16, 280 * 16);
-        p.drawLine(QPointF(12.5, 12.5), QPointF(14, 11.5));
-        p.drawLine(QPointF(14, 11.5), QPointF(14, 16.5));
-        break;
-    case IconKind::ModeShuffle:                    // 随机：交叉箭头
-        p.drawLine(QPointF(8, 10.5), QPointF(19, 17.5));
-        p.drawLine(QPointF(8, 17.5), QPointF(19, 10.5));
-        p.drawLine(QPointF(16.2, 10.0), QPointF(19, 10.5));
-        p.drawLine(QPointF(16.2, 18.0), QPointF(19, 17.5));
-        break;
-    case IconKind::ModeAll:                        // 列表循环：↻ + 双箭头
-        p.drawArc(QRectF(8.5, 8.5, 11, 11), 30 * 16, 300 * 16);
-        p.drawLine(QPointF(11, 11), QPointF(11, 17));
-        break;
-    case IconKind::AutoNext:                       // 连播：∞（两个相切圆）
-        p.drawEllipse(QPointF(11, 14), 3.2, 3.2);
-        p.drawEllipse(QPointF(17, 14), 3.2, 3.2);
-        break;
-        break;
-    }
-    p.end();
-    return QIcon(pm);
-}
-
-static QIcon magnifierIcon(const QColor &c = QColor(0xB4, 0xB4, 0xB4)) {
-    QIcon ic = QIcon::fromTheme("edit-find");
-    if (!ic.isNull()) return ic;
-    QPixmap pm(28, 28);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    QPen pen(c);
-    pen.setWidthF(2.0);
-    p.setPen(pen);
-    p.drawEllipse(QPointF(12.0, 12.0), 5.5, 5.5);
-    p.drawLine(QPointF(16.2, 16.2), QPointF(21.5, 21.5));
-    p.end();
-    return QIcon(pm);
-}
 
 MainWindow::MainWindow() {
         settings_.load();   // ⚠ 铁律（#208 家族 ✗）：必须在**一切按设置初始化的控件之前**
@@ -172,74 +82,48 @@ MainWindow::MainWindow() {
                             //   全部读到**默认值**（用户实测 2026-09-25：设置 1080p，左下角恒显示"自动"✗）
         auto *central = new QWidget(this);
         auto *root = new QVBoxLayout(central);
-        root->setContentsMargins(10, 10, 10, 10);
-        root->setSpacing(8);
+        root->setContentsMargins(M::space4, M::space4, M::space4, M::space4);
+        root->setSpacing(M::space3);
 
+        // ── 顶部：搜索行 + 来源芯片行（布局见 design/desktop-design-language.md「主窗口」）──
         auto *topCard = new QFrame(this);
-        topCard->setObjectName("card");
-        auto *top = new QHBoxLayout(topCard);
-        top->setContentsMargins(10, 8, 10, 8);
-        top->setSpacing(8);
-        // ── 顶栏（UI-1 ✓ 对齐 macOS ✓ 见文档 61）──
-        // macOS 原文（Ui.swift:395-397）："只保留 4 个高频按钮：搜索（文字）/ 下载 / 更多▾ / 登录；
-        //   其余（下载面板、打开本地文件、收藏、队列、设置）收进"更多"菜单——按钮一多就拥挤"
-        // ✗ 已删除：原左侧"聚合视频"标签（macOS 无 ✓）
+        auto *topCol = new QVBoxLayout(topCard);
+        topCol->setContentsMargins(0, 0, 0, 0);
+        topCol->setSpacing(M::space3);
+        auto *top = new QHBoxLayout();
+        top->setSpacing(M::space2);
+        topCol->addLayout(top);
+        // srcBox_ 仍是来源的唯一数据源（各处按 currentIndex 读写），界面上由芯片代替，下拉框本身不显示
         srcBox_ = new QComboBox(this);
         srcBox_->addItems({"YouTube", "B站", "网易云音乐", "QQ音乐", "本地库"});
-        srcBox_->setToolTip("搜索来源");
-        srcBox_->setFixedHeight(28);                        // R1 ✓ 胶囊
-        srcBox_->setObjectName("pillBox");
-        top->addWidget(srcBox_);
-        // UI-4-B ✓ 过滤按钮（与 macOS 同位：来源下拉之后 ✓）
-        auto *filterBtn = new QPushButton("过滤", this);
-        filterBtn->setObjectName("pillBtn");                     // R1 ✓ 胶囊
-        filterBtn->setFixedHeight(28);
-        filterBtn->setToolTip("搜索过滤器：排序 相关度/最新/播放最多；时长 全部/短视频/中等/长篇");
+        srcBox_->setVisible(false);
+        search_ = Ui::searchField("搜索视频或歌曲，回车开始", this);
+        auto *filterBtn = Ui::iconButton(IconId::Tune, "搜索过滤器：排序与时长", this);
         connect(filterBtn, &QPushButton::clicked, this, [this] { openFilterDialog(); });
-        top->addWidget(filterBtn);
-        search_ = new QLineEdit(this);
-        search_->setPlaceholderText("输入关键词后回车（来源见左侧下拉：YouTube / 网易云 / QQ音乐）…");
-        search_->setClearButtonEnabled(true);                       // ✓ macOS 的清空 ✕
-        search_->setObjectName("searchField");                      // ✓ UI-2 上聚焦蓝边（#4B779F）
-        search_->setFixedHeight(28);                          // R1 ✓ 胶囊（两端全圆）
-        search_->setObjectName("pillField");
-        search_->addAction(magnifierIcon(), QLineEdit::LeadingPosition);   // ✓ 放大镜（有绘制回退 ✓ 不依赖图标主题 ✗）
-        auto *btn = new QPushButton("搜索", this);
-        btn->setFixedHeight(28);                             // R1 ✓ 胶囊（原圆角 8 ✗）
-        btn->setObjectName("primaryBtn");                           // ✓ UI-2 上实心 #3869D3
-        // 右侧三件（图标 + 悬浮提示 ✓）：下载 / 更多▾ / 登录
-        auto *dlBtn = new QPushButton(this);
-        dlBtn->setIcon(drawnIcon(IconKind::Download));
-        dlBtn->setObjectName("iconBtn");
-        dlBtn->setFixedSize(28, 28);
-        dlBtn->setToolTip("下载当前播放的直链到 ~/Downloads/hov/");
+        auto *btn = Ui::filledButton(IconId::Search, "搜索", this);
+        auto *dlBtn = Ui::iconButton(IconId::Download, "下载当前播放的直链到 ~/Downloads/hov/", this);
         connect(dlBtn, &QPushButton::clicked, this, [this] { downloadCurrent(); });
-        auto *moreBtn = new QPushButton(this);
-        moreBtn->setIcon(drawnIcon(IconKind::More));
-        moreBtn->setObjectName("iconBtn");
-        moreBtn->setFixedSize(28, 28);
-        moreBtn->setToolTip("更多：打开本地文件 / 本地库 / 设置");
+        auto *moreBtn = Ui::iconButton(IconId::MoreHoriz, "更多", this);
         {
             auto *menu = new QMenu(moreBtn);
-            // W2 ✓ 菜单顺序与 macOS「更多」逐项对齐（UiActions.swift:130-136 ✓）：
-            //   下载面板 / 打开本地文件 / 收藏 / [播放队列→Linux 用「本地库」承担] / 设置
-            menu->addAction("下载面板", this, [this] { openDownloadPanel(); });
-            menu->addAction("打开本地文件…", this, [this] {
+            // 顺序与 macOS「更多」一致：下载面板 / 打开本地文件 / 收藏 / 本地库 / 设置
+            connect(Ui::menuAction(menu, IconId::Downloading, "下载面板"), &QAction::triggered, this,
+                    [this] { openDownloadPanel(); });
+            connect(Ui::menuAction(menu, IconId::FileOpen, "打开本地文件…"), &QAction::triggered, this, [this] {
                 const QStringList fs = QFileDialog::getOpenFileNames(this, "打开音视频文件（可多选）", QDir::homePath(),
                     "媒体文件 (*.mp4 *.mkv *.webm *.mov *.mp3 *.flac *.m4a *.aac *.wav *.ogg *.opus);;所有文件 (*)");
                 if (!fs.isEmpty()) openFiles(fs);
             });
-            menu->addAction("收藏", this, [this] { openFavoritesPanel(); });
-            menu->addAction("本地库", this, [this] { showLocalLibrary(); });
+            connect(Ui::menuAction(menu, IconId::Favorite, "收藏"), &QAction::triggered, this,
+                    [this] { openFavoritesPanel(); });
+            connect(Ui::menuAction(menu, IconId::Folder, "本地库"), &QAction::triggered, this,
+                    [this] { showLocalLibrary(); });
             menu->addSeparator();
-            menu->addAction("设置…", this, [this] { openSettingsDialog(); });
+            connect(Ui::menuAction(menu, IconId::Settings, "设置…"), &QAction::triggered, this,
+                    [this] { openSettingsDialog(); });
             moreBtn->setMenu(menu);
         }
-        auto *loginBtn = new QPushButton(this);
-        loginBtn->setIcon(drawnIcon(IconKind::User));
-        loginBtn->setObjectName("iconBtn");
-        loginBtn->setFixedSize(28, 28);
-        loginBtn->setToolTip("App 内登录（cookie 自动保存到 ~/.config/hov/cookies/）");
+        auto *loginBtn = Ui::iconButton(IconId::AccountCircle, "登录（cookie 保存到 ~/.config/hov/cookies/）", this);
         {
             auto *menu = new QMenu(loginBtn);
             struct SiteItem { const char *site; const char *label; };
@@ -251,11 +135,12 @@ MainWindow::MainWindow() {
             };
             for (const auto &it : kSites) {
                 const QString site = it.site;
-                menu->addAction(QString::fromUtf8(it.label), this, [this, site] { openLoginDialog(site); });
+                connect(Ui::menuAction(menu, IconId::Login, QString::fromUtf8(it.label)), &QAction::triggered, this,
+                        [this, site] { openLoginDialog(site); });
             }
             menu->addSeparator();
-            // A0：不依赖内置 WebView 的登录路径（AppImage/Flatpak 也能用；同时绕开 Google 对嵌入式登录的限制）
-            menu->addAction("用系统浏览器登录并导入 cookie", this, [this] {
+            // 不依赖内置 WebView 的登录路径（AppImage/Flatpak 也能用；同时绕开 Google 对嵌入式登录的限制）
+            connect(Ui::menuAction(menu, IconId::OpenInBrowser, "用系统浏览器登录并导入 cookie"), &QAction::triggered, this, [this] {
                 const QString browser = settings_.str("network.cookiesFromBrowser", "");
                 if (browser.isEmpty()) {
                     results_->addItem("请先在设置里指定浏览器（network.cookiesFromBrowser，例如 safari / chrome / firefox）");
@@ -265,7 +150,7 @@ MainWindow::MainWindow() {
                 results_->addItem(QString("正在从 %1 导入 cookie…（首次可能弹出钥匙串授权）").arg(browser));
                 importCookiesFromBrowser(browser);
             });
-            menu->addAction("打开 cookie 目录", this, [this] {
+            connect(Ui::menuAction(menu, IconId::FolderOpen, "打开 cookie 目录"), &QAction::triggered, this, [this] {
                 const QString dir = QDir::homePath() + "/.config/hov/cookies";
                 QDir().mkpath(dir);
                 results_->addItem(QString("cookie 目录：%1").arg(dir));
@@ -274,14 +159,44 @@ MainWindow::MainWindow() {
             loginBtn->setMenu(menu);
         }
         top->addWidget(search_, 1);
+        top->addWidget(filterBtn);
         top->addWidget(btn);
+        top->addSpacing(M::space2);
         top->addWidget(dlBtn);
         top->addWidget(moreBtn);
         top->addWidget(loginBtn);
+        {
+            auto *chips = new QHBoxLayout();
+            chips->setSpacing(M::space2);
+            topCol->addLayout(chips);
+            struct SourceChip { IconId icon; const char *text; };
+            static const SourceChip kChips[] = {   // 顺序必须与 srcBox_ 的条目一致
+                { IconId::SmartDisplay, "YouTube" },
+                { IconId::LiveTv,       "B站" },
+                { IconId::MusicNote,    "网易云音乐" },
+                { IconId::LibraryMusic, "QQ音乐" },
+                { IconId::Folder,       "本地库" },
+            };
+            auto *group = new QButtonGroup(this);
+            group->setExclusive(true);
+            int id = 0;
+            for (const auto &c : kChips) {
+                auto *chip = Ui::chip(c.icon, QString::fromUtf8(c.text), this);
+                group->addButton(chip, id++);
+                chips->addWidget(chip);
+            }
+            chips->addStretch(1);
+            if (QAbstractButton *b = group->button(srcBox_->currentIndex())) b->setChecked(true);
+            connect(group, &QButtonGroup::idClicked, srcBox_, &QComboBox::setCurrentIndex);
+            connect(srcBox_, QOverload<int>::of(&QComboBox::currentIndexChanged), group, [group](int i) {
+                if (QAbstractButton *b = group->button(i)) b->setChecked(true);
+            });
+        }
         topCard_ = topCard;                     // B5：画中画时隐藏
         root->addWidget(topCard);
 
         auto *split = new QSplitter(Qt::Horizontal, this);
+        split->setHandleWidth(M::space3);       // 与区块间距一致
         results_ = new QListWidget(split);
     // v1.2.0：结果区对齐 macOS 的"卡片网格"。
     // 原来用 QListWidget 默认列表模式（图标 16~24px），缩略图虽已抓取但被缩到 48×27，
@@ -300,11 +215,27 @@ MainWindow::MainWindow() {
     results_->setItemDelegate(new ResultCardDelegate(results_));   // 自绘卡片（关键）
     results_->setMouseTracking(true);             // 悬停高亮
     results_->viewport()->setAttribute(Qt::WA_Hover, true);
-    results_->setSpacing(4);
+    results_->setSpacing(M::space1);
     results_->setTextElideMode(Qt::ElideRight);
     results_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     results_->setSelectionMode(QAbstractItemView::SingleSelection);
         player_ = new MpvWidget(split);
+        {   // 空状态：没有媒体时在黑色画面中央显示图标与提示，refreshControls() 控制显隐
+            idleHint_ = new QWidget(player_);
+            idleHint_->setAttribute(Qt::WA_TranslucentBackground);
+            auto *ih = new QVBoxLayout(idleHint_);
+            ih->setContentsMargins(0, 0, 0, 0);
+            ih->setSpacing(M::space3);
+            auto *icon = new QLabel(idleHint_);
+            icon->setPixmap(Icons::icon(IconId::Movie, Tok::OnScrim).pixmap(QSize(M::iconHero, M::iconHero), devicePixelRatioF()));
+            icon->setAlignment(Qt::AlignCenter);
+            idleText_ = Ui::label(QString(), Ui::TextRole::OnScrim, idleHint_);
+            idleText_->setAlignment(Qt::AlignCenter);
+            ih->addWidget(icon);
+            ih->addWidget(idleText_);
+            auto *center = new QVBoxLayout(player_);
+            center->addWidget(idleHint_, 0, Qt::AlignCenter);
+        }
         // MPRIS：桌面端“后台播放 + 媒体键”的标准通道（无会话总线时自降级）
         mpris_ = new Mpris(player_, this);
         // 在线播放：网页 URL 由 App 层解析成直链（mpv 的 ytdl 钩子已禁用，见 MpvWidget 注释）
@@ -372,7 +303,7 @@ MainWindow::MainWindow() {
         statusLabel_ = new QLabel(central);
         statusLabel_->setObjectName("hovStatus");
         statusLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        statusLabel_->setStyleSheet("color:#8b93a3;padding:2px 8px;font-size:12px;");
+        Ui::setTextRole(statusLabel_, Ui::TextRole::CaptionVariant);
         // ⚠️ W5 ✓ 关键修复：**长文本不再撑大窗口** ✗→✓
         //   现象（用户 2026-09-23 截图）：播放开始后窗口从 1200x720 变 1332x775 ✗（有时更宽/更高 ✗）
         //   根因：QLabel 的 minimumSizeHint 随文本变长 ✗ → 布局最小宽变大 ✗ → Qt 把窗口撑到最小宽 ✗
@@ -421,6 +352,7 @@ MainWindow::MainWindow() {
         // 设计：**保留 results_ 作为数据源与逻辑层**（全部 addItem/点击/缩略图逻辑零改动），只把它隐藏；
         // 显示由 MasonryView 承担。设置 ui.masonry=false 可一键回退到传统列表视图。
         masonry_ = new MasonryView(split);
+        masonry_->setProperty("hov", "panel");
         masonry_->setSource(results_);
         masonry_->onActivate = [this](int row) {                 // 单击卡片 → 与列表点击同一条链路
             if (QListWidgetItem *it = results_->item(row))
@@ -467,53 +399,75 @@ MainWindow::MainWindow() {
         }
         root->addWidget(split, 1);
 
-        // ---- 底部播放控制条（UI-3 ✓ 对齐 macOS：**三行**结构 ✓ 见文档 61）----
-        // 行1: [⏮][⏸][⏭]  ——进度条——  时间
-        // 行2: [倍速][铺满] [🔊 音量]            （UI-3b 将在此行右侧补 画质/PiP/模式/全屏 ✓）
-        // 行3: [来源] 标题 | 说明   时间 | 瞬时状态（原顶栏状态行 ✓ 仅挪位置 ✓ 语义不变）
-        auto *ctlBox = new QVBoxLayout();
-        ctlBox->setContentsMargins(0, 4, 0, 4);
-        ctlBox->setSpacing(4);
+        // ---- 底部播放条：一个面板两行（布局见 design/desktop-design-language.md「主窗口」）----
+        // 行 1：进度条 + 时间
+        // 行 2：三栏 —— 左：正在播放（标题 / 来源与状态 / 瞬时状态）；中：播放控制；右：画质 倍速 音量 字幕 画中画 全屏
+        auto *ctl = Ui::panel(this);
+        ctlPanel_ = ctl;
+        auto *ctlBox = new QVBoxLayout(ctl);
+        ctlBox->setContentsMargins(M::space4, M::space3, M::space4, M::space3);
+        ctlBox->setSpacing(M::space2);
 
-        // ── 行1：传输 + 进度 + 时间 ──
         auto *row1 = new QHBoxLayout();
-        btnPlay_ = new QPushButton("\u23f8", this);
-        btnPlay_->setObjectName("iconBtn");   // R1 ✓ 正圆（与右侧图标一致）
-        btnPlay_->setFixedSize(28, 28);
+        row1->setSpacing(M::space3);
         seek_ = new QSlider(Qt::Horizontal, this);
         seek_->setRange(0, 1000);
-        labelTime_ = new QLabel("0:00 / 0:00", this);
-        labelTime_->setMinimumWidth(110);
-        labelTime_->setAlignment(Qt::AlignCenter);
-        auto *btnPrev = new QPushButton("\u23ee", this);
-        auto *btnNext = new QPushButton("\u23ed", this);
-        btnPrev->setObjectName("iconBtn");   // R1 ✓ 正圆
-        btnNext->setObjectName("iconBtn");
-        btnPrev->setFixedSize(28, 28);
-        btnNext->setFixedSize(28, 28);
-        row1->addWidget(btnPrev);
-        row1->addWidget(btnPlay_);
-        row1->addWidget(btnNext);
-        // 播放模式（顺序 → 单曲 → 随机 → 列表 ✓ 与 macOS modeButton 一致 ✓）
-        modeBtn_ = new QPushButton(this);
-        modeBtn_->setObjectName("iconBtn");
-        modeBtn_->setFixedSize(28, 28);
-        modeBtn_->setIcon(drawnIcon(modeIconKind(queue_.mode())));
-        modeBtn_->setToolTip(modeTip(queue_.mode()));
-        connect(modeBtn_, &QPushButton::clicked, this, [this] {
-            queue_.cycleMode();
-            modeBtn_->setIcon(drawnIcon(modeIconKind(queue_.mode())));
-            modeBtn_->setToolTip(modeTip(queue_.mode()));
-        });
-        row1->addWidget(modeBtn_);
+        labelTime_ = Ui::label("0:00 / 0:00", Ui::TextRole::CaptionVariant, this);
+        labelTime_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        labelTime_->setMinimumWidth(labelTime_->fontMetrics().horizontalAdvance("00:00:00 / 00:00:00"));
         row1->addWidget(seek_, 1);
         row1->addWidget(labelTime_);
+
+        auto *row2 = new QGridLayout();
+        row2->setHorizontalSpacing(M::space4);
+        row2->setColumnStretch(0, 1);
+        row2->setColumnStretch(2, 1);
+
+        auto *info = new QVBoxLayout();
+        info->setSpacing(0);
+        labelInfo_ = Ui::label(QString(), Ui::TextRole::Title, this);
+        labelMeta_ = Ui::label(QString(), Ui::TextRole::CaptionVariant, this);
+        for (QLabel *l : {labelInfo_, labelMeta_}) {
+            l->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            l->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);   // 长文本不撑宽窗口（W5）
+            l->setMinimumWidth(0);
+        }
+        statusLabel_->setParent(this);
+        info->addWidget(labelInfo_);
+        info->addWidget(labelMeta_);
+        info->addWidget(statusLabel_);
+        info->addStretch(1);
+        row2->addLayout(info, 0, 0);
+
+        auto *transport = new QHBoxLayout();
+        transport->setSpacing(M::space2);
+        modeBtn_ = Ui::iconButton(modeIcon(queue_.mode()), modeTip(queue_.mode()), this);
+        connect(modeBtn_, &QPushButton::clicked, this, [this] {
+            queue_.cycleMode();
+            Ui::setIcon(modeBtn_, modeIcon(queue_.mode()));
+            modeBtn_->setToolTip(modeTip(queue_.mode()));
+        });
+        auto *btnPrev = Ui::iconButton(IconId::SkipPrevious, "上一首", this);
+        btnPlay_ = Ui::playButton(this);
+        auto *btnNext = Ui::iconButton(IconId::SkipNext, "下一首", this);
+        // 连播：播完自动播下一条（与 macOS autoNextBtn / Android 同键）
+        autoNextBtn_ = Ui::iconButton(IconId::Autoplay, "连播：播完自动播下一条（按列表顺序）", this,
+                                      Ui::IconSize::Standard, true);
+        autoNextBtn_->setChecked(settings_.boolean("playback.autoNext", true));
+        connect(autoNextBtn_, &QPushButton::clicked, this, [this] {
+            const bool on = autoNextBtn_->isChecked();
+            applySetting("playback.autoNext", on ? "true" : "false");
+            results_->addItem(on ? "连播：开（播完自动下一条）" : "连播：关（播完停止）");
+        });
         connect(btnPrev, &QPushButton::clicked, this, [this] { queueOrFilePrev(); });
         connect(btnNext, &QPushButton::clicked, this, [this] { queueOrFileNext(/*autoAdvance=*/false); });
+        transport->addWidget(modeBtn_);
+        transport->addWidget(btnPrev);
+        transport->addWidget(btnPlay_);
+        transport->addWidget(btnNext);
+        transport->addWidget(autoNextBtn_);
+        row2->addLayout(transport, 0, 1, Qt::AlignCenter);
 
-        // ── 行2：画质⌄ / 倍速⌄ / 🔊音量        [全屏] [画中画] [字幕]（对齐 macOS ✓）──
-        auto *row2 = new QHBoxLayout();
-        // 画质（**共用档位表** ✓ Settings::qualityHeights() ✓ 单一来源 ✓ #122）
         qualityBox_ = new QComboBox(this);
         {
             const QVector<int> hs = Settings::qualityHeights();
@@ -522,9 +476,8 @@ MainWindow::MainWindow() {
             const int idx = hs.indexOf(curH);
             qualityBox_->setCurrentIndex(idx >= 0 ? idx : 0);
         }
-        qualityBox_->setFixedWidth(104);
-        qualityBox_->setFixedHeight(28);            // R1 ✓ 胶囊：高 28 + 半径 14
-        qualityBox_->setObjectName("pillBox");
+        Ui::asSelect(qualityBox_);
+        qualityBox_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
         qualityBox_->setToolTip("清晰度（与设置面板共用一份档位表 — V 键也可循环切换）");
         connect(qualityBox_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
             if (qualityBoxMusic_) {                     // 音乐内容：这个下拉是音质档（对齐 macOS B1 ✓ 用户要求 ✓）
@@ -552,9 +505,8 @@ MainWindow::MainWindow() {
             for (double sp : kSpeeds) speedBox_->addItem(fmtSpeed(sp), sp);
             speedBox_->setCurrentIndex(2);              // 1.0x
         }
-        speedBox_->setFixedWidth(80);
-        speedBox_->setFixedHeight(28);              // R1 ✓ 胶囊
-        speedBox_->setObjectName("pillBox");
+        Ui::asSelect(speedBox_);
+        speedBox_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
         speedBox_->setToolTip("播放倍速");
         connect(speedBox_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
             const double sp = speedBox_->itemData(i).toDouble();
@@ -564,66 +516,41 @@ MainWindow::MainWindow() {
         vol_ = new QSlider(Qt::Horizontal, this);
         vol_->setRange(0, 130);
         vol_->setValue(100);
-        vol_->setFixedWidth(120);
+        vol_->setFixedWidth(M::controlH * 3);
         connect(vol_, &QSlider::valueChanged, this, [this](int v) { player_->setVolume(v); });
-        row2->addWidget(qualityBox_);
-        row2->addWidget(speedBox_);
-        row2->addWidget(new QLabel("\U0001f50a", this));
-        row2->addWidget(vol_);
-        row2->addStretch(1);
-        // 右侧三图标：全屏 / 画中画 / 字幕（动作全部既有 ✓ 见文档 61）
-        auto *fsBtn = new QPushButton(this);
-        fsBtn->setObjectName("iconBtn"); fsBtn->setFixedSize(28, 28);
-        fsBtn->setIcon(drawnIcon(IconKind::Fullscreen));
-        fsBtn->setToolTip("全屏（双击画面或 ⌃⌘F 亦可）");
-        connect(fsBtn, &QPushButton::clicked, this, [this] { toggleVideoFullscreen(); });
-        auto *pipBtn = new QPushButton(this);
-        pipBtn->setObjectName("iconBtn"); pipBtn->setFixedSize(28, 28);
-        pipBtn->setIcon(drawnIcon(IconKind::Pip));
-        pipBtn->setToolTip("画中画（P 键）");
-        connect(pipBtn, &QPushButton::clicked, this, [this] { togglePiP(); });
-        auto *subBtn = new QPushButton(this);
-        subBtn->setObjectName("iconBtn"); subBtn->setFixedSize(28, 28);
-        subBtn->setIcon(drawnIcon(IconKind::Subtitles));
-        subBtn->setToolTip("字幕/歌词：关 → 轨1 → 轨2 → …（C 键）");
+        auto *volBtn = Ui::iconButton(IconId::VolumeUp, "静音 / 恢复音量", this);
+        {
+            auto savedVol = std::make_shared<int>(100);
+            connect(volBtn, &QPushButton::clicked, this, [this, savedVol] {
+                if (vol_->value() > 0) { *savedVol = vol_->value(); vol_->setValue(0); }
+                else vol_->setValue(*savedVol > 0 ? *savedVol : 100);
+            });
+            connect(vol_, &QSlider::valueChanged, volBtn, [volBtn](int v) {
+                Ui::setIcon(volBtn, v == 0 ? IconId::VolumeOff : IconId::VolumeUp);
+            });
+        }
+        auto *subBtn = Ui::iconButton(IconId::Subtitles, "字幕/歌词：关 → 轨1 → 轨2 → …（C 键）", this);
         connect(subBtn, &QPushButton::clicked, this, [this] { if (player_) player_->cycleSubtitleTrack(); });
-        // ③ UI-4-B ✓ macOS 底栏**没有**铺满按钮（只有 Z 快捷键 ✓ Ui.swift:268）→ 已移除按钮 ✓
-        //   功能保留：Z 键 ✓（fillBtn_ 保持 nullptr ✓ 既有空值保护覆盖 ✓）
-        row2->addWidget(fsBtn);
-        row2->addWidget(pipBtn);
-        row2->addWidget(subBtn);
-        // 连播（∞）：播完自动播下一条（UI-4 ✓ 与 macOS autoNextBtn / Android 同键 ✓）
-        autoNextBtn_ = new QPushButton(this);
-        autoNextBtn_->setObjectName("iconBtn");
-        autoNextBtn_->setCheckable(true);
-        autoNextBtn_->setFixedSize(28, 28);
-        autoNextBtn_->setIcon(drawnIcon(IconKind::AutoNext));
-        autoNextBtn_->setChecked(settings_.boolean("playback.autoNext", true));
-        autoNextBtn_->setToolTip("连播：播完自动播下一条（按列表顺序）");
-        connect(autoNextBtn_, &QPushButton::clicked, this, [this] {
-            const bool on = autoNextBtn_->isChecked();
-            applySetting("playback.autoNext", on ? "true" : "false");
-            results_->addItem(on ? "连播：开（播完自动下一条）" : "连播：关（播完停止）");
-        });
-        row2->addWidget(autoNextBtn_);
-
-        // ── 行3：信息行（正在播放 ✓）+ 瞬时状态（原顶栏状态行 ✓ 仅挪位置）──
-        auto *row3 = new QHBoxLayout();
-        labelInfo_ = new QLabel(this);
-        labelInfo_->setObjectName("hovInfo");
-        labelInfo_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        labelInfo_->setStyleSheet("color:#8b93a3;padding:2px 8px;font-size:12px;");
-        labelInfo_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);   // 同上 ✓ 不撑窗口 ✓
-        labelInfo_->setMinimumWidth(0);
-        statusLabel_->setParent(this);
-        row3->addWidget(labelInfo_, 1);
-        row3->addWidget(statusLabel_, 0);
-        row3->addStretch(0);
+        auto *pipBtn = Ui::iconButton(IconId::PictureInPictureAlt, "画中画（P 键）", this);
+        connect(pipBtn, &QPushButton::clicked, this, [this] { togglePiP(); });
+        auto *fsBtn = Ui::iconButton(IconId::Fullscreen, "全屏（双击画面亦可）", this);
+        connect(fsBtn, &QPushButton::clicked, this, [this] { toggleVideoFullscreen(); });
+        // 铺满没有按钮（与 macOS 一致，只有 Z 键）；fillBtn_ 保持 nullptr，既有空值保护覆盖
+        auto *right = new QHBoxLayout();
+        right->setSpacing(M::space2);
+        right->addStretch(1);
+        right->addWidget(qualityBox_);
+        right->addWidget(speedBox_);
+        right->addWidget(volBtn);
+        right->addWidget(vol_);
+        right->addWidget(subBtn);
+        right->addWidget(pipBtn);
+        right->addWidget(fsBtn);
+        row2->addLayout(right, 0, 2);
 
         ctlBox->addLayout(row1);
         ctlBox->addLayout(row2);
-        ctlBox->addLayout(row3);
-        root->addLayout(ctlBox);
+        root->addWidget(ctl);
 
         connect(btnPlay_, &QPushButton::clicked, this, [this] {
             if (player_->paused()) healIfExpired(); // 长时间暂停后按播放：直链可能已过期
@@ -701,7 +628,7 @@ MainWindow::MainWindow() {
             const int saved = int(settings_.number("ui.listWidth", 0));
             const int wantW = saved > 0 ? saved : defW;
             const int total = qMax(wantW + 360, split_->width() > 0 ? split_->width() : width());
-            // 三个子件：results_（数据源，常隐藏）、masonry_、player_；只给两个值时 player_ 分到 0
+            // 三个子件：results_（数据源，常隐藏）、masonry_、player_；只给两个值时 player_ 分到 0 被收起
             split_->setSizes({0, wantW, total - wantW});
             split_->setCollapsible(split_->indexOf(player_), false);
             // W1 ✗ 已删除"首次运行把窗口高度调到纵向 4 张"的自动放大：
@@ -716,7 +643,7 @@ MainWindow::MainWindow() {
             //（macOS 端踩过：程序化重排把 ui.listWidth 误存成 683pt）
             connect(split_, &QSplitter::splitterMoved, this, [this](int, int) {
                 if (!split_ || !masonry_) return;
-                const int w = split_->sizes().value(split_->indexOf(masonry_));   // 第 0 位是隐藏的 results_，恒为 0
+                const int w = split_->sizes().value(split_->indexOf(masonry_));
                 // 值没变就不写：缩略图/卡片重排期 splitterMoved 会密集触发，
                 // 无去重时每次都打日志/写盘（用户侧日志 33 秒刷了 217 条 reject）
                 if (int(settings_.number("ui.listWidth", 0)) == w) return;

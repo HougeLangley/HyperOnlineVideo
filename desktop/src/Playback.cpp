@@ -1,4 +1,5 @@
 #include "HovLog.h"
+#include "Ui.h"
 // ── Playback.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: applySpeed effectiveQuality refreshControls seekBy setPlayerOnlyVisible startStallWatch switchQualityTo tickProgress togglePiP
 #include "MainWindow.h"
@@ -78,6 +79,7 @@ void MainWindow::switchQualityTo(const QString &q) {
 
 void MainWindow::setPlayerOnlyVisible(bool only) {
         if (topCard_) only ? topCard_->hide() : topCard_->show();
+        if (ctlPanel_) only ? ctlPanel_->hide() : ctlPanel_->show();
         // ⚠️ results_ 是 masonry_ 的**数据源**，必须永远隐藏 —— 退出全屏时不能 show() 它
         //（否则屏幕左侧多出一条窄缝般的旧列表 —— 用户截图实测）
         if (results_) results_->hide();
@@ -165,20 +167,32 @@ void MainWindow::refreshControls() {
             seek_->blockSignals(false);
         }
         labelTime_->setText(fmtTime(pos) + " / " + fmtTime(dur));
-        // UI-3 ✓ 底栏信息行：[来源] 标题 | 说明   时间   [状态]（与 macOS 同形态 ✓）
-        if (labelInfo_) {
+        // 播放条左栏：标题一行，「来源 · 状态」一行
+        if (labelInfo_ && labelMeta_) {
             QString src;
-            if (playKey_.startsWith("youtube:"))       src = "YouTube";
-            else if (playKey_.startsWith("bilibili:")) src = "B站";
-            else if (playKey_.startsWith("netease:"))  src = "网易云";
+            if (playKey_.startsWith("youtube:") || playKey_.contains("youtube.com") || playKey_.contains("youtu.be"))
+                src = "YouTube";
+            else if (playKey_.startsWith("bilibili:") || playKey_.contains("bilibili.com")) src = "B站";
+            else if (playKey_.startsWith("netease:"))  src = "网易云音乐";
             else if (playKey_.startsWith("qq:"))       src = "QQ音乐";
             else if (!playKey_.isEmpty())              src = "本地";
-            const QString who = playLabel_.isEmpty() ? QString("（未在播放）") : playLabel_;
-            const QString state = playLabel_.isEmpty() ? QString()
-                                  : (player_->paused() ? "已暂停" : "播放中");
-            labelInfo_->setText(QString("%1%2    %3 / %4    %5")
-                                    .arg(src.isEmpty() ? QString() : "[" + src + "] ")
-                                    .arg(who, fmtTime(pos), fmtTime(dur), state));
+            QString state;
+            if (!playLabel_.isEmpty()) state = dur <= 0 ? "加载中" : (player_->paused() ? "已暂停" : "播放中");
+            const QString title = playLabel_.isEmpty() ? QString("未在播放") : playLabel_;
+            labelInfo_->setText(labelInfo_->fontMetrics().elidedText(title, Qt::ElideRight, qMax(0, labelInfo_->width())));
+            labelInfo_->setToolTip(title);
+            QStringList meta;
+            if (!src.isEmpty()) meta << src;
+            if (!state.isEmpty()) meta << state;
+            labelMeta_->setText(meta.join(" · "));
         }
-        btnPlay_->setText(player_->paused() ? "\u25b6" : "\u23f8");
+        if (idleHint_) {
+            idleHint_->setVisible(dur <= 0);
+            idleText_->setText(playKey_.isEmpty() ? "在上方搜索，选一个视频或歌曲开始播放" : "正在加载…");
+        }
+        const bool paused = player_->paused() || dur <= 0;   // 没有媒体时显示「播放」
+        if (btnPlay_->property("paused") != QVariant(paused)) {
+            btnPlay_->setProperty("paused", paused);
+            Ui::setIcon(btnPlay_, paused ? IconId::PlayArrow : IconId::Pause);
+        }
 }

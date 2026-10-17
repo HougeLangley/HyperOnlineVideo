@@ -109,7 +109,7 @@ static int thumbHeightFor(const QIcon &ic, int width) {
         const QSize s = ic.availableSizes().value(0);
         if (s.isValid() && s.height() > 0) aspect = qreal(s.width()) / s.height();
     }
-    aspect = qBound(9.0 / 16.0, aspect, 1.0);        // 竖屏/超宽都夹到合理范围，避免极端高矮
+    aspect = qBound(1.0, aspect, 16.0 / 9.0);        // 宽高比夹在 1:1 ~ 16:9（原来写成 [9/16, 1]，16:9 封面被压成方框，上下留白）
     return qRound(iw / aspect);
 }
 

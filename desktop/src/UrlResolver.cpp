@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QCryptographicHash>
 #include <cstdio>
+#include <QTextDocumentFragment>
 #include <QTimer>
 #include <QProcess>
 #include <QStandardPaths>
@@ -291,8 +292,18 @@ static QVector<UrlResolver::BiliVideo> biliParseSearch(const QJsonObject &root) 
         b.bvid = o.value("bvid").toString();
         b.title = o.value("title").toString();
         b.title.remove(QRegularExpression("<[^>]+>"));      // 去掉 <em class="keyword">
+        b.title = QTextDocumentFragment::fromHtml(b.title).toPlainText();   // 解码 &quot; &amp; 等实体
         b.author = o.value("author").toString();
         b.duration = o.value("duration").toString();
+        // 接口给的是不补零的「分:秒」（如 419:2）→ 统一成 m:ss 或 h:mm:ss
+        if (const QStringList ms = b.duration.split(':'); ms.size() == 2) {
+            bool okM = false, okS = false;
+            const int total = ms[0].toInt(&okM) * 60 + ms[1].toInt(&okS);
+            if (okM && okS)
+                b.duration = total >= 3600
+                    ? QString("%1:%2:%3").arg(total / 3600).arg(total / 60 % 60, 2, 10, QChar('0')).arg(total % 60, 2, 10, QChar('0'))
+                    : QString("%1:%2").arg(total / 60).arg(total % 60, 2, 10, QChar('0'));
+        }
         b.pic = o.value("pic").toString();
         if (b.pic.startsWith("//")) b.pic.prepend("https:");
         if (!b.bvid.isEmpty() && !b.title.isEmpty()) out.append(b);

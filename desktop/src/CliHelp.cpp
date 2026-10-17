@@ -33,7 +33,7 @@ bool hovHandleHelpOrVersion(int argc, char **argv) {
         "Playback / UI:\n"
         "  --open <file|url...>    Open local files or page URLs\n"
         "  --demo <keyword>        Search on startup\n"
-        "  --source <0|1|2|3>      0=YouTube 1=NetEase 2=QQ Music 3=local library\n"
+        "  --source <0-4>          0=YouTube 1=Bilibili 2=NetEase 3=QQ Music 4=local library\n"
         "  --music <keyword>       NetEase: search and play first hit\n"
         "  --qqmusic <keyword>     QQ Music: search and play first hit\n"
         "  --video-quality <auto|audio|360|480|720|1080>\n"

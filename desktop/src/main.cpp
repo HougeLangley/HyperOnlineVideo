@@ -381,7 +381,7 @@ int main(int argc, char **argv) {
     if (args.contains("--queue-selftest"))
         QMetaObject::invokeMethod(&w, [&w] { w.runQueueSelfTest(); }, Qt::QueuedConnection);
 
-    // 界面：--source N 预选搜索来源（0=YouTube 1=网易云 2=QQ音乐；无头环境无法点击下拉框）
+    // 界面：--source N 预选搜索来源（0=YouTube 1=B站 2=网易云 3=QQ音乐 4=本地库；无头环境无法点击下拉框）
     {
         const int si2 = args.indexOf("--source");
         if (si2 > 0 && si2 + 1 < args.size()) {

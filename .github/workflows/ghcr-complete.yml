@@ -1,0 +1,48 @@
+# ── GHCR 补齐（手动触发 ✓ 一次性运维工具 ✓ 2026-10-17 v1.3.1 首发补 rpm 层用）
+#    原理：CI 的 GITHUB_TOKEN 自带 packages:write ✓（用户个人 token 没有 ✗），
+#    从 Release 拉取权威产物 → oras 推成完整 OCI 制品（同 tag 覆盖 ✓）。
+name: GHCR 补齐
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发布 tag'
+        required: true
+        default: 'v1.3.1'
+permissions:
+  contents: read
+  packages: write
+jobs:
+  ghcr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 下载 Release 资产（权威产物 ✓）
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          mkdir -p out && cd out
+          gh release download "${{ inputs.tag }}" \
+            --pattern '*.deb' --pattern '*.rpm' --pattern '*.AppImage' --clobber
+          ls -la
+      - name: oras push（补齐全部层 ✓）
+        run: |
+          curl -fsSL -o /tmp/oras.tgz https://github.com/oras-project/oras/releases/download/v1.2.3/oras_1.2.3_linux_amd64.tar.gz
+          tar xzf /tmp/oras.tgz -C /tmp oras && export PATH="/tmp:$PATH"
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          VER="${{ inputs.tag }}"; VER="${VER#v}"
+          cd out
+          FILES=(); for f in *; do case "$f" in
+            *.deb) FILES+=("$f:application/vnd.debian.binary-package");;
+            *.rpm) FILES+=("$f:application/vnd.rpm");;
+            *.AppImage) FILES+=("$f:application/vnd.appimage");;
+            *) FILES+=("$f");; esac; done
+          oras push "ghcr.io/hougelangley/hov-qt:${VER}" \
+            --artifact-type application/vnd.hov.release "${FILES[@]}"
+          echo "== 复核 manifest =="
+          oras manifest fetch "ghcr.io/hougelangley/hov-qt:${VER}" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          print('层数:', len(d.get('layers',[])))
+          for l in d.get('layers',[]):
+              print(' -', l.get('annotations',{}).get('org.opencontainers.image.title','?'), l['size'])
+          "

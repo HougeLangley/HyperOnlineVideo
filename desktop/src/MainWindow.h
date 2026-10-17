@@ -444,6 +444,10 @@ private:
     QFrame *topCard_ = nullptr;     // B5：画中画时隐藏
     QLabel *statusLabel_ = nullptr;  // v1.2.0：状态行（结果区只放卡片）
     QLabel *labelInfo_   = nullptr;
+    QLabel *labelMeta_   = nullptr;   // 播放条：来源 · 状态
+    QFrame *ctlPanel_    = nullptr;   // 播放条面板（全屏/画中画时整体隐藏）
+    QWidget *idleHint_   = nullptr;   // 视频区空状态
+    QLabel *idleText_    = nullptr;
     // UI-3b（文档 61 ✓）：底栏新增控件（画质/倍速下拉 + 播放模式按钮）
     QComboBox *qualityBox_ = nullptr;
     bool qualityBoxMusic_ = false;                 // 左下角下拉当前是否"音质档"（音乐内容 ✓ 对齐 macOS B1）

@@ -1,4 +1,5 @@
 #include "LoginDialog.h"
+#include "Ui.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -53,8 +54,8 @@ LoginDialog::LoginDialog(const QString &site, QWidget *parent) : QDialog(parent)
     setWindowTitle(QString("登录 %1").arg(site));
     resize(1000, 720);
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(10, 10, 10, 10);
-    root->setSpacing(8);
+    root->setContentsMargins(M::space4, M::space4, M::space4, M::space4);
+    root->setSpacing(M::space3);
 
     status_ = new QLabel(this);
     status_->setWordWrap(true);
@@ -82,7 +83,7 @@ LoginDialog::LoginDialog(const QString &site, QWidget *parent) : QDialog(parent)
             });
     profile_->cookieStore()->loadAllCookies();
 
-    auto *btns = new QPushButton("立即保存登录态", this);
+    auto *btns = Ui::filledButton(IconId::Save, "立即保存登录态", this);
     connect(btns, &QPushButton::clicked, this, [this] { saveCookies(); });
     root->addWidget(btns);
 
@@ -100,7 +101,7 @@ LoginDialog::LoginDialog(const QString &site, QWidget *parent) : QDialog(parent)
                              "请手动把 %1 的 cookie（Netscape 格式）放到：\n%2\n"
                              "Android 版可用同一份 cookie 文件，格式一致。")
                          .arg(site, cookieFileFor(site)));
-    auto *close = new QPushButton("关闭", this);
+    auto *close = Ui::textButton("关闭", this);
     connect(close, &QPushButton::clicked, this, &QDialog::reject);
     root->addWidget(close);
 #endif

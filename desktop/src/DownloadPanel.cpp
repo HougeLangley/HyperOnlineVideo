@@ -1,4 +1,6 @@
 #include "HovLog.h"
+#include "Theme.h"
+#include "Ui.h"
 // 搬运/新增清单: DownloadPanel（下载面板）+ MainWindow::openDownloadPanel
 //   W2 ✓ 用户需求「下载面板要有下载进度显示，要美观」（macOS 端同步升级 ✓ 两端功能一致 ✓）
 #include "DownloadPanel.h"
@@ -31,22 +33,11 @@ DownloadPanel::DownloadPanel(DownloadManager *dl, QWidget *parent) : QDialog(par
     setMinimumSize(760, 420);
     resize(780, 440);
     setWindowTitle(QStringLiteral("下载"));
-    // 面板内局部样式：行高/表格观感 + 进度条圆角（强调色与 UI-2 实测的 #3869D3 一致 ✓）
-    setStyleSheet(QStringLiteral(
-        "QTableWidget { background: #171717; alternate-background-color: #1C1C1C;"
-        "  border: 1px solid #2E2E2E; border-radius: 8px; color: #DDDDDD;"
-        "  gridline-color: transparent; selection-background-color: transparent; }"
-        "QTableWidget::item { padding: 4px 8px; }"
-        "QHeaderView::section { background: #202020; color: #9A9A9A; border: none;"
-        "  padding: 6px 8px; font-size: 12px; }"
-        "QTableCornerButton::section { background: #202020; border: none; }"));
-
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 14, 16, 14);
-    root->setSpacing(10);
+    root->setContentsMargins(M::space6, M::space6, M::space6, M::space6);
+    root->setSpacing(M::space3);
 
-    summary_ = new QLabel(this);
-    summary_->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 600; color: #E8E8E8;"));
+    summary_ = Ui::label(QString(), Ui::TextRole::Title, this);
     root->addWidget(summary_);
 
     table_ = new QTableWidget(0, 5, this);
@@ -73,24 +64,16 @@ DownloadPanel::DownloadPanel(DownloadManager *dl, QWidget *parent) : QDialog(par
     hh->setHighlightSections(false);
     root->addWidget(table_, 1);
 
-    auto makeBtn = [this](const QString &text) {
-        auto *b = new QPushButton(text, this);
-        b->setObjectName("pillBtn");       // R1 ✓ 全圆胶囊（与顶栏/面板按钮同一形态 ✓）
-        b->setCursor(Qt::PointingHandCursor);
-        // ⚠️ QDialog 会把**第一个**按钮当默认按钮（回车即触发 ✓）→ 会把「重试失败」高亮成主按钮 ✗
-        //    且回车误触发有副作用 ✗ → 全部关掉 autoDefault，只让「关闭」做默认（回车=安全动作 ✓）
-        b->setAutoDefault(false);
-        return b;
-    };
-    auto *retry = makeBtn(QStringLiteral("重试失败"));
-    auto *cancelAllBtn = makeBtn(QStringLiteral("取消全部"));   // W4 ✓ 用户指定按钮 ✓
-    auto *clean = makeBtn(QStringLiteral("LRU 清理"));
-    auto *open  = makeBtn(QStringLiteral("打开下载目录"));
-    auto *close = makeBtn(QStringLiteral("关闭"));
+    // 组件库的按钮都关掉了 autoDefault：回车不触发任何批量动作，Esc = 关闭（QDialog 内建）
+    auto *retry = Ui::tonalButton(IconId::Refresh, QStringLiteral("重试失败"), this);
+    auto *cancelAllBtn = Ui::tonalButton(IconId::Cancel, QStringLiteral("取消全部"), this);
+    auto *clean = Ui::tonalButton(IconId::CleaningServices, QStringLiteral("LRU 清理"), this);
+    auto *open  = Ui::tonalButton(IconId::FolderOpen, QStringLiteral("打开下载目录"), this);
+    auto *close = Ui::textButton(QStringLiteral("关闭"), this);
     // ✗ 刻意**不**设默认按钮：设了会把「关闭」渲染成蓝色主按钮（语义误导 ✗ 与 macOS 面板不一致 ✗）
     //    回车无动作、Esc=关闭（QDialog 内建 ✓）——用户 2026-09-23 截图评审后定稿 ✓
     auto *btns = new QHBoxLayout();
-    btns->setSpacing(8);
+    btns->setSpacing(M::space2);
     btns->addWidget(retry);
     btns->addWidget(cancelAllBtn);
     btns->addWidget(clean);
@@ -178,43 +161,35 @@ void DownloadPanel::fillRow(int row, const DownloadManager::Job &j) {
     auto *state = new QTableWidgetItem(st);
     state->setToolTip(j.error);
     state->setTextAlignment(Qt::AlignCenter);
-    if (j.state == DownloadManager::State::Failed)
-        state->setForeground(QColor("#E0726C"));
-    else if (j.state == DownloadManager::State::Done)
-        state->setForeground(QColor("#5FBF87"));
-    else if (j.state == DownloadManager::State::Running)
-        state->setForeground(QColor("#7FA9F0"));
-    else
-        state->setForeground(QColor("#9A9A9A"));
+    const Tok stateTok = j.state == DownloadManager::State::Failed  ? Tok::Error
+                       : j.state == DownloadManager::State::Done    ? Tok::Success
+                       : j.state == DownloadManager::State::Running ? Tok::Primary
+                                                                    : Tok::OnSurfaceVariant;
+    state->setForeground(Theme::color(stateTok));
     table_->setItem(row, kColState, state);
 
     // 进度条（复用 cell widget ✓ 只改值不重建 ✓）
     const int pct = (j.bytesTotal > 0)
                         ? int(j.bytesDone * 100 / j.bytesTotal)
                         : (j.state == DownloadManager::State::Done ? 100 : 0);
-    auto *bar = qobject_cast<QProgressBar *>(table_->cellWidget(row, kColBar));
+    QWidget *barCell = table_->cellWidget(row, kColBar);
+    auto *bar = barCell ? barCell->findChild<QProgressBar *>() : nullptr;
     if (!bar) {
-        bar = new QProgressBar(table_);
-        bar->setObjectName("dlBar");
-        bar->setRange(0, 100);
-        bar->setFixedHeight(16);
-        bar->setAlignment(Qt::AlignCenter);
-        table_->setCellWidget(row, kColBar, bar);
+        auto *cell = new QWidget(table_);              // 细条垂直居中：外包一层布局
+        auto *lay = new QVBoxLayout(cell);
+        lay->setContentsMargins(M::space2, 0, M::space2, 0);
+        bar = Ui::progressBar(cell);
+        lay->addWidget(bar, 0, Qt::AlignVCenter);
+        table_->setCellWidget(row, kColBar, cell);
     }
+    // 未知总长（ffmpeg 混流阶段等）且仍在下载：不定进度条，而不是假的 0%
+    const bool unknown = j.bytesTotal <= 0 && j.state == DownloadManager::State::Running;
+    bar->setRange(0, unknown ? 0 : 100);
     bar->setValue(qBound(0, pct, 100));
-    // 未知总长时（ffmpeg 混流阶段等 ✓）显示"进行中"而不是假的 0% ✓
-    bar->setFormat(j.bytesTotal > 0 || j.state == DownloadManager::State::Done
-                       ? QStringLiteral("%1%").arg(pct)
-                       : (j.state == DownloadManager::State::Running ? QStringLiteral("进行中")
-                                                                    : QStringLiteral("-")));
-    const QString chunk = j.state == DownloadManager::State::Failed ? QStringLiteral("#E0726C")
-                        : j.state == DownloadManager::State::Done   ? QStringLiteral("#4FBF7F")
-                                                                   : QStringLiteral("#3869D3");
-    bar->setStyleSheet(QStringLiteral(
-                           "QProgressBar#dlBar { border: 1px solid #333333; border-radius: 8px;"
-                           "  background: #232323; color: #D8D8D8; font-size: 11px; }"
-                           "QProgressBar#dlBar::chunk { border-radius: 7px; background: %1; }")
-                           .arg(chunk));
+    bar->setToolTip(unknown ? QStringLiteral("进行中") : QStringLiteral("%1%").arg(pct));
+    Ui::setProgressState(bar, j.state == DownloadManager::State::Failed ? Ui::ProgressState::Failed
+                            : j.state == DownloadManager::State::Done   ? Ui::ProgressState::Done
+                                                                         : Ui::ProgressState::Running);
 
     // 大小（进行中显示 已完成/总长 ✓；未知总长只显示已完成 ✓）
     QString sz;
@@ -231,11 +206,7 @@ void DownloadPanel::fillRow(int row, const DownloadManager::Job &j) {
     const bool active = (j.state == DownloadManager::State::Queued || j.state == DownloadManager::State::Running);
     if (active) {
         if (!btn) {
-            btn = new QPushButton(QStringLiteral("取消下载"), table_);
-            btn->setObjectName("pillBtn");                  // R1 ✓ 全圆 ✓
-            btn->setCursor(Qt::PointingHandCursor);
-            btn->setAutoDefault(false);                     // ✗ 别让它成为回车默认（见本文件顶部警示 ✓）
-            btn->setStyleSheet(QStringLiteral("QPushButton { padding: 0px 10px; min-height: 22px; }"));   // R2 ✓ 显式覆写纵向 padding（防裁切 ✓）
+            btn = Ui::iconButton(IconId::Cancel, QStringLiteral("取消下载"), table_, Ui::IconSize::Small);
             table_->setCellWidget(row, kColAct, btn);
             connect(btn, &QPushButton::clicked, this, [this, btn] {
                 // 按钮会随行销毁 ✓（connect 的 sender 是 btn → 析构自动断开 ✓ 无悬垂 ✗）

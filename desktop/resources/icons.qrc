@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+  <qresource prefix="/icons">
+    <file alias="HovSymbolsOutlined.ttf">icons/HovSymbolsOutlined.ttf</file>
+    <file alias="HovSymbolsFilled.ttf">icons/HovSymbolsFilled.ttf</file>
+  </qresource>
+</RCC>

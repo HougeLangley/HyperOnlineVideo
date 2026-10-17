@@ -56,6 +56,8 @@
 #include "GpuCompat.h"
 #include "Settings.h"
 #include "Theme.h"
+#include "Icons.h"
+#include "Ui.h"
 #include "ProgressStore.h"
 #include "Mpris.h"
 #include "LocalLibrary.h"
@@ -191,11 +193,38 @@ int main(int argc, char **argv) {
             qputenv("QT_QPA_PLATFORM", "offscreen");
     }
     QApplication app(argc, argv);
+    Icons::loadFonts();
     Theme::apply(app);   // 统一深色主题（主窗口/对话框/播放器同一套观感）
     MainWindow w;
     w.show();
     // 自动化验证：--demo "<关键词>" 启动即搜索（供无人值守截图/回归用）
     const auto args = app.arguments();
+    // --ui-gallery：另开组件陈列页
+    if (args.contains("--ui-gallery")) {
+        QWidget *g = Ui::gallery();
+        g->setAttribute(Qt::WA_DeleteOnClose);
+        g->show();
+    }
+    // --grab <前缀> [--grab-after <秒>] [--grab-size <宽>x<高>]：到点后把每个可见顶层窗口存成 <前缀>-<类名>-<序号>.png 并退出
+    if (const int gi = args.indexOf("--grab"); gi > 0 && gi + 1 < args.size()) {
+        const QString prefix = args[gi + 1];
+        int after = 6;
+        if (const int ai = args.indexOf("--grab-after"); ai > 0 && ai + 1 < args.size()) after = qMax(1, args[ai + 1].toInt());
+        if (const int si = args.indexOf("--grab-size"); si > 0 && si + 1 < args.size()) {
+            const QStringList wh = args[si + 1].split('x');
+            if (wh.size() == 2) w.resize(wh[0].toInt(), wh[1].toInt());
+        }
+        QTimer::singleShot(after * 1000, &app, [prefix] {
+            int n = 0;
+            for (QWidget *tw : QApplication::topLevelWidgets()) {
+                if (!tw->isVisible() || tw->windowType() == Qt::ToolTip || tw->windowType() == Qt::Popup) continue;
+                const QString path = QStringLiteral("%1-%2-%3.png").arg(prefix, tw->metaObject()->className()).arg(n++);
+                const bool ok = tw->grab().save(path);
+                hovLog("[GRAB] %s %dx%d %s\n", qPrintable(path), tw->width(), tw->height(), ok ? "ok" : "FAILED");
+            }
+            QCoreApplication::exit(0);
+        });
+    }
     const int di = args.indexOf("--demo");
     if (args.contains("--autoplay")) w.setAutoplay(true);
     const int si = args.indexOf("--speed");

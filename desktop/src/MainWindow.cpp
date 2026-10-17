@@ -1,4 +1,6 @@
 #include "HovLog.h"
+#include "Icons.h"
+#include "Ui.h"
 // ── MainWindow.cpp：从 MainWindow.h 搬出的成员实现（文档 52/53/54 ✓ 零行为改动 ✓）──
 // 搬运清单: applyFillMode applySetting applySettingInner applySource applySubsUrl applySubtitleDelay applySubtitleTrackIndex artistOf biliSearchPublic cleanupDownloads clearProgress cycleQuality cycleVideoQuality demoSearch downloadUrl dumpProgress effectiveVideoHeight fetchNetEaseCover finishMore fmtClock fmtTime followSourceFor healIfExpired importCookiesFromBrowser isWebUrl openFiles openLoginDialog openSettingsDialog playCurrent playNextFile playPrevFile qualityLabel queueOrFilePrev rebuildQueueFromList runQueueSelfTest saveProgressNow selfTest setAutoplay setResumeEnabled setStatusLine setVol titleOf toggleFillScreen togglePiPPublic toggleVideoFullscreen ttlMs tuneApi
 #include "MainWindow.h"
@@ -327,15 +329,13 @@ void MainWindow::openFilterDialog() {
     hovLog("[过滤器] 打开面板（当前 排序=%d 时长=%d）\n", searchSort_, searchDuration_);   // 与 macOS 同文案 ✓
     QDialog dlg(this);
     dlg.setWindowTitle(QStringLiteral("搜索过滤器"));
-    dlg.setFixedWidth(360);                                  // macOS 面板 360 宽 ✓（UiActions.swift:795）
-    dlg.setMinimumHeight(330);                               // macOS 面板 330 高 ✓
+    dlg.setMinimumWidth(9 * M::controlH);
     auto *root = new QVBoxLayout(&dlg);
-    root->setContentsMargins(22, 18, 22, 18);                // macOS insets 18/22/18/22 ✓
-    root->setSpacing(10);                                    // macOS spacing 10 ✓
+    root->setContentsMargins(M::space6, M::space6, M::space6, M::space6);
+    root->setSpacing(M::space1);
     auto header = [&](const QString &t) {
-        auto *l = new QLabel(t, &dlg);
-        l->setStyleSheet("font-size: 13px; font-weight: 600;");   // macOS 13px semibold ✓
-        root->addWidget(l);
+        if (root->count() > 0) root->addSpacing(M::space3);
+        root->addWidget(Ui::label(t, Ui::TextRole::Title, &dlg));
     };
     header(QStringLiteral("排序（对 YouTube / B站生效）"));      // macOS 原文 ✓
     auto *sortGrp = new QButtonGroup(&dlg);
@@ -355,17 +355,16 @@ void MainWindow::openFilterDialog() {
         durGrp->addButton(b, i);
         root->addWidget(b);
     }
-    root->addSpacing(6);
+    root->addSpacing(M::space6);
     auto *row = new QHBoxLayout();
-    auto *apply = new QPushButton(QStringLiteral("应用过滤器"), &dlg);
-    apply->setObjectName("primaryBtn");                      // 主按钮（蓝实心 ✓ 与 macOS 的蓝色默认按钮一致 ✓）
-    apply->setDefault(true);                                 // Enter 即应用 ✓（macOS keyEquivalent "\r" ✓）
-    auto *cancel = new QPushButton(QStringLiteral("取消"), &dlg);
-    row->addWidget(apply);
-    row->addWidget(cancel);
+    row->setSpacing(M::space2);
+    auto *apply = Ui::filledButton(IconId::Check, QStringLiteral("应用过滤器"), &dlg);
+    apply->setDefault(true);                                 // Enter 即应用（macOS keyEquivalent "\r"）
+    auto *cancel = Ui::textButton(QStringLiteral("取消"), &dlg);
     row->addStretch(1);
+    row->addWidget(cancel);
+    row->addWidget(apply);
     root->addLayout(row);
-    root->addStretch(1);
     QObject::connect(apply, &QPushButton::clicked, &dlg, [this, &dlg, sortGrp, durGrp] {
         applySearchFilters(sortGrp->checkedId(), durGrp->checkedId());
         dlg.accept();

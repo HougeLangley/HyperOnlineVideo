@@ -1,4 +1,5 @@
 #pragma once
+#include "Tokens.h"
 // ── 真·瀑布流结果视图（每列独立流动）────────────────────────────────────────
 // 为什么自建：QListWidget/QListView 的 IconMode 只能"按行"排（行高 = 该行最高卡片 →
 // 短卡片下方留白，用户实测"不是瀑布流"）；Flow::TopToBottom 又是"按视口高度分列"，会横向溢出。
@@ -18,10 +19,10 @@ public:
     // ── 卡片度量：**唯一真相**（布局、绘制、默认尺寸全部用这几个常量；
     //    .cpp 里供自由函数使用的同名常量必须与这里保持一致）──
     static constexpr int kCardW = 186;   // 单列最小宽（决定列数）
-    static constexpr int kPad   = 5;     // 卡片内边距
-    static constexpr int kLineH = 16;    // 标题行高
-    static constexpr int kMetaH = 15;    // 来源行高
-    static constexpr int kGap   = 8;     // 卡片间距
+    static constexpr int kPad   = M::space2;   // 卡片内边距
+    static constexpr int kLineH = 20;          // 标题行高（14px 字号）
+    static constexpr int kMetaH = 18;          // 来源行高（12px 字号）
+    static constexpr int kGap   = M::space2;   // 卡片间距
     explicit MasonryView(QWidget *parent = nullptr);
     /** W1 ✓ 自由高度：画布最小高只用于**滚动范围** ✓ 不得顶住主窗口
      *  （QScrollArea 重写了 minimumSizeHint ✗ → 策略 Ignored 无效 ✗ → 必须在此显式覆写 ✓） */
@@ -65,5 +66,4 @@ private:
     void paintCanvas(QWidget *w);
     static QSize cardSizeFor(const QString &text, const QString &source, int width, int thumbH);
     /** 标题占几行（布局与绘制共用同一份计算，避免两边各算各的导致留白） */
-    int titleLinesFor(const QString &t, int innerW) const;
 };

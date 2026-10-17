@@ -46,6 +46,7 @@ jobs:
         run: |
           python3 scripts/audit-code.py
           python3 scripts/check-versions.py
+          python3 scripts/check-ui.py
           # 注：scripts/test_mpv_pathlist.py 含"真实媒体播放"集成断言 ✗（容器内无媒体/网络必挂 ✗，
           #     fork 原 CI 亦未纳入 ✓）→ 保留为本地/手工检查 ✓（2026-10-08）
 

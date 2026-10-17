@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v7      # ← gh release download 需要 git 仓库上下文 ✗（首发漏了 ✗ 实测即挂 ✓）
       - name: 下载 Release 资产（权威产物 ✓）
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |

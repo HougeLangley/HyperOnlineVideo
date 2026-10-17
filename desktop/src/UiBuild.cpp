@@ -589,11 +589,9 @@ MainWindow::MainWindow() {
         connect(subBtn, &QPushButton::clicked, this, [this] { if (player_) player_->cycleSubtitleTrack(); });
         // ③ UI-4-B ✓ macOS 底栏**没有**铺满按钮（只有 Z 快捷键 ✓ Ui.swift:268）→ 已移除按钮 ✓
         //   功能保留：Z 键 ✓（fillBtn_ 保持 nullptr ✓ 既有空值保护覆盖 ✓）
-        connect(fillBtn_, &QPushButton::clicked, this, [this] { toggleFillScreen(); });
         row2->addWidget(fsBtn);
         row2->addWidget(pipBtn);
         row2->addWidget(subBtn);
-        row2->addWidget(fillBtn_);
         // 连播（∞）：播完自动播下一条（UI-4 ✓ 与 macOS autoNextBtn / Android 同键 ✓）
         autoNextBtn_ = new QPushButton(this);
         autoNextBtn_->setObjectName("iconBtn");
@@ -703,7 +701,9 @@ MainWindow::MainWindow() {
             const int saved = int(settings_.number("ui.listWidth", 0));
             const int wantW = saved > 0 ? saved : defW;
             const int total = qMax(wantW + 360, split_->width() > 0 ? split_->width() : width());
-            split_->setSizes({wantW, total - wantW});
+            // 三个子件：results_（数据源，常隐藏）、masonry_、player_；只给两个值时 player_ 分到 0
+            split_->setSizes({0, wantW, total - wantW});
+            split_->setCollapsible(split_->indexOf(player_), false);
             // W1 ✗ 已删除"首次运行把窗口高度调到纵向 4 张"的自动放大：
             //   ① 它在构造函数里算 chrome = height() - split_->height()，而此刻布局尚未完成
             //      （实测 split_->height()=30）→ chrome 被算成 690（真实约 150）→ wantH=1374 ✗
@@ -715,8 +715,8 @@ MainWindow::MainWindow() {
             // 只在**用户拖动**（splitterMoved）时保存 → 程序化 setSizes 不会污染记忆
             //（macOS 端踩过：程序化重排把 ui.listWidth 误存成 683pt）
             connect(split_, &QSplitter::splitterMoved, this, [this](int, int) {
-                if (!split_ || split_->sizes().isEmpty()) return;
-                const int w = split_->sizes().at(0);
+                if (!split_ || !masonry_) return;
+                const int w = split_->sizes().value(split_->indexOf(masonry_));   // 第 0 位是隐藏的 results_，恒为 0
                 // 值没变就不写：缩略图/卡片重排期 splitterMoved 会密集触发，
                 // 无去重时每次都打日志/写盘（用户侧日志 33 秒刷了 217 条 reject）
                 if (int(settings_.number("ui.listWidth", 0)) == w) return;

@@ -11,12 +11,13 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 | 平台 | 状态 | 获取方式（详细步骤见 [📦 安装指南](#-安装指南小白也能看懂)）|
 |---|---|---|
-| **Android** | ✅ v1.3.2 | [Releases](../../releases/latest) 下载 `hov-1.3.1-arm64.apk` |
-| **macOS**（Apple 芯片）| ✅ v1.3.2 | Releases 下载 `HyperOnlineVideo-1.3.1-arm64.dmg` |
+| **Android** | ✅ v1.3.2 | [Releases](../../releases/latest) 下载 `hov-1.3.2-arm64.apk` |
+| **macOS**（Apple 芯片）| ✅ v1.3.2 | Releases 下载 `HyperOnlineVideo-1.3.2-arm64.dmg` |
 | **Arch Linux / Manjaro** | ✅ v1.3.2 | AUR：`yay -S hov-qt` |
 | **Fedora 44 / 45** | ✅ v1.3.2 | Copr：[`houge/hov-qt`](https://copr.fedorainfracloud.org/coprs/houge/hov-qt/) · `sudo dnf copr enable houge/hov-qt` |
 | **openSUSE Tumbleweed** | ✅ v1.3.2 | OBS `home:houge`（x86_64 / aarch64 / riscv64）|
 | **openSUSE Leap 16.0** | ✅ v1.3.2 | OBS `home:houge`（x86_64 / aarch64）|
+| **Gentoo** | ✅ v1.3.2 | gentoo-zh overlay：`emerge media-video/hov-qt` |
 | **NixOS** | ✅ v1.3.2 | flake：`github:HougeLangley/HyperOnlineVideo` |
 | **Ubuntu / Debian / 其它** | ✅ 源码构建 | 3 条命令、约 5 分钟（见安装指南）|
 
@@ -138,7 +139,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 ### 📱 Android（手机 / 平板）
 
 1. 打开本仓库的 **[Releases 页面](../../releases/latest)**
-2. 在 "Assets" 区域点击 **`hov-1.3.1-arm64.apk`** 下载
+2. 在 "Assets" 区域点击 **`hov-1.3.2-arm64.apk`** 下载
 3. 在手机上打开这个文件；若提示「禁止安装未知应用」，按提示允许（安卓装非商店应用的标准流程 ✓）
 4. 安装完成后，桌面会出现「**聚合视频**」图标 ✓
 
@@ -146,7 +147,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ### 🍎 macOS（Apple 芯片 M 系列）
 
-1. Releases 页面下载 **`HyperOnlineVideo-1.3.1-arm64.dmg`**
+1. Releases 页面下载 **`HyperOnlineVideo-1.3.2-arm64.dmg`**
 2. 双击打开，把「**聚合视频**」拖进 **应用程序** 文件夹
 3. **第一次打开**会被 macOS 拦下（未做付费公证的应用都会这样 ✓ 正常现象）：
    - **方法 A**：在「应用程序」里 **右键点图标 → 选"打开" → 再点一次"打开"**
@@ -204,6 +205,26 @@ sudo zypper addrepo https://download.opensuse.org/repositories/home:/houge/openS
 # ② 安装
 sudo zypper install hov-qt
 ```
+
+#### Gentoo（gentoo-zh overlay）
+
+```bash
+# ① 启用 gentoo-zh overlay（已启用可跳过；没有 eselect-repository 就先装它）
+sudo emerge --ask app-eselect/eselect-repository
+sudo eselect repository enable gentoo-zh
+# 提示找不到 gentoo-zh 时改用：sudo eselect repository add gentoo-zh git https://github.com/gentoo-zh/overlay.git
+sudo emerge --sync gentoo-zh
+
+# ② 接受测试关键字（overlay 里是 ~amd64，稳定分支系统需要这一步）
+sudo mkdir -p /etc/portage/package.accept_keywords
+echo "media-video/hov-qt ~amd64" | sudo tee /etc/portage/package.accept_keywords/hov-qt
+
+# ③ 安装
+sudo emerge --ask media-video/hov-qt
+```
+
+> - 默认用系统工具链（**GCC**）编译 ✓ `webengine` 默认开启（内嵌网页登录窗需用到，首次会连带装 qtwebengine，体积较大）；不需要就写 `USE="-webengine"` ✓ `kde` 为可选的 KF6 窗口集成 ✓
+> - 想用 **clang** 编译：在 `/etc/portage/env/hov-clang.conf` 写 `CC=clang` / `CXX=clang++`，再在 `/etc/portage/package.env` 里挂到 `media-video/hov-qt` ✓ 想开 **LTO**：把 `-flto` 加进 `CFLAGS` ✓（ebuild 不替你做这些决定 ✓）
 
 #### NixOS（声明式 · flake）
 

@@ -1,4 +1,4 @@
-# Linux 打包说明（六种分发渠道 · 2026-09-24 全面验证）
+# Linux 打包说明（八种分发渠道 · 2026-10-21 v1.3.2 验证）
 
 本目录是**所有 Linux 分发形态的唯一入口**。每个渠道一个子目录/文件，互不干扰；
 **各渠道的 spec/control 必须按发行版分开维护**（依赖命名、WebEngine 可用性、路径依赖行为都不同 ✗ 不可强行合一）。
@@ -7,23 +7,24 @@
 
 | # | 渠道 | 定义文件 | 发布仓库 | 版本 | 状态 |
 |---|---|---|---|---|---|
-| 1 | **Arch** | `PKGBUILD` | AUR 待定（本地 `makepkg`）| 1.2.1 | ✓ 历史验证 |
-| 2 | **Ubuntu / Debian** | `deb/debian/**` | 本地 .deb（未来可 PPA）| `1.2.1-1` | ✓ 2026-09-24 全流程 |
-| 3 | **Fedora / RHEL** | `rpm/hov-qt.spec` | **Copr** `houge/hov-qt` | `1.2.1-1` | ✓ 2026-09-24 六架构 |
-| 4 | **openSUSE** | `obs/hov-qt.spec` + `obs/hov-qt.changes` | **OBS** `home:houge` | `1.2.1-7.1` | ✓ 2026-09-24 五目标 |
-| 5 | **AppImage** | `build-appimage.sh` | 便携单文件 | 1.2.1 | ✓ 脚本就绪 |
-| 6 | **Flatpak** | `org.hougelangley.HyperOnlineVideo.yml` | 本地 bundle | 1.2.0 | ✓ 已构建过 |
-| 7 | **AUR（Arch）** | `aur/PKGBUILD` + `aur/.SRCINFO` | **AUR** `hov-qt` | 1.2.1 | ⏳ 全流程预演 ✓ 待 GitHub tag |
+| 1 | **Arch** | `PKGBUILD` | 本地 `makepkg` | 1.3.2 | ✓ 1.3.2 本地跑通 |
+| 2 | **Ubuntu / Debian** | `deb/debian/**` | GitHub Releases .deb | 1.3.2-1 | ✓ 1.3.2 容器构建 |
+| 3 | **Fedora / RHEL** | `rpm/hov-qt.spec` | **Copr** `houge/hov-qt` | 1.3.2-1 | ✓ 1.3.2 build 11180419 |
+| 4 | **openSUSE** | `obs/hov-qt.spec` + `obs/hov-qt.changes` | **OBS** `home:houge` | 1.3.2 | ✓ 1.3.2 9 succeeded / 13 published |
+| 5 | **AppImage** | `build-appimage.sh` | GitHub Releases / GHCR | 1.3.2 | ✓ 1.3.2 容器构建 |
+| 6 | **Flatpak** | `org.hougelangley.HyperOnlineVideo.yml` | 本地 bundle | 1.2.0 | ⚠ 本版未构建 |
+| 7 | **AUR（Arch）** | `aur/PKGBUILD` + `aur/.SRCINFO` | **AUR** `hov-qt` | 1.3.2-1 | ✓ 已发布 |
+| 8 | **Gentoo** | gentoo-zh overlay `media-video/hov-qt` | **gentoo-zh** | 1.3.2 | ✓ 已合并（PR #15239）|
 
 **上游源码包（三渠道共用同一份 ✓ 单一真相）**：
 ```bash
 # 在仓库根目录生成（内容一致，仅命名不同）：
-#   hov-qt-1.2.1.tar.gz         ← Fedora spec / OBS spec 的 Source0
-#   hov-qt_1.2.1.orig.tar.gz    ← Debian/Ubuntu 的 orig tarball
-COPYFILE_DISABLE=1 tar czf hov-qt-1.2.1.tar.gz      --exclude='._*' hov-qt-1.2.1
-COPYFILE_DISABLE=1 tar czf hov-qt_1.2.1.orig.tar.gz --exclude='._*' hov-qt-1.2.1
+#   hov-qt-1.3.2.tar.gz         ← Fedora spec / OBS spec 的 Source0
+#   hov-qt_1.3.2.orig.tar.gz    ← Debian/Ubuntu 的 orig tarball
+COPYFILE_DISABLE=1 tar czf hov-qt-1.3.2.tar.gz      --exclude='._*' hov-qt-1.3.2
+COPYFILE_DISABLE=1 tar czf hov-qt_1.3.2.orig.tar.gz --exclude='._*' hov-qt-1.3.2
 ```
-- 顶层目录必须是 `hov-qt-1.2.1/`（rpm 的 `%autosetup -n` 与 dpkg-source 都依赖 ✓）
+- 顶层目录必须是 `hov-qt-1.3.2/`（rpm 的 `%autosetup -n` 与 dpkg-source 都依赖 ✓）
 - **排放**：`.git/ .gradle/ app/build/ core/build/ macos/.build/ macos/build/ desktop/build*  __pycache__/ .DS_Store ._*`
 - **硬校验**：`tar tzf … | grep -cE '(^|/)\._|__MACOSX'` 必须为 **0**（避坑 #174 ✓）
 - deb 专用：tarball 根部**不得**有 `debian/` ✗（构建时从 `deb/debian/` 复制到源码树根 ✓）
@@ -55,7 +56,7 @@ sudo systemd-nspawn -D /var/lib/machines/hov-resolute-amd64 --resolv-conf=copy-h
 # ④ 构建（源码树 bind 进 /build ✓ 加 debian/ 到根）
 sudo systemd-nspawn -D /var/lib/machines/hov-resolute-amd64 --resolv-conf=copy-host \
   --bind=$PWD/build-area:/build -M hov-build \
-  -- /bin/bash -c 'cd /build/hov-qt-1.2.1 && dpkg-checkbuilddeps && dpkg-buildpackage -us -uc'
+  -- /bin/bash -c 'cd /build/hov-qt-1.3.2 && dpkg-checkbuilddeps && dpkg-buildpackage -us -uc'
 # ⑤ 销毁隔离环境（规则 #11 ✓）
 sudo rm -rf /var/lib/machines/hov-resolute-amd64
 ```
@@ -83,7 +84,7 @@ sudo chroot $C /bin/bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get upda
 #    ⚠️ riscv64：**qt6-webengine-dev 不存在** ✗ → 依赖列表去掉它 ✓（control 里已加 [!riscv64] 限定 ✓）
 # ④ 构建（bind 源码进 /build ✓）
 sudo mount --bind ~/hov-pack-121/build-area-arm64 $C/build
-sudo chroot $C /bin/bash -c 'cd /build/hov-qt-1.2.1 && dpkg-checkbuilddeps && dpkg-buildpackage -us -uc -j6'
+sudo chroot $C /bin/bash -c 'cd /build/hov-qt-1.3.2 && dpkg-checkbuilddeps && dpkg-buildpackage -us -uc -j6'
 # ⑤ 销毁（规则 #11 ✓）
 ```
 - **riscv64 的 WebEngine**：Ubuntu 端口仓无 `qt6-webengine-dev` ✗ → `control` 用
@@ -93,9 +94,9 @@ sudo chroot $C /bin/bash -c 'cd /build/hov-qt-1.2.1 && dpkg-checkbuilddeps && dp
 **Copr 项目**：`houge/hov-qt`（`https://copr.fedorainfracloud.org/coprs/houge/hov-qt/`）
 ```bash
 # 造 SRPM（Fedora 打包机 10.6.146.194）
-rpmbuild -bs --define "_topdir ~/hov-rpm-121" SPECS/hov-qt.spec
+rpmbuild -bs --define "_topdir ~/hov-rpm-132" SPECS/hov-qt.spec
 # 提交（六 chroot 自动并行 ✓）
-copr-cli build hov-qt ~/hov-rpm-121/SRPMS/hov-qt-1.2.1-1.fc44.src.rpm
+copr-cli build hov-qt ~/hov-rpm-132/SRPMS/hov-qt-1.3.2-1.fc44.src.rpm
 # 状态 / 下载
 copr-cli status <build-id>
 copr-cli download-build <build-id>

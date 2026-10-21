@@ -116,6 +116,34 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 > 说明：桌面端不是"未实现"，而是**移动端特有的交互在国内桌面环境没有对应物**，故标注"不适用"。
 > 桌面端用等价能力覆盖：手势 → 快捷键（空格/←→/↑↓/`V`/`Q`/`Z`/`F`/`P`）、仅 WiFi → 无此需求、系统画中画 → 应用内置顶小窗。
 
+### Android 兼容性（Android 12 起实测）
+
+| 项 | 值 |
+|---|---|
+| 支持范围 | **Android 12（API 31）及以上**（`minSdk 31` / `targetSdk 36`，`arm64-v8a`，versionCode 11）|
+| 基线环境 | AVD Pixel 6 · arm64-v8a · Android 12.0（API 31，google_apis）|
+| 真机验证 | Xiaomi（Android 17）安装 / 播放 / 下载 / 字幕 / 歌词全流程 ✓ |
+| 已在该环境验证 | 安装 ✓ 启动 ✓ B站搜索 ✓ 播放 ✓ 控制条 ✓ 返回退出 ✓ 手点解析失败不连环切歌 ✓ |
+
+为兼容 Android 12 做的三处适配（都在 `app/src/main/java/` 里）：
+
+- `minSdk` 由 35 降到 **31**，`targetSdk` 36（`app/build.gradle.kts`）
+- `getSerializableExtra` 一律用**旧 API**（带类型的重载是 API 33+ ✗，见 `PlayerActivity.kt:212`）
+- `LoginActivity` / `PlayerActivity` 迁移到 `ComponentActivity` + `OnBackPressedDispatcher`（手势返回在 Android 12 上才正常）
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/android12/a12-01-home.png" width="200"><br><sub>首页</sub></td>
+    <td align="center"><img src="docs/screenshots/android12/a12-02-bilibili-search.png" width="200"><br><sub>B站搜索</sub></td>
+    <td align="center"><img src="docs/screenshots/android12/a12-03-bilibili-playing.png" width="200"><br><sub>播放中</sub></td>
+    <td align="center"><img src="docs/screenshots/android12/a12-04-controls.png" width="200"><br><sub>控制条</sub></td>
+    <td align="center"><img src="docs/screenshots/android12/a12-05-after-back.png" width="200"><br><sub>返回退出</sub></td>
+  </tr>
+</table>
+
+> 截图取自 **Android 12 模拟器**（该环境无代理，YouTube 出口被上游 bot 检查拦住，故基线以 B站 为准 ✓）；
+> 真机（Android 17）上 YouTube / 网易云 / QQ音乐 均已验证 ✓
+
 ### 配置文件（三端共用）
 
 ```

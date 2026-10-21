@@ -138,6 +138,11 @@ final class SettingsPanel: NSObject {
         addCheck("video.fillScreen", "全屏时铺满屏幕（裁切左右黑边）", true)
         addCheck("subtitle.karaoke", "歌词用卡拉OK面板（居中 + 逐字高亮）", true)
         addCheck("playback.rememberProgress", "记住播放进度（自动续播）", true)
+        addCheck("search.historyEnabled", "搜索历史记录（搜索词本地保存，点词条快速再搜）", true)   // 2026-10-20 三端同功能 ✓
+        let clearHist = NSButton(title: "清空搜索历史", target: self, action: #selector(clearSearchHistoryFromSettings(_:)))
+        clearHist.bezelStyle = .roundRect
+        clearHist.font = .systemFont(ofSize: 12)
+        root.addArrangedSubview(clearHist)
         addCheck("playback.autoNext", "播完自动播下一条（按列表顺序连播）", true)
         addCheck("ui.hoverReveal", "全屏时鼠标贴边缘浮出面板（左侧列表 / 底部控制条）", true)
         addCheck("ui.showNetworkProbe", "启动时检测网络", true)
@@ -179,6 +184,12 @@ final class SettingsPanel: NSObject {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         Config.log("[SELFTEST] 设置面板已打开（\(popups.count + checks.count + sliders.count + fields.count) 个控件）")
+    }
+
+    @objc func clearSearchHistoryFromSettings(_ sender: NSButton) {
+        _ = try? settings.apply(key: "search.history", value: "[]")
+        (NSApp.delegate as? AppDelegate)?.refreshSearchHistoryRow()
+        sender.title = "已清空 ✓"
     }
 
     /// 高度 → 下拉下标：**必须用共享表**（AppDelegate.videoQualityHeights）。

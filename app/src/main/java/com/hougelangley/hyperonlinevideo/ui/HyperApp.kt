@@ -10,6 +10,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.filled.History
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -61,6 +62,7 @@ import com.hougelangley.hyperonlinevideo.data.Favorites
 import com.hougelangley.hyperonlinevideo.data.DownloadTask
 import com.hougelangley.hyperonlinevideo.data.PlayQueue
 import com.hougelangley.hyperonlinevideo.data.Repo
+import com.hougelangley.hyperonlinevideo.data.Settings as AppSettings
 import com.hougelangley.hyperonlinevideo.data.SEARCH_PAGE_SIZE
 import com.hougelangley.hyperonlinevideo.data.SearchFilters
 import com.hougelangley.hyperonlinevideo.data.VideoDetail
@@ -122,6 +124,7 @@ fun HyperApp() {
     fun doSearch() {
         if (query.isBlank() || searching) return
         val q = query.trim()
+        HistoryState.add(q)                      // 搜索历史（状态化 ✓ 清空/记录即时刷新 2026-10-20 修复）
         val seq = ++searchSeq
         searching = true
         page = 1
@@ -300,6 +303,7 @@ fun HyperApp() {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(PLATFORMS) { (id, label) ->
                     FilterChip(
+                        shape = RoundedCornerShape(50),
                         selected = platform == id,
                         onClick = {
                             if (platform != id) {
@@ -323,13 +327,19 @@ fun HyperApp() {
 
             // ===== 搜索栏（标准输入框，键盘原生支持）=====
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
+                TextField(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("搜索视频…") },
                     singleLine = true,
-                    shape = MaterialTheme.shapes.extraLarge,
+                    shape = RoundedCornerShape(50),   // 填充胶囊搜索框（surfaceContainer 底 + 无指示线，与桌面端同观感 ✓）
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
                     keyboardOptions = KeyboardOptions(
                         imeAction = ImeAction.Search,
                         autoCorrectEnabled = false,   // 去掉 AUTO_CORRECT 位：WeType 对该位进入候选面板异常路径（IME diff 实证）
@@ -354,6 +364,34 @@ fun HyperApp() {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+
+            // ===== 搜索历史（空搜索词时展示；点词条立即再搜 ✓ 2026-10-20）=====
+            if (query.isBlank() && AppSettings.searchHistoryEnabled && HistoryState.list.isNotEmpty()) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("搜索历史", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.weight(1f))
+                        Text("清空", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.clickable { HistoryState.clear() })
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        HistoryState.list.forEach { h ->
+                            androidx.compose.material3.AssistChip(
+                                onClick = { query = h; doSearch() },
+                                label = { Text(h, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingIcon = { Icon(Icons.Filled.History, contentDescription = null, Modifier.size(16.dp)) },
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
 
             // ===== 批量下载动作条 =====
             AnimatedVisibility(visible = selecting) {

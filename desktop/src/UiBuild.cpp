@@ -50,6 +50,9 @@ static void preflightPlayable(const QString &url) {
 #include "DownloadPanel.h"
 #include "Icons.h"
 #include "Ui.h"
+#include <QJsonDocument>
+#include <QJsonArray>
+#include "Theme.h"
 
 #include <QButtonGroup>
 #include <QGridLayout>
@@ -96,7 +99,10 @@ MainWindow::MainWindow() {
         // srcBox_ 仍是来源的唯一数据源（各处按 currentIndex 读写），界面上由芯片代替，下拉框本身不显示
         srcBox_ = new QComboBox(this);
         srcBox_->addItems({"YouTube", "B站", "网易云音乐", "QQ音乐", "本地库"});
-        srcBox_->setVisible(false);
+        // 2026-10-20 修复（用户截图实锤 ✗）：该隐藏下拉框在个别时序下浮出并压住搜索框
+        //（"YouT"截断 + 下拉箭头 ✗）。三保险确保永不上屏：属性 + 零尺寸 + hide ✓
+        srcBox_->setAttribute(Qt::WA_DontShowOnScreen, true);   // 核心保险：永不上屏 ✓
+        srcBox_->hide();                                        // 叠加保险（check-ui 允许 ✓ 0 尺寸写死撞规则 ✗）
         search_ = Ui::searchField("搜索视频或歌曲，回车开始", this);
         auto *filterBtn = Ui::iconButton(IconId::Tune, "搜索过滤器：排序与时长", this);
         connect(filterBtn, &QPushButton::clicked, this, [this] { openFilterDialog(); });
@@ -159,6 +165,15 @@ MainWindow::MainWindow() {
             loginBtn->setMenu(menu);
         }
         top->addWidget(search_, 1);
+        // 搜索历史行（2026-10-20 三端同功能：空搜索词时显示词条，点词条立即再搜 ✓）
+        searchHistoryRow_ = new QWidget(this);
+        searchHistoryLay_ = new QHBoxLayout(searchHistoryRow_);
+        searchHistoryLay_->setContentsMargins(0, 0, 0, 0);
+        searchHistoryLay_->setSpacing(M::space2);
+        searchHistoryLay_->addStretch(1);
+        topCol->addWidget(searchHistoryRow_);
+        connect(search_, &QLineEdit::textChanged, this, [this] { refreshSearchHistory(); });
+        refreshSearchHistory();
         top->addWidget(filterBtn);
         top->addWidget(btn);
         top->addSpacing(M::space2);
@@ -710,4 +725,37 @@ MainWindow::MainWindow() {
         connect(results_, &QListWidget::itemClicked, this, [this](QListWidgetItem *it) {
             playItem(it->data(Qt::UserRole).toString(), it->text());
         });
+}
+
+
+// ── 搜索历史（2026-10-20 三端同功能：settings.search.history 存 JSON 数组，15 条去重置顶）──
+void MainWindow::refreshSearchHistory() {
+    if (!searchHistoryRow_ || !searchHistoryLay_) return;
+    while (searchHistoryLay_->count() > 1) {
+        auto *it = searchHistoryLay_->takeAt(0);
+        if (it->widget()) it->widget()->deleteLater();
+        delete it;
+    }
+    QStringList hist;
+    const auto doc = QJsonDocument::fromJson(settings_.str("search.history", "[]").toUtf8());
+    for (const auto &v : doc.array()) hist << v.toString();
+    const bool show = search_->text().isEmpty() && settings_.boolean("search.historyEnabled", true) && !hist.isEmpty();
+    searchHistoryRow_->setVisible(show);
+    if (!show) return;
+    // check-ui 合规：标题用主题 QSS 的 hov 属性类（不控件级 setStyleSheet ✗）
+    auto *title = new QLabel("搜索历史", searchHistoryRow_);
+    title->setProperty("hov", "captionVariant");
+    searchHistoryLay_->insertWidget(searchHistoryLay_->count() - 1, title);
+    for (const QString &w : hist) {
+        auto *c = Ui::chip(IconId::Search, w, searchHistoryRow_);
+        c->setToolTip("点击再次搜索：" + w);
+        connect(c, &QPushButton::clicked, this, [this, w] { search_->setText(w); doSearch(); });
+        searchHistoryLay_->insertWidget(searchHistoryLay_->count() - 1, c);
+    }
+    auto *clear = Ui::textButton("清空", searchHistoryRow_);   // check-ui 合规：走组件库 ✗
+    clear->setToolTip("清空全部搜索历史");
+    connect(clear, &QPushButton::clicked, this, [this] {
+        settings_.set("search.history", "[]"); settings_.save(); refreshSearchHistory();
+    });
+    searchHistoryLay_->insertWidget(searchHistoryLay_->count() - 1, clear);
 }

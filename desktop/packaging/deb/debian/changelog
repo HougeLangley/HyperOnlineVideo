@@ -1,3 +1,22 @@
+hov-qt (1.3.2-1) resolute; urgency=medium
+
+  * Fix playback stopping after seeking: mpv unloads time-pos/duration for a
+    moment during a seek, which the end-of-playback fallback read as 0/0 and
+    treated as end of file, auto-advancing to the next entry.
+  * Seek handling: ignore the fallback for 3 s after a user seek and require
+    two consecutive zero readings.
+  * mpv: network-timeout=30 and lavf reconnect for stalled network reads.
+  * Desktop UI rework: design tokens, Material Symbols icons, component
+    library and a check-ui lint; macOS adopts the same token palette.
+  * Search history on all platforms (click a chip to search again; toggle
+    and clear in settings, stored locally).
+  * Android: minimum supported version lowered to Android 12 (API 31);
+    back handling moved to OnBackPressedDispatcher.
+  * YouTube: web_safari fallback client and cookie retry when the SABR
+    experiment caps quality; honest "requested vs actual" status message.
+
+ -- Houge Langley <hougelangley1987@gmail.com>  Sat, 18 Oct 2026 10:00:00 +0800
+
 hov-qt (1.3.1-1) resolute; urgency=medium
 
   * Android: fix intermittent subtitles (4 root causes) - refresh online

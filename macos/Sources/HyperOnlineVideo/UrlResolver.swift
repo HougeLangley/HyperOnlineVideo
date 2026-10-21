@@ -9,6 +9,7 @@ final class UrlResolver {
     struct Stream {
         var videoUrl = "", audioUrl = "", title = ""
         var subtitles: [SubtitleTrack] = []
+        var bestHeight = 0   // 本次解析实际选中的视频高度（用于"请求 vs 实际"诚实提示 ✓ 2026-10-18）
     }
 
     static func serviceOf(_ url: String) -> String {
@@ -144,8 +145,13 @@ final class UrlResolver {
     }
 
     // MARK: 解析直链
-    func resolve(_ pageUrl: String) -> Stream? {
-        let baseArgs = ["-J", "--no-warnings", "--no-playlist"] + Self.formatArgs(forMaxHeight: Self.maxHeight)
+func resolve(_ pageUrl: String) -> Stream? {
+        var baseArgs = ["-J", "--no-warnings", "--no-playlist"] + Self.formatArgs(forMaxHeight: Self.maxHeight)
+        // 2026-10-18（用户报"设 2K 只有低清"✗ 根因：YouTube 对部分账号/IP 开 SABR-only 实验，默认客户端只回
+        // 360p 合流 ✗；实测 default,web_safari 并集可拿 HLS 1080p ✓；1440+ 上游不给时由上层如实提示）
+        if Self.serviceOf(pageUrl) == "youtube" {
+            baseArgs += ["--extractor-args", "youtube:player_client=default,web_safari"]
+        }
         // 2026-10-08 画质对齐：**匿名优先**（失效 cookie 会让 YouTube 静默降级到 360p ✗，Android A/B 实证 ✓）；
         // 匿名失败（如年龄限制/会员视频）再带 cookie 重试一次 ✓（有界 ✓）
         let cookieArgs = Self.cookieArgs(for: pageUrl)
@@ -153,24 +159,19 @@ final class UrlResolver {
             Config.log("找不到 yt-dlp（brew install yt-dlp）")
             return nil
         }
-        var r = Self.runProcess(ytdlp, baseArgs + [pageUrl])
-        if r.code != 0 {
-            Config.log("匿名解析失败 → 带 cookie 重试一次")
-            r = Self.runProcess(ytdlp, baseArgs + cookieArgs + [pageUrl])
+        func runOnce(useCookies: Bool) -> ProcResult {
+            Self.runProcess(ytdlp, baseArgs + (useCookies ? cookieArgs : []) + [pageUrl])
         }
-        guard r.code == 0 else {
-            Config.log("解析失败（yt-dlp 退出码 \(r.code)）")
-            let tail = r.err.components(separatedBy: "\n").suffix(3).joined(separator: "\n")
-            if !tail.isEmpty { Config.log(tail) }
-            return nil
-        }
-        guard let root = (try? JSONSerialization.jsonObject(with: r.out)) as? [String: Any] else {
+        func makeStream(_ r: ProcResult) -> Stream? {
+guard r.code == 0 else { return nil }
+            guard let root = (try? JSONSerialization.jsonObject(with: r.out)) as? [String: Any] else {
             Config.log("解析结果不是合法 JSON")
             return nil
         }
         var s = Stream()
         s.title = (root["title"] as? String) ?? ""
         if let req = root["requested_downloads"] as? [Any], let first = req.first as? [String: Any] {
+            s.bestHeight = first["height"] as? Int ?? 0
             let direct = (first["url"] as? String) ?? ""
             if let fmts = first["requested_formats"] as? [Any], !fmts.isEmpty {
                 for f in fmts {
@@ -200,6 +201,29 @@ final class UrlResolver {
             Config.log("解析档位=≤\(Self.qualityLabel(Self.maxHeight)) 实际选中=\(h)p \(note) \(vcodec)")
         }
         Config.log("解析成功: \(s.title.isEmpty ? pageUrl : s.title)\(s.audioUrl.isEmpty ? "" : "（视频+音频分流）")")
+        return s
+        }
+        var r = runOnce(useCookies: false)
+        if r.code != 0 {
+            Config.log("匿名解析失败 → 带 cookie 重试一次")
+            r = runOnce(useCookies: true)
+        }
+        guard var s = makeStream(r) else {
+            Config.log("解析失败（yt-dlp 退出码 \(r.code)）")
+            let tail = r.err.components(separatedBy: "\n").suffix(3).joined(separator: "\n")
+            if !tail.isEmpty { Config.log(tail) }
+            return nil
+        }
+        // 2026-10-18：**匿名成功但档位被降**（SABR 实验下匿名只给 360p ✗ 实测）→ 带 cookie 再试一次，
+        // 取更高者。门槛：请求了具体上限且实际低于 min(上限,1080) 才重试（自动档保持原行为 ✓ 有界 ✓）
+        if Self.maxHeight > 0, s.bestHeight < min(Self.maxHeight, 1080), !cookieArgs.isEmpty {
+            Config.log("[画质] 匿名解析仅 \(s.bestHeight)p（请求≤\(Self.maxHeight)p）→ 带 cookie 重试")
+            let r2 = runOnce(useCookies: true)
+            if let s2 = makeStream(r2), s2.bestHeight > s.bestHeight {
+                Config.log("[画质] cookie 路径拿到 \(s2.bestHeight)p → 采用")
+                s = s2
+            }
+        }
         return s
     }
     /// 按系统语言决定 yt-dlp 抓哪些字幕（去重；末尾补中英各若干，保持对旧行为的兼容）

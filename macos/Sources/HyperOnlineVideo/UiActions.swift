@@ -150,12 +150,31 @@ extension AppDelegate {
         m.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
     }
 
+    /// 搜索历史读取（JSON 数组字符串 → [String]）
+    func searchHistoryList() -> [String] {
+        guard let data = settings.string("search.history", "[]").data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [String] else { return [] }
+        return arr.filter { !$0.isEmpty }
+    }
+
     @objc func onSearch() {
         let kw = searchField.stringValue.trimmingCharacters(in: .whitespaces)
         let src = sourcePopup.titleOfSelectedItem ?? "YouTube"
         if src == "本地库" { showLocalLibrary(filter: kw); return }
         guard !kw.isEmpty else { setStatus("请输入关键词"); return }
         lastSearchBySource[src] = kw                      // 记住"来源 → 关键词"，切回来时自动重现
+        // 搜索历史（2026-10-20 三端同功能 ✓ 开关关/本地库过滤不记 ✗）
+        if src != "本地库" && settings.bool("search.historyEnabled", true) {
+            var hist = searchHistoryList()
+            hist.removeAll { $0 == kw }
+            hist.insert(kw, at: 0)
+            if hist.count > 15 { hist.removeLast(hist.count - 15) }
+            if let data = try? JSONSerialization.data(withJSONObject: hist),
+               let json = String(data: data, encoding: .utf8) {
+                _ = try? settings.apply(key: "search.history", value: json)
+            }
+            refreshSearchHistoryRow()
+        }
         // 新搜索 = 新列表（与 Android 一致：**替换**而不是追加）。
         // 之前是追加 ⇒ 第二次搜索的结果被塞在旧结果下面，用户以为"没有结果"（实测反馈）。
         rows.removeAll()
@@ -375,6 +394,19 @@ extension AppDelegate {
     }
 
     /// 搜索响应 → 行列表（wbi 与旧接口共用 ✓ 2026-09-28 去重 ✓）
+    private static func unescapeHtmlEntities(_ s: String) -> String {
+        (CFXMLCreateStringByUnescapingEntities(nil, s as CFString, nil) as String?) ?? s
+    }
+
+    /// Bilibili search API returns durations like "419:2" (minutes are unbounded).
+    private static func normaliseBiliDuration(_ d: String) -> String {
+        let parts = d.split(separator: ":")
+        guard parts.count == 2, let m = Int(parts[0]), let s = Int(parts[1]) else { return d }
+        let total = m * 60 + s
+        return total >= 3600 ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+                              : String(format: "%d:%02d", total / 60, total % 60)
+    }
+
     private static func parseBiliSearch(_ root: [String: Any]) -> [Row] {
         let list = ((root["data"] as? [String: Any])?["result"] as? [Any]) ?? []
         var out: [Row] = []
@@ -382,10 +414,13 @@ extension AppDelegate {
             guard let o = v as? [String: Any], let bvid = o["bvid"] as? String else { continue }
             var title = (o["title"] as? String) ?? bvid
             title = title.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            title = Self.unescapeHtmlEntities(title)
             let up = (o["author"] as? String) ?? ""
             var text = title
             if !up.isEmpty { text += "  · \(up)" }
-            if let d = o["duration"] as? String, !d.isEmpty { text += "  · \(d)" }
+            var durText = (o["duration"] as? String) ?? ""
+            durText = Self.normaliseBiliDuration(durText)
+            if !durText.isEmpty { text += "  · \(durText)" }
             var pic = (o["pic"] as? String) ?? ""
             if pic.hasPrefix("//") { pic = "https:" + pic }
             out.append(Row(text: text, key: "https://www.bilibili.com/video/\(bvid)", thumb: pic))
@@ -1017,10 +1052,12 @@ extension AppDelegate {
 
     // MARK: 播放分发
 
-    func playResult(key: String, label: String) {
+    /// autoAdvance=true：自动连播/队列切歌场景——解析失败允许**有限**跳下一条（上限 3 ✓）；
+    /// 手动点击（列表/历史/收藏/文件）默认 false：失败只报错，不再打扰式滚列表 ✗（2026-10-18 用户实测"反复解析"根治）
+    func playResult(key: String, label: String, autoAdvance: Bool = false) {
         if key.hasPrefix("netease:") || key.hasPrefix("qq:") { playMusic(key: key, label: label); return }
         if UrlResolver.isDirectMedia(key) { playKey(target: key, label: label); return }
-        resolveAndPlay(key, label)
+        resolveAndPlay(key, label, autoAdvance: autoAdvance)
     }
 
     /// 让"搜索源"下拉与正在播放的内容一致（用户反馈：源显示 YouTube 却在放 B 站 —— 下拉是搜索源，
@@ -1150,7 +1187,7 @@ extension AppDelegate {
         }
     }
 
-    private func resolveAndPlay(_ pageUrl: String, _ label: String) {
+    private func resolveAndPlay(_ pageUrl: String, _ label: String, autoAdvance: Bool = false) {
         hovHealLastResolvedAt = Date(); hovHealTried = false      // 新内容：记录解析时刻并允许一次自愈
         followSource(UrlResolver.serviceOf(pageUrl))
         setStatus("解析中…（\(UrlResolver.serviceOf(pageUrl).isEmpty ? "直链" : UrlResolver.serviceOf(pageUrl))）")
@@ -1172,10 +1209,17 @@ extension AppDelegate {
                 DispatchQueue.main.async {
                     if reqId == self.playRequestId {
                         self.setStatus("解析失败（检查网络/ cookie）")
-                        // 2026-10-17（与 Android「点下一个视频出错」同一案 ✗ 用户要求挖掘潜在同类 ✗）：
-                        // 视频解析失败以前只报状态不前进 ✗ → 复用音乐路径已有的 tryPlayNext
-                        // （只在 rows 内**向前**最多试 6 条 ✓ 不会死循环 ✓）
-                        self.tryPlayNext(after: pageUrl)
+                        // 2026-10-17 引入 tryPlayNext 后实测新问题 ✗：手动点击的视频解析失败
+                        // 也会滚列表（连滚 6 条 × 75s 超时 = 长时间"反复解析"）✗ → 2026-10-18 收紧：
+                        // 只有 autoAdvance（连播/队列）且连续失败 <3 才跳；手动点击失败即停 ✓
+                        if autoAdvance && self.autoSkipStreak < 3 {
+                            self.autoSkipStreak += 1
+                            self.setStatus("解析失败 → 跳下一条（第 \(self.autoSkipStreak) 次）")
+                            self.tryPlayNext(after: pageUrl)
+                        } else {
+                            self.autoSkipStreak = 0
+                            self.setStatus("解析失败（检查网络/ cookie），已停止")
+                        }
                     }
                 }
                 return
@@ -1197,6 +1241,11 @@ extension AppDelegate {
                 // ⚠️ 顺序很重要：playKey() 内部会清空 tracks/cues（为新内容做准备），
                 // 所以**必须先开播、再挂字幕** —— 反过来会让刚取回的字幕被清掉
                 //（用户实测：开关显示"开"却一直没有字幕；日志实证 [SUB] 挂载 285 行 → 随后 轨数=0）。
+                // 2026-10-18：请求档位与实际不符时如实告知（上游未提供更高清晰度 ✗ 不再沉默降级）
+                if UrlResolver.maxHeight > 1080, stream.bestHeight > 0, stream.bestHeight < UrlResolver.maxHeight {
+                    self.setStatus("清晰度：请求≤\(UrlResolver.qualityLabel(UrlResolver.maxHeight))，实际最高 \(stream.bestHeight)p（站点未提供更高）")
+                    self.appendLog("[画质] 请求≤\(UrlResolver.maxHeight)p 实际 \(stream.bestHeight)p（YouTube 侧未提供更高档）")
+                }
                 self.playKey(target: stream.videoUrl, label: stream.title.isEmpty ? label : stream.title,
                              audio: stream.audioUrl.isEmpty ? nil : stream.audioUrl,
                              contentKey: pageUrl)          // 内容键=页面 URL（直链会过期，不能当键）

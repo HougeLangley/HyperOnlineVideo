@@ -33,21 +33,48 @@ enum ThemeMode: String {
 enum ThemeColors {
     private static var light: Bool { ThemeController.shared.mode.isLight }
 
-    /// 卡片底：深色=白色 7% ✓ / 浅色=黑色 6% ✓
-    static var cardBG: NSColor {
-        light ? NSColor.black.withAlphaComponent(0.055) : NSColor.white.withAlphaComponent(0.07)
+    // 设计 token（与 desktop/src/Tokens.h、Theme.cpp 的同名角色逐值一致）
+    enum Tok: Int {
+        case surface, surfaceLow, surfaceContainer, surfaceHigh, surfaceHighest
+        case onSurface, onSurfaceVariant, outline, outlineVariant
+        case primary, onPrimary, primaryContainer, onPrimaryContainer
+        case error, success
     }
-    /// 卡片边框：深色=白色 10% ✓ / 浅色=黑色 12% ✓
-    static var cardBorder: NSColor {
-        light ? NSColor.black.withAlphaComponent(0.12) : NSColor.white.withAlphaComponent(0.10)
+
+    private static func rgb(_ hex: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255.0,
+                green: CGFloat((hex >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(hex & 0xFF) / 255.0, alpha: 1)
     }
-    /// 选中态卡片底
-    static var cardSelected: NSColor {
-        light ? NSColor.controlAccentColor.withAlphaComponent(0.18) : NSColor.white.withAlphaComponent(0.18)
+
+    private static let darkPalette: [NSColor] = [
+        0x0F1115, 0x171A1F, 0x1E2127, 0x282B31, 0x33363D,
+        0xE3E5EB, 0xC3C7CF, 0x8F939B, 0x4A4F57,
+        0x8AB4F8, 0x0B1B33, 0x1E3A5F, 0xD3E3FD,
+        0xF28B82, 0x6DD58C,
+    ].map(rgb)
+
+    private static let lightPalette: [NSColor] = [
+        0xF7F8FA, 0xFFFFFF, 0xEEF0F3, 0xE4E7EC, 0xD9DDE3,
+        0x1A1C20, 0x44474E, 0x74777F, 0xC4C7CE,
+        0x0B57D0, 0xFFFFFF, 0xD3E3FD, 0x0B1B33,
+        0xB3261E, 0x146C2E,
+    ].map(rgb)
+
+    static func color(_ t: Tok) -> NSColor {
+        let pal = light ? lightPalette : darkPalette
+        return pal[min(t.rawValue, pal.count - 1)]
     }
-    /// 吸顶/浮层面板底（覆盖在画面上时用 ✓）
+
+    /// 卡片底 = SurfaceContainer
+    static var cardBG: NSColor { color(.surfaceContainer) }
+    /// 卡片边框 = OutlineVariant
+    static var cardBorder: NSColor { color(.outlineVariant) }
+    /// 选中态卡片底 = PrimaryContainer
+    static var cardSelected: NSColor { color(.primaryContainer) }
+    /// 吸顶/浮层面板底 = Surface（略透明，保留毛玻璃观感）
     static var overlayPanel: NSColor {
-        light ? NSColor.white.withAlphaComponent(0.86) : NSColor.black.withAlphaComponent(0.62)
+        color(.surface).withAlphaComponent(light ? 0.90 : 0.82)
     }
 }
 

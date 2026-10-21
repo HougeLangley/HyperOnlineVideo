@@ -15,7 +15,9 @@ import android.widget.Toast
 import java.io.File
 
 /** 平台登录页：WebView 官方登录 → CookieManager 抓取 → Netscape 格式落盘（供 yt-dlp 使用） */
-class LoginActivity : Activity() {
+// 2026-10-20（minSdk 31 兼容 Android 12）：迁移 OnBackPressedDispatcher ——
+// 裸 Activity 的 onBackPressed 在 13+ 的手势返回下不再回调 ✗（lint GestureBackNavigation）
+class LoginActivity : androidx.activity.ComponentActivity() {
 
     companion object {
         private val PLATFORMS = mapOf(
@@ -184,6 +186,7 @@ class LoginActivity : Activity() {
         }
         root.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
+        installBackHandler()
         if (platform == "qqmusic") {
             webView.loadDataWithBaseURL("https://y.qq.com/", chooseHtml(), "text/html", "utf-8", null)
         } else {
@@ -193,9 +196,13 @@ class LoginActivity : Activity() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else finish()
+    // 统一返回入口（手势/三键全版本一致 ✓）
+    private fun installBackHandler() {
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else finish()
+            }
+        })
     }
 
     private fun harvestAndFinish(domains: List<String>, manual: Boolean) {

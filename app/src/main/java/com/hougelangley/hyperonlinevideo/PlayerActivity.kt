@@ -40,7 +40,8 @@ import `is`.xyz.mpv.MPV
 import `is`.xyz.mpv.MPVNode
 
 /** 全屏播放器（libmpv 硬解直链流） */
-class PlayerActivity : Activity() {
+// 2026-10-20（minSdk 31 兼容 Android 12）：迁移 OnBackPressedDispatcher（同 LoginActivity 注释）
+class PlayerActivity : androidx.activity.ComponentActivity() {
     /** 进程级封面缓存：随前台服务存活 → Activity 重建后仍可恢复封面（平台封面 URL 会过期，缓存位图更可靠） */
     private object CoverCache {
         var url: String = ""
@@ -70,6 +71,9 @@ class PlayerActivity : Activity() {
             android.util.Log.i("HOV", "[PLAY] 渲染后端 = gpu-next（libplacebo，Android 固定）")
             mpv.setOptionString("cache", "auto")
             mpv.setOptionString("cache-secs", "30")
+            // 2026-10-17：网络读挂起会表现为"永远不播"✗ —— 默认无超时（无线等）✗
+            mpv.setOptionString("network-timeout", "30")
+            mpv.setOptionString("stream-lavf-o", "reconnect=1,reconnect_streamed=1")
             if (referer.isNotEmpty()) mpv.setOptionString("http-header-fields", "Referer: $referer")
         }
         override fun postInitOptions() {}
@@ -121,6 +125,8 @@ class PlayerActivity : Activity() {
     private var saveTick = 0
     private val handler = Handler(Looper.getMainLooper())
     private var userSeeking = false
+    private var lastSeekAtMs = 0L        // 最近一次用户 seek（结束判定窗口内不判"播完" ✗ 2026-10-17）
+    private var purgeStreak = 0          // pos/dur 同时为 0 的连续 tick 数（≥2 才算真结束 ✓）
     private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
     private var focusRequest: AudioFocusRequest? = null
     private var pausedByFocus = false
@@ -203,13 +209,16 @@ class PlayerActivity : Activity() {
         }
         videoTitle = title.ifEmpty { "正在播放" }
         progressKey = intent.getStringExtra("key").orEmpty()
-        @Suppress("UNCHECKED_CAST")
-        qualitiesList = (intent.getSerializableExtra("qualities", ArrayList::class.java) as? ArrayList<QualityOption>) ?: arrayListOf()
+        // minSdk 31（2026-10-20 兼容 Android 12）：typed getSerializableExtra 是 API 33+ ✗；
+        // 统一走旧 API（deprecated 但所有版本可用 ✓ 33+ 行为一致）
+        @Suppress("DEPRECATION", "UNCHECKED_CAST")
+        qualitiesList = intent.getSerializableExtra("qualities") as? ArrayList<QualityOption> ?: arrayListOf()
         currentQualityId = intent.getStringExtra("currentQualityId").orEmpty()
         currentAudioUrl = audioUrl
-        @Suppress("UNCHECKED_CAST")
-        subtitleTracks = (intent.getSerializableExtra("subtitles", ArrayList::class.java) as? ArrayList<SubTrack>) ?: arrayListOf()
+        @Suppress("DEPRECATION", "UNCHECKED_CAST")
+        subtitleTracks = intent.getSerializableExtra("subtitles") as? ArrayList<SubTrack> ?: arrayListOf()
         autoSelectSubtitleBySystemLanguage()      // 默认按系统语言选中并显示字幕（用户要求 ✓）
+        installBackHandler()                       // 手势/三键返回统一（minSdk 31 ✓ 2026-10-20）
         // 音乐平台：构建音质档位（受设置上限裁剪）+ 从当前音质标签推断档位（M20 播放器内切音质）
         songId = intent.getStringExtra("songId").orEmpty()
         if (isMusicPlatform(platform)) {
@@ -248,42 +257,7 @@ class PlayerActivity : Activity() {
         root.addView(mpvView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        // 音乐模式：居中展示专辑封面（音频流本身无画面）
-        if (isMusicPlatform(platform) || platform == "local") {
-            val cv = ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                setBackgroundColor(0xFF15151C.toInt())
-                layoutParams = FrameLayout.LayoutParams(dp(300), dp(300), Gravity.CENTER)
-            }
-            coverView = cv
-            if (coverUrl.isNotEmpty()) {
-                // 在线音乐：直接加载平台封面
-                cv.load(coverUrl) { crossfade(true) }
-                CoverCache.url = coverUrl
-                cv.postDelayed({ runCatching {
-                    val bmp = (cv.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
-                    if (bmp != null) CoverCache.bitmap = bmp
-                } }, 2000)
-                root.addView(cv)
-            } else if (platform == "local") {
-                // 本地音频：读取内嵌专辑封面（异步，避免阻塞）
-                Thread {
-                    val bmp = try {
-                        val mmr = android.media.MediaMetadataRetriever()
-                        mmr.setDataSource(url)
-                        val pic = mmr.embeddedPicture
-                        mmr.release()
-                        pic?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
-                    } catch (e: Exception) {
-                        null
-                    }
-                    if (bmp != null) runOnUiThread {
-                        cv.setImageBitmap(bmp)
-                        if (cv.parent == null) root.addView(cv)
-                    }
-                }.start()
-            }
-        }
+        setupMusicCover(root, url, coverUrl)
 
         val tapLayer = View(this)
         tapLayer.setOnTouchListener { _, event ->
@@ -384,26 +358,7 @@ class PlayerActivity : Activity() {
         resolvedAtMs = System.currentTimeMillis()
         // Issue #1 ✓（2026-10-01）：googlevideo 直链先做 4MB Range 预检 → 受限出口（HTTP 403 ✗）
         // 明确提示更换节点/线路（正常出口 200/206 ✓）；后台线程探测 + 主线程 Toast ✓
-        if (playUrl.contains("googlevideo.com")) {
-            Thread {
-                val code = try {
-                    (java.net.URL(playUrl).openConnection() as java.net.HttpURLConnection).run {
-                        setRequestProperty("Range", "bytes=0-4194304")
-                        connectTimeout = 10000
-                        readTimeout = 10000
-                        val c = try { responseCode } finally { disconnect() }
-                        c
-                    }
-                } catch (e: Exception) { 0 }
-                if (code != 200 && code != 206) {
-                    runOnUiThread {
-                        Toast.makeText(this@PlayerActivity,
-                            "YouTube 拒绝该网络出口获取视频流（HTTP $code）→ 请更换代理节点/线路，或改用直连 ✓",
-                            Toast.LENGTH_LONG).show()
-                    }
-                }
-            }.start()
-        }
+        probeGoogleVideoExit(playUrl)
         mpvView.playFile(playUrl)
         if (platform == "local") autoLoadSubtitle(url)
         handler.postDelayed({ applyFillMode() }, 900)   // 起播后应用显示模式（铺满/适应）
@@ -427,6 +382,70 @@ class PlayerActivity : Activity() {
         startProgressLoop()
         loadLyricsAsync()          // 首次播放即尝试拉歌词（音乐平台）
         showControls(autoHide = true)
+    }
+
+    /** 音乐/本地模式的专辑封面（2026-10-20 从 onCreate 提取 ✓ 纯搬移零行为变化）*/
+    private fun setupMusicCover(root: FrameLayout, url: String, coverUrl: String) {
+    // 音乐模式：居中展示专辑封面（音频流本身无画面）
+    if (isMusicPlatform(platform) || platform == "local") {
+        val cv = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(0xFF15151C.toInt())
+            layoutParams = FrameLayout.LayoutParams(dp(300), dp(300), Gravity.CENTER)
+        }
+        coverView = cv
+        if (coverUrl.isNotEmpty()) {
+            // 在线音乐：直接加载平台封面
+            cv.load(coverUrl) { crossfade(true) }
+            CoverCache.url = coverUrl
+            cv.postDelayed({ runCatching {
+                val bmp = (cv.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                if (bmp != null) CoverCache.bitmap = bmp
+            } }, 2000)
+            root.addView(cv)
+        } else if (platform == "local") {
+            // 本地音频：读取内嵌专辑封面（异步，避免阻塞）
+            Thread {
+                val bmp = try {
+                    val mmr = android.media.MediaMetadataRetriever()
+                    mmr.setDataSource(url)
+                    val pic = mmr.embeddedPicture
+                    mmr.release()
+                    pic?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+                } catch (e: Exception) {
+                    null
+                }
+                if (bmp != null) runOnUiThread {
+                    cv.setImageBitmap(bmp)
+                    if (cv.parent == null) root.addView(cv)
+                }
+            }.start()
+        }
+    }
+    }
+
+    /** googlevideo 出口预检（Issue #1 ✓ 2026-10-20 从 onCreate 提取 ✓ 纯搬移零行为变化）*/
+    private fun probeGoogleVideoExit(playUrl: String) {
+    if (playUrl.contains("googlevideo.com")) {
+        Thread {
+            val code = try {
+                (java.net.URL(playUrl).openConnection() as java.net.HttpURLConnection).run {
+                    setRequestProperty("Range", "bytes=0-4194304")
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                    val c = try { responseCode } finally { disconnect() }
+                    c
+                }
+            } catch (e: Exception) { 0 }
+            if (code != 200 && code != 206) {
+                runOnUiThread {
+                    Toast.makeText(this@PlayerActivity,
+                        "YouTube 拒绝该网络出口获取视频流（HTTP $code）→ 请更换代理节点/线路，或改用直连 ✓",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -490,8 +509,13 @@ class PlayerActivity : Activity() {
                 override fun onStopTrackingTouch(sb: SeekBar?) {
                     sb?.let {
                         val dur = mpvView.mpv.getPropertyDouble("duration") ?: 0.0
-                        if (dur > 0) mpvView.mpv.setPropertyDouble("time-pos", dur * it.progress / 1000.0)
+                        if (dur > 0) {
+                            val target = dur * it.progress / 1000.0
+                            android.util.Log.i("HOV", "seek(bar) → ${target.toInt()}s / ${dur.toInt()}s")
+                            mpvView.mpv.setPropertyDouble("time-pos", target)
+                        }
                     }
+                    lastSeekAtMs = System.currentTimeMillis()
                     userSeeking = false
                     showControls(autoHide = true)
                 }
@@ -661,6 +685,19 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /**
+     * 弹出菜单的公共样板（2026-10-20 收敛：字幕/倍速/画质三处原各自重复 PopupMenu 装配）
+     * 行为与原来逐字一致：点击执行动作；关闭时恢复控制条自动隐藏。
+     */
+    private fun popupMenu(anchorView: android.view.View?, items: List<Pair<String, () -> Unit>>) {
+        val popup = PopupMenu(this, anchorView)
+        items.forEachIndexed { i, p -> popup.menu.add(0, i, i, p.first) }
+        popup.setOnMenuItemClickListener { item -> items.getOrNull(item.itemId)?.second?.invoke(); true }
+        popup.setOnDismissListener { showControls(autoHide = true) }
+        showControls(autoHide = false)
+        popup.show()
+    }
+
     /** 字幕菜单：关闭 / 本地同名 / 在线轨（B站 CC、YouTube 人工·自动）（M14b） */
     /**
      * 默认字幕：按**系统语言**自动选轨并显示。
@@ -697,15 +734,7 @@ class PlayerActivity : Activity() {
             Toast.makeText(this, "无可用字幕：在线字幕需平台提供（B站 CC / YouTube），本地可放同名 .srt", Toast.LENGTH_LONG).show()
             return
         }
-        val popup = PopupMenu(this, btnSubtitle)
-        acts.forEachIndexed { i, p -> popup.menu.add(0, i, i, p.first) }
-        popup.setOnMenuItemClickListener { item ->
-            acts.getOrNull(item.itemId)?.second?.invoke()
-            true
-        }
-        popup.setOnDismissListener { showControls(autoHide = true) }
-        showControls(autoHide = false)
-        popup.show()
+        popupMenu(btnSubtitle, acts)
     }
 
     private fun setSubsEnabled(on: Boolean) {
@@ -761,14 +790,7 @@ class PlayerActivity : Activity() {
 
     private fun showSpeedMenu() {
         val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
-        val popup = PopupMenu(this, btnSpeed)
-        speeds.forEachIndexed { i, v ->
-            popup.menu.add(0, i, i, (if (v == currentSpeed) "● " else "") + fmtSpeed(v))
-        }
-        popup.setOnMenuItemClickListener { item -> setSpeed(speeds[item.itemId]); true }
-        popup.setOnDismissListener { showControls(autoHide = true) }
-        showControls(autoHide = false)
-        popup.show()
+        popupMenu(btnSpeed, speeds.map { v -> (if (v == currentSpeed) "● " else "") + fmtSpeed(v) to { setSpeed(v) } })
     }
 
     private fun setSpeed(v: Float) {
@@ -781,14 +803,7 @@ class PlayerActivity : Activity() {
 
     private fun showQualityMenu() {
         if (qualitiesList.isEmpty()) return
-        val popup = PopupMenu(this, btnQuality)
-        qualitiesList.forEachIndexed { i, q ->
-            popup.menu.add(0, i, i, (if (q.id == currentQualityId) "● " else "") + q.label)
-        }
-        popup.setOnMenuItemClickListener { item -> switchQuality(qualitiesList[item.itemId]); true }
-        popup.setOnDismissListener { showControls(autoHide = true) }
-        showControls(autoHide = false)
-        popup.show()
+popupMenu(btnQuality, qualitiesList.map { q -> (if (q.id == currentQualityId) "● " else "") + q.label to { switchQuality(q) } })
     }
 
     private fun switchQuality(q: QualityOption) {
@@ -1255,6 +1270,7 @@ class PlayerActivity : Activity() {
         val pos = m.getPropertyDouble("time-pos") ?: 0.0
         val target = (pos + sec).coerceIn(0.0, dur - 0.5)
         m.setPropertyDouble("time-pos", target)
+        lastSeekAtMs = System.currentTimeMillis()
         if (!userSeeking) seek.progress = (target / dur * 1000).toInt()
         timeLabel.text = "${fmt(target)} / ${fmt(dur)}"
         showControls(autoHide = true)
@@ -1562,7 +1578,13 @@ class PlayerActivity : Activity() {
                 if (playbackStarted && !finishedHandled && !switching) {
                     val endedByProp = m.getPropertyBoolean("eof-reached") == true ||
                                       m.getPropertyBoolean("idle-active") == true
-                    val endedByPurge = dur <= 0.01 && pos <= 0.01
+                    // 2026-10-17 修复「拖进度条后视频停住」✗：seek 瞬间 mpv 会短暂卸载 time-pos/duration ✗
+                    // → 被读成 0.0 → 误判"播放结束" → 自动切下一条且加载失败（画面冻结）✗
+                    // 两道保险：① 用户 seek 后 3 秒内不判 ② purge 连续 2 个 tick 才算真结束 ✓
+                    val purged = dur <= 0.01 && pos <= 0.01
+                    purgeStreak = if (purged) purgeStreak + 1 else 0
+                    val nearSeek = userSeeking || (System.currentTimeMillis() - lastSeekAtMs < 3000)
+                    val endedByPurge = purged && purgeStreak >= 2 && !nearSeek
                     if (endedByProp || endedByPurge) {
                         android.util.Log.i("HOV", "播放结束（prop=$endedByProp purge=$endedByPurge pos=$pos dur=$dur）→ 自动续播")
                         onPlaybackEnded()
@@ -1588,9 +1610,12 @@ class PlayerActivity : Activity() {
         return "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (isFullscreen) toggleFullscreen() else finish()
+    private fun installBackHandler() {
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (isFullscreen) toggleFullscreen() else finish()
+            }
+        })
     }
 
     // ── 锁屏/后台很久后回到前台（用户实测 bug：画面全黑 + 无封面）────────────────

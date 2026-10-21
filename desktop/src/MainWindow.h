@@ -438,6 +438,9 @@ private:
     qint64 lastProgRemember_ = 0;   // 记录节流（毫秒）
     qint64 lastProgSave_ = 0;       // 落盘节流（毫秒）
     bool resumeEnabled_ = true;     // --no-resume 时关闭（自动化测试用）
+    QWidget *searchHistoryRow_ = nullptr;   // 搜索历史行（空搜索词时显示 ✓ 2026-10-20）
+    QHBoxLayout *searchHistoryLay_ = nullptr;
+    void refreshSearchHistory();            // 重建/显隐历史词条行
     QString resolutionKey_;         // 最近一次在线视频的页面地址（切清晰度要重新解析它）
     QString sessionQuality_;        // 会话内音质档位（空 = 跟随设置；Q 键 / --quality 会改它）
     QString playPlatform_;          // 当前播放内容所属平台（状态栏 / 列表提示显示）

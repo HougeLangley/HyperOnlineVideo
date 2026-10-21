@@ -19,10 +19,10 @@ android {
 
     defaultConfig {
         applicationId = "com.hougelangley.hov"
-        minSdk = 35
+        minSdk = 31
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.3.1"
+        versionCode = 11
+        versionName = "1.3.2"
 
         ndk {
             abiFilters += "arm64-v8a"   // 只带 arm64，砍掉模拟器 ABI 体积

@@ -1,7 +1,12 @@
 import AppKit
 
 /// 主界面（Phase 5.3）—— 与 Qt 端同布局：顶部来源/搜索栏 + 左侧结果列表 + 右侧播放器 + 底部控制条
-extension AppDelegate {
+extension AppDelegate: NSSearchFieldDelegate {
+    /// 输入变化 → 刷新历史行显隐（空词才显示 ✓ 2026-10-20）
+    func controlTextDidChange(_ obj: Notification) {
+        refreshSearchHistoryRow()
+    }
+
     func buildUi() {
         window.title = "聚合视频 · Hyper Online Video（macOS）"
         // W1 ✓ 窗口几何记忆：优先恢复上次退出时的 frame ✓（规则 #5：与 Linux ui.windowGeometry 同款能力 ✓）
@@ -14,14 +19,15 @@ extension AppDelegate {
         window.minSize = NSSize(width: 900, height: 560)
 
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1180, height: 720))
+        // 不透明 surface 底（图层方式，保证不受窗口透明设置影响）
+        root.wantsLayer = true
+        root.layer?.backgroundColor = ThemeColors.color(.surface).cgColor
         root.autoresizingMask = [.width, .height]
         // 整窗毛玻璃底（模糊窗口后面的桌面）：放在最底层，其余界面盖在它上面
-        let windowGlass = NSVisualEffectView(frame: root.bounds)
-        windowGlass.autoresizingMask = [.width, .height]
-        windowGlass.material = .underWindowBackground
-        windowGlass.blendingMode = .behindWindow
-        windowGlass.state = .followsWindowActiveState
-        root.addSubview(windowGlass)
+        // 重做版：不透明 surface 底（替代整窗毛玻璃），随主题明暗重绘
+        let background = SurfaceBackgroundView(frame: root.bounds)
+        background.autoresizingMask = [.width, .height]
+        root.addSubview(background)
 
         // 四个分区（顺序与原构造一致 ✓）：顶栏 → 中部 → 控制条 → 状态栏
         buildTopBarSection(root)
@@ -55,8 +61,7 @@ extension AppDelegate {
         let on = !player.overlay.hidden
         // 图标式按钮：只换图标与着色，绝不设 title（否则文字与图标叠在一起）
         subtitleBtn?.title = ""
-        subtitleBtn?.image = NSImage(systemSymbolName: on ? "captions.bubble.fill" : "captions.bubble",
-                                     accessibilityDescription: "字幕")
+        subtitleBtn?.image = HovIcons.image(0xe048, size: 16)   // subtitles
         subtitleBtn?.contentTintColor = on ? .controlAccentColor : .secondaryLabelColor
         subtitleBtn?.toolTip = on ? "字幕/歌词：显示中（S 键开关）" : "字幕/歌词：已隐藏（S 键开关）"
     }
@@ -65,7 +70,7 @@ extension AppDelegate {
     func updateAutoNextButton() {
         let on = settings.bool("playback.autoNext", true)
         autoNextBtn?.title = ""
-        autoNextBtn?.image = NSImage(systemSymbolName: "infinity", accessibilityDescription: "连播")
+        autoNextBtn?.image = HovIcons.image(0xf6b5, size: 16)   // autoplay
         autoNextBtn?.contentTintColor = on ? .controlAccentColor : .secondaryLabelColor
         autoNextBtn?.toolTip = on ? "连播：开（播完自动下一条，A 键开关）" : "连播：关（A 键开关）"
     }
@@ -98,14 +103,14 @@ extension AppDelegate {
         case .repeatOne:
             Config.log("[AUTO] 单曲循环 → 重播本曲")
             setStatus("单曲循环：\(playLabel.prefix(24))")
-            playResult(key: playKey, label: playLabel)
+            playResult(key: playKey, label: playLabel, autoAdvance: true)
             return
         case .shuffle:
             let pool = rows.filter { !$0.key.isEmpty && $0.key != playKey }
             guard let pick = pool.randomElement() else { setStatus("播放结束（列表只有一项）"); return }
             Config.log("[AUTO] 随机播放 → \(pick.text.prefix(40))")
             setStatus("随机播放：\(pick.text.prefix(24))")
-            playResult(key: pick.key, label: pick.text)
+            playResult(key: pick.key, label: pick.text, autoAdvance: true)
             return
         case .sequential, .repeatAll:
             var next = rows[(cur + 1)...].first(where: { !$0.key.isEmpty })
@@ -120,7 +125,7 @@ extension AppDelegate {
             }
             Config.log("[AUTO] 播放完成 → 自动播放下一条：\(next.text.prefix(40))")
             setStatus("连播：\(next.text.prefix(28))")
-            playResult(key: next.key, label: next.text)
+            playResult(key: next.key, label: next.text, autoAdvance: true)
         }
     }
 
@@ -379,10 +384,16 @@ extension AppDelegate {
 sourcePopup.addItems(withTitles: ["YouTube", "B站", "网易云音乐", "QQ音乐", "本地库"])
 sourcePopup.target = self
 sourcePopup.action = #selector(onSourceChanged)
-searchField.placeholderString = "输入关键词后回车搜索（Esc 回车播放控制；来源见左侧下拉）"
+searchField.placeholderString = "搜索视频…"   // 短占位（完整提示见 toolTip）
+searchField.toolTip = "输入关键词后回车搜索（Esc 回车播放控制；来源见左侧下拉）"
 searchField.target = self
 searchField.action = #selector(onSearch)
 searchField.frame = NSRect(x: 0, y: 0, width: 380, height: 24)
+searchField.font = .systemFont(ofSize: 13)
+// 2026-10-20（用户报"输入即搜"✗）：NSSearchField 默认每键发 action ✗
+// sendsWholeSearchString=true → 仅回车触发 ✓（对齐 Android imeAction=Search / Linux returnPressed）
+searchField.sendsWholeSearchString = true
+        searchField.delegate = self
 
 topBarStack = NSStackView()
 topBarStack.orientation = .horizontal
@@ -394,7 +405,18 @@ filterButton = NSButton(title: "过滤", target: self, action: #selector(onFilte
 filterButton.bezelStyle = .rounded
 filterButton.toolTip = "搜索过滤器：排序 相关度/最新/播放最多；时长 全部/短视频/中等/长篇"
 topBarStack.addArrangedSubview(filterButton)
-topBarStack.addArrangedSubview(searchField)
+topBarStack.addArrangedSubview(searchField)   // 原生 NSSearchField（自带胶囊外观与放大镜 ✓）
+        // 搜索历史行（2026-10-20 三端同功能：空搜索词时显示词条，点词条立即再搜 ✓）
+        searchHistoryStack = NSStackView()
+        searchHistoryStack?.orientation = .horizontal
+        searchHistoryStack?.spacing = 8
+        searchHistoryStack?.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+        searchHistoryStack?.translatesAutoresizingMaskIntoConstraints = false
+        let histTitle = NSTextField(labelWithString: "搜索历史")
+        histTitle.textColor = ThemeColors.color(.onSurfaceVariant)
+        histTitle.font = .systemFont(ofSize: 12)
+        searchHistoryStack?.addArrangedSubview(histTitle)
+        searchHistoryStack?.isHidden = true
 let badge = loginBadge()
 // 工具栏按钮：主操作留文字（搜索），其余用**图标 + 悬浮提示**——按钮一多就拥挤，图标省一半宽度。
 // (标题, 图标名, 提示, 动作)；图标名是 SF Symbols。
@@ -469,7 +491,7 @@ if CommandLine.arguments.contains("--no-overlay") { player.overlay.hidden = true
 modeButton = NSButton(title: "", target: self, action: #selector(onCycleMode))
 modeButton.bezelStyle = .rounded
 modeButton.toolTip = "播放模式：顺序播放 → 单曲循环 → 随机播放 → 列表循环"
-modeButton.image = NSImage(systemSymbolName: "arrow.forward", accessibilityDescription: "顺序播放")
+modeButton.image = HovIcons.image(0xe040, size: 16)   // repeat
 modeButton.imagePosition = .imageOnly
 modeButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 36).isActive = true
 prevButton = NSButton(title: "⏮", target: self, action: #selector(onPrev))
@@ -507,7 +529,7 @@ volumeSlider.setContentHuggingPriority(.defaultLow, for: .horizontal)           
 volumeSlider.toolTip = "音量（↑ / ↓ 键也可调）"
 fullscreenBtn = iconBarButton("arrow.up.left.and.arrow.down.right", "全屏（⌃⌘F / 双击画面）", #selector(onFullscreen), self)
 volumeIcon = NSImageView()
-volumeIcon.image = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: "音量")
+volumeIcon.image = HovIcons.image(0xe050, size: 16)   // volume_up
 volumeIcon.contentTintColor = .secondaryLabelColor
 volumeIcon.toolTip = "音量（↑/↓ 微调）"
 fullscreenBtn.widthAnchor.constraint(equalToConstant: 52).isActive = true
@@ -560,6 +582,7 @@ body.orientation = .vertical
 body.spacing = 0
 topBarView = topBarStack                       // B5：PiP 时隐藏
 body.addArrangedSubview(topBarStack)
+body.addArrangedSubview(searchHistoryStack!)   // 搜索历史行：紧跟 topBar（2026-10-20 三端同功能 ✓）
 body.addArrangedSubview(middleSplit)
 // 两排布局（用户建议）：第一排 = 播放键 + 模式 + **整条进度条** + 时间；第二排 = 质量/速度/音量 + 四个开关。
 // 一排塞不下就只能挤（滑块变得极窄、按钮挤成一团），两排后进度条几乎占满窗口宽度，拖拽手感完全不同。

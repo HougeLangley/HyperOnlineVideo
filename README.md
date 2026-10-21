@@ -7,17 +7,17 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 
 ---
 
-### 📌 当前发布状态（v1.3.1 · 全平台正式发布）
+### 📌 当前发布状态（v1.3.2 · 全平台正式发布）
 
 | 平台 | 状态 | 获取方式（详细步骤见 [📦 安装指南](#-安装指南小白也能看懂)）|
 |---|---|---|
-| **Android** | ✅ v1.3.1 | [Releases](../../releases/latest) 下载 `hov-1.3.1-arm64.apk` |
-| **macOS**（Apple 芯片）| ✅ v1.3.1 | Releases 下载 `HyperOnlineVideo-1.3.1-arm64.dmg` |
-| **Arch Linux / Manjaro** | ✅ v1.3.1 | AUR：`yay -S hov-qt` |
-| **Fedora 44 / 45** | ✅ v1.3.1 | Copr：[`houge/hov-qt`](https://copr.fedorainfracloud.org/coprs/houge/hov-qt/) · `sudo dnf copr enable houge/hov-qt` |
-| **openSUSE Tumbleweed** | ✅ v1.3.1 | OBS `home:houge`（x86_64 / aarch64 / riscv64）|
-| **openSUSE Leap 16.0** | ✅ v1.3.1 | OBS `home:houge`（x86_64 / aarch64）|
-| **NixOS** | ✅ v1.3.1 | flake：`github:HougeLangley/HyperOnlineVideo` |
+| **Android** | ✅ v1.3.2 | [Releases](../../releases/latest) 下载 `hov-1.3.1-arm64.apk` |
+| **macOS**（Apple 芯片）| ✅ v1.3.2 | Releases 下载 `HyperOnlineVideo-1.3.1-arm64.dmg` |
+| **Arch Linux / Manjaro** | ✅ v1.3.2 | AUR：`yay -S hov-qt` |
+| **Fedora 44 / 45** | ✅ v1.3.2 | Copr：[`houge/hov-qt`](https://copr.fedorainfracloud.org/coprs/houge/hov-qt/) · `sudo dnf copr enable houge/hov-qt` |
+| **openSUSE Tumbleweed** | ✅ v1.3.2 | OBS `home:houge`（x86_64 / aarch64 / riscv64）|
+| **openSUSE Leap 16.0** | ✅ v1.3.2 | OBS `home:houge`（x86_64 / aarch64）|
+| **NixOS** | ✅ v1.3.2 | flake：`github:HougeLangley/HyperOnlineVideo` |
 | **Ubuntu / Debian / 其它** | ✅ 源码构建 | 3 条命令、约 5 分钟（见安装指南）|
 
 > 💡 **Linux 全系都通过官方/第三方软件源安装** ✓ 用系统包管理器一键完成 ✓ 自动更新 ✓
@@ -142,7 +142,7 @@ Android 原生播放器（Kotlin + Jetpack Compose + Material 3），基于 **li
 3. 在手机上打开这个文件；若提示「禁止安装未知应用」，按提示允许（安卓装非商店应用的标准流程 ✓）
 4. 安装完成后，桌面会出现「**聚合视频**」图标 ✓
 
-> 要求 **Android 15（API 35）及以上**（minSdk 35 · targetSdk 36）。
+> 要求 **Android 12（API 31）及以上**（v1.3.2 起 minSdk 31 · targetSdk 36 · arm64-v8a）。
 
 ### 🍎 macOS（Apple 芯片 M 系列）
 
@@ -521,7 +521,7 @@ mock -r fedora-44-x86_64 --rebuild <SRPM> && mock -r fedora-44-x86_64 --scrub=al
 > ⚠️ **spec 的注释里绝不能出现宏名**（如 `%cmake`）—— RPM 会展开注释中的宏，
 > 会产生 `Unknown tag` 之类难以理解的报错。写完先 `rpmspec -q <spec>` 预检。
 
-### 4. Fedora Copr 第三方源（✅ **v1.3.1 正式渠道**）
+### 4. Fedora Copr 第三方源（✅ **v1.3.2 正式渠道**）
 
 ```bash
 sudo dnf copr enable houge/hov-qt

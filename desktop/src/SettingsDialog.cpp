@@ -66,6 +66,17 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         auto *autoNextCheck = new QCheckBox("播完自动播下一条（按列表顺序连播）", &dlg);   // UI-4 ✓ 与 macOS/Android 同键 ✓
         autoNextCheck->setChecked(ctx.settings->boolean("playback.autoNext", true));
 
+        auto *histCheck = new QCheckBox("搜索历史记录（搜索词本地保存，点词条快速再搜）", &dlg);   // 2026-10-20 三端同功能 ✓
+        histCheck->setChecked(ctx.settings->boolean("search.historyEnabled", true));
+        auto *histClear = Ui::textButton("清空历史", &dlg);
+        QObject::connect(histClear, &QPushButton::clicked, &dlg, [&ctx] {
+            ctx.settings->set("search.history", "[]"); ctx.settings->save();
+        });
+        auto *histRow = new QWidget(&dlg);
+        auto *histLay = new QHBoxLayout(histRow);
+        histLay->setContentsMargins(0, 0, 0, 0); histLay->setSpacing(M::space2);
+        histLay->addWidget(histCheck); histLay->addStretch(1); histLay->addWidget(histClear);
+
         auto *direct = new QCheckBox("国内接口强制直连（音乐/B站，忽略代理）", &dlg);
         direct->setChecked(ctx.settings->boolean("network.forceDirectDomestic", false));
 
@@ -114,6 +125,7 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         form->addRow(QString(), glassWinCheck);
         form->addRow(QString(), hoverCheck);
         form->addRow(QString(), autoNextCheck);
+        form->addRow(QString(), histRow);
         form->addRow(QString(), probe);
         form->addRow(QString(), direct);
         form->addRow("下载目录", dirRow);
@@ -130,7 +142,7 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
         btns->addWidget(closeBtn);
         btns->addWidget(saveBtn);
         form->addRow(btnRow);
-        QObject::connect(saveBtn, &QPushButton::clicked, &dlg, [quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck, videoCap] {
+        QObject::connect(saveBtn, &QPushButton::clicked, &dlg, [quality, fontScale, delay, karaoke, probe, direct, dirEdit, themeBox, glassCheck, glassWinCheck, hoverCheck, &dlg, &ctx, autoNextCheck, videoCap, histCheck] {
             static const QStringList qs{ "standard", "exhigh", "lossless" };
             ctx.applySetting("music.qualityCeiling", qs.at(quality->currentIndex()));
             const int vh = videoCap->currentData().toInt();   // 单一档位表的值（0=自动 / -1=仅音频 ✓）
@@ -152,6 +164,7 @@ void SettingsDialog::open(QWidget *parent, const Ctx &ctx) {
                                   .arg(glassWinCheck->isChecked() ? "开" : "关"));   // 切透明要重建窗口 → 提示重启 ✓
             ctx.applySetting("ui.hoverReveal", hoverCheck->isChecked() ? "true" : "false");  // 轮询里实时读 ✓ 立即生效
             ctx.applySetting("playback.autoNext", autoNextCheck->isChecked() ? "true" : "false");
+            ctx.applySetting("search.historyEnabled", histCheck->isChecked() ? "true" : "false");
             ctx.applySetting("ui.showNetworkProbe", probe->isChecked() ? "true" : "false");
             ctx.applySetting("network.forceDirectDomestic", direct->isChecked() ? "true" : "false");
             ctx.applySetting("download.dir", dirEdit->text().trimmed());

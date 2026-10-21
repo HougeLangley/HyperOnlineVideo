@@ -364,6 +364,7 @@ fun SettingsSheet(
     var gestures by remember { mutableStateOf(Settings.gesturesEnabled) }
     var fillScreen by remember { mutableStateOf(Settings.fillScreen) }
     var subtitleAuto by remember { mutableStateOf(Settings.subtitleAutoShow) }
+    var histEnabled by remember { mutableStateOf(Settings.searchHistoryEnabled) }
     var subScale by remember { mutableStateOf(Settings.subtitleFontScale) }   // 字幕字号缩放 0.5~2.0（与桌面端同语义 ✓）
     var quality by remember { mutableStateOf(Settings.musicQuality) }
     var videoCap by remember { mutableStateOf(Settings.videoMaxHeight) }
@@ -402,6 +403,23 @@ fun SettingsSheet(
         }
         Spacer(Modifier.height(4.dp))
 
+        SectionTitle("搜索")
+        SwitchRow("搜索历史记录（搜索词本地保存，首页点词条快速再搜）", histEnabled) {
+            histEnabled = it; Settings.searchHistoryEnabled = it; HistoryState.resync()
+        }
+        if (HistoryState.list.isNotEmpty()) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 16.dp)) {
+                Text("已保存 ${HistoryState.list.size} 条", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                Text("清空历史", color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .clickable { HistoryState.clear() }
+                        .padding(8.dp))
+            }
+        }
         SectionTitle("字幕")
         SwitchRow("默认显示字幕（按系统语言自动选轨）", subtitleAuto) {
             subtitleAuto = it; Settings.subtitleAutoShow = it

@@ -30,7 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var searchSort = 1                   // 搜索过滤器（与 Android SearchFilters 对齐）：1=相关度 2=最新 3=播放最多
     var searchDuration = 0               // 0=全部 1=短视频 2=中等 3=长篇
     // 连播 / 纯视频全屏
-    var autoNextHandled = false            // 防止一次结尾触发多次
+    var autoNextHandled = false
+    var autoSkipStreak = 0   // 连续解析失败自动跳过计数（成功开播清零；上限 3 ✓ 2026-10-18）            // 防止一次结尾触发多次
     var resolveTick: Timer?                // 解析中的秒数提示
     var playRequestId = 0                  // 每次播放请求的序号（丢弃过期解析结果，避免「后点的被先点的顶掉」）
     var lastEofState = false               // eof 状态（只在翻转时打日志）
@@ -60,6 +61,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var paneWidthInitialized = false       // 初始宽度已应用（此前的重排回调不算用户拖动）
     var fsTransitioning = false            // 全屏进出过渡中（重排不算用户拖动）
     var listOverlayVisible = false         // 全屏时左侧列表浮层是否展开（迟滞状态）
+    var searchHistoryStack: NSStackView?      // 搜索历史行（2026-10-20 三端同功能 ✓）
+
+    /// 重建/显隐搜索历史行（词条 pill + 清空；空搜索词且开关开时显示 ✓）
+    func refreshSearchHistoryRow() {
+        guard let stack = searchHistoryStack else { return }
+        // 清旧词条（保留第 0 个标题）
+        for v in stack.arrangedSubviews.dropFirst() { stack.removeView(v) }
+        let hist = searchHistoryList()
+        let empty = searchField.stringValue.trimmingCharacters(in: .whitespaces).isEmpty
+        stack.isHidden = !(empty && settings.bool("search.historyEnabled", true) && !hist.isEmpty)
+        guard !stack.isHidden else { return }
+        for w in hist {
+            let b = NSButton(title: w, target: nil, action: nil)
+            b.bezelStyle = .roundRect
+            b.font = .systemFont(ofSize: 12)
+            b.toolTip = "点击再次搜索：" + w
+            b.target = self
+            b.action = #selector(searchHistoryTapped(_:))
+            stack.addArrangedSubview(b)
+        }
+        let clear = NSButton(title: "清空", target: self, action: #selector(clearSearchHistoryTapped(_:)))
+        clear.font = .systemFont(ofSize: 12)
+        clear.toolTip = "清空全部搜索历史"
+        stack.addArrangedSubview(clear)
+    }
+    @objc private func searchHistoryTapped(_ sender: NSButton) {
+        searchField.stringValue = sender.title
+        onSearch()
+    }
+    @objc private func clearSearchHistoryTapped(_ sender: NSButton) {
+        _ = try? settings.apply(key: "search.history", value: "[]")
+        refreshSearchHistoryRow()
+    }
+
     var glassPanel: NSVisualEffectView?    // 全屏时的毛玻璃列表面板
     /// 全屏时控制条浮层离底部的距离（pt）：避开 macOS Dock 弹出区（鼠标触底会顶出 Dock）—— 用户实测反馈要更高
     let fsBarBottomInset: CGFloat = 80
@@ -196,10 +231,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 整窗毛玻璃：内容区透明（由 NSVisualEffectView 模糊桌面）。
         // 注意：**标题栏不要透明** —— 透明后标题会与内容区挤在一起（用户实测反馈）
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        // 重做版：不透明 surface 底（不再整窗毛玻璃；与桌面端同一 token）
+        window.isOpaque = true
+        window.backgroundColor = ThemeColors.color(.surface)
         window.titlebarAppearsTransparent = false
+        if let cv = window.contentView {
+        }
+        HovIcons.registerFonts()
         buildUi()
+        refreshSearchHistoryRow()      // 启动时按已存历史显隐（2026-10-20 三端同功能 ✓）
         mediaKeys = MediaKeys(player: player)
         mediaKeys.delegate = self
         mediaKeys.setup()
@@ -226,12 +266,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard results.count > self.playResultIndex else { return }
                     let r = results[self.playResultIndex]
                     self.syncQueueFromRows(playIndex: self.rows.firstIndex(where: { $0.key == r.key }))
-                    self.playResult(key: r.key, label: r.text)
+                    self.playResult(key: r.key, label: r.text, autoAdvance: true)
                     if self.playNextAfter > 0 {                 // 复现"快速切歌"：N 秒后换下一条
                         DispatchQueue.main.asyncAfter(deadline: .now() + self.playNextAfter) {
                             guard let next = results.dropFirst(self.playResultIndex + 1).first else { return }
                             Config.log("--- 自动切到下一条：\(next.text) ---")
-                            self.playResult(key: next.key, label: next.text)
+                            self.playResult(key: next.key, label: next.text, autoAdvance: true)
                         }
                     }
                 }
@@ -292,6 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func wSwitchAudioQuality(level: String) { switchAudioQuality(to: level) }
 
     func playKey(target: String, label: String, audio: String? = nil, contentKey: String? = nil) {
+        autoSkipStreak = 0   // 成功开播 → 连续失败计数清零 ✓
         _ = progress.save()                       // 切内容前先把上一项落盘
         playKey = contentKey ?? target
         if target.hasPrefix("http") { lastStreamUrl = target }      // 下载按钮用

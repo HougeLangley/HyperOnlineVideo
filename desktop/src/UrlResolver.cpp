@@ -127,6 +127,10 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
     });
     QStringList args{"-J", "--no-warnings", "--no-playlist"};
     args << formatArgsFor(maxHeight_);
+    // 2026-10-18（用户报"设 2K 只有低清"✗）：YouTube 对部分账号/IP 开 SABR-only 实验，默认客户端只回
+    // 360p 合流 ✗；实测 default,web_safari 并集可拿 HLS 1080p ✓（1440+ 上游不给时由下方如实提示）
+    if (serviceOf(pageUrl) == "youtube")
+        args << "--extractor-args" << "youtube:player_client=default,web_safari";
     // 2026-10-08 画质对齐（Android A/B 实证 ✓）：**不再强制客户端** —— 默认客户端 + JS 挑战
     // （mac=deno ✓；Linux 随系统 ✓）可给出完整档位（含 HLS 主清单 ✓，HLS 分片天然无 10MB 墙 ✗）；
     // 强制 web_embedded/mweb 会把上限压到 360p ✗（mac 未强制 → 故一直正常 ✓）
@@ -181,14 +185,30 @@ void UrlResolver::resolveAndPlay(const QString &pageUrl) {
                 Stream s;
                 s.title = o.value("title").toString();
                 // 客观判据：记下实际选中的视频格式（验证"切清晰度真的生效"）
+                int bestH = 0;
                 {
                     const QJsonArray rd = o.value("requested_downloads").toArray();
                     if (!rd.isEmpty()) {
                         const QJsonObject f0 = rd.first().toObject();
+                        bestH = f0.value("height").toInt();
                         qInfo() << "解析档位=≤" << qualityLabel(maxHeight_) << " 实际选中="
-                                << f0.value("height").toInt() << "p" << f0.value("format_note").toString()
+                                << bestH << "p" << f0.value("format_note").toString()
                                 << f0.value("vcodec").toString().left(12);
                     }
+                }
+                // 2026-10-18：**匿名成功但档位被降**（SABR 实验下匿名只给 360p ✗）→ 带 cookie 重试一次取更高
+                //（与 macOS 同案同修 ✓）；重试后仍低于请求档 → 如实提示，不再沉默降级 ✗
+                if (maxHeight_ > 0 && bestH > 0 && bestH < qMin(maxHeight_, 1080)
+                    && !lastLaunchCookies_ && !cookieArgsFor(pageUrl).isEmpty()) {
+                    wantCookies_ = true;
+                    hovLog("[画质] 匿名仅 %dp（请求≤%dp）→ 带 cookie 重试\n", bestH, maxHeight_);
+                    resolveAndPlay(pageUrl);
+                    return;
+                }
+                if (maxHeight_ > 1080 && bestH > 0 && bestH < maxHeight_ && lastLaunchCookies_) {
+                    if (status_)
+                        status_(QString("清晰度：请求≤%1，实际最高 %2p（站点未提供更高）")
+                                    .arg(qualityLabel(maxHeight_)).arg(bestH));
                 }
 
                 // 取地址要分层：当选择的是「视频+音频」合并格式时，requested_downloads 的条目

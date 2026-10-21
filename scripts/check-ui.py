@@ -133,9 +133,11 @@ def main():
         return 0
     hits = []
     for name in sorted(os.listdir(SRC)):
-        if not name.endswith(('.cpp', '.h')):
+        # Skip hidden entries and AppleDouble files (._Foo.cpp) that some archive
+        # tools leave behind; they are binary and would fail UTF-8 decoding.
+        if name.startswith('.') or not name.endswith(('.cpp', '.h')):
             continue
-        with open(os.path.join(SRC, name), encoding='utf-8') as f:
+        with open(os.path.join(SRC, name), encoding='utf-8', errors='replace') as f:
             lines = code_only(f.read()).split('\n')
         for key, desc, rx, exempt in RULES:
             if name in exempt:

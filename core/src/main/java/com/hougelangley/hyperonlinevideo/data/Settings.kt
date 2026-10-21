@@ -28,7 +28,9 @@ object Settings {
     private const val K_FILL_SCREEN = "fill_screen_fullscreen"
     private const val K_THEME = "ui_theme"            // auto=跟随系统 / dark / light（与另两端同键语义 ✓）
     private const val K_SUB_AUTO = "subtitle_auto_show"   // 默认自动显示字幕（按系统语言选轨 ✓ 用户可关 ✓）
-    private const val K_SUB_SCALE = "subtitle_font_scale" // 字幕字号缩放（与 Linux/macOS 的 subtitle.fontScale 同语义 ✓）
+    private const val K_SUB_SCALE = "subtitle_font_scale"
+    private const val K_SEARCH_HIST_EN = "search_history_enabled"   // 搜索历史开关（三端同语义 ✓ 2026-10-20）
+    private const val K_SEARCH_HIST = "search_history"              // JSON 数组字符串（保序 ✓ StringSet 无序 ✗） // 字幕字号缩放（与 Linux/macOS 的 subtitle.fontScale 同语义 ✓）
 
     @Volatile private var sp: SharedPreferences? = null
 
@@ -50,6 +52,27 @@ object Settings {
     var subtitleFontScale: Float
         get() = (sp?.getFloat(K_SUB_SCALE, 1.0f) ?: 1.0f).coerceIn(0.5f, 2.0f)
         set(v) { sp?.edit()?.putFloat(K_SUB_SCALE, v.coerceIn(0.5f, 2.0f))?.apply() }
+
+    /** 搜索历史记录（三端同功能 ✓ 2026-10-20）：开关 + 最近 15 条（去重置顶）+ 清空 */
+    var searchHistoryEnabled: Boolean
+        get() = sp?.getBoolean(K_SEARCH_HIST_EN, true) ?: true
+        set(v) { sp?.edit()?.putBoolean(K_SEARCH_HIST_EN, v)?.apply() }
+
+    var searchHistory: List<String>
+        get() = runCatching {
+            org.json.JSONArray(sp?.getString(K_SEARCH_HIST, "[]") ?: "[]").let { a ->
+                List(a.length()) { i -> a.optString(i) }.filter { it.isNotBlank() }
+            }
+        }.getOrDefault(emptyList())
+        private set(v) { sp?.edit()?.putString(K_SEARCH_HIST, org.json.JSONArray(v).toString())?.apply() }
+
+    fun addSearchHistory(q: String) {
+        if (!searchHistoryEnabled || q.isBlank()) return
+        val cur = searchHistory
+        searchHistory = (listOf(q.trim()) + cur.filter { it != q.trim() }).take(15)
+    }
+
+    fun clearSearchHistory() { searchHistory = emptyList() }
 
     /** 应用主题：auto=跟随系统 light/dark（用户 2026-09-18 要求）/ dark / light */
     var theme: String

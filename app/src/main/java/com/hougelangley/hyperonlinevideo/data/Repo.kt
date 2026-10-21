@@ -297,6 +297,11 @@ object Repo {
             // 2026-10-08（画质终解 ✗）：quickjs 运行时已就位后，**不再强制客户端** —— 默认客户端此前
             // 因缺 JS 运行时返回空 URL（被过滤→"无可用播放格式" ✗），现已能给出高清分轨/合流 ✓；
             // 如默认失败，再由下方"空格式→匿名重试"与"合流兜底"接住 ✓（稳定链保持 ✓）
+            // 2026-10-18（三端同案）：SABR-only 实验下默认客户端只回 360p 合流 ✗；
+            // default,web_safari 并集可拿 HLS 1080p ✓（⚠ 2026-10-20 复审发现曾被批量改写误删 → 已补回 + 特征断言防再丢）
+            if (url.contains("youtube.com") || url.contains("youtu.be")) {
+                rq.addOption("--extractor-args", "youtube:player_client=default,web_safari")
+            }
             if (useCookies) applyCookies(rq, "youtube")
             val rs = YoutubeDL.getInstance().execute(rq, "resolve-${System.currentTimeMillis()}")
             if (rs.exitCode != 0) throw Exception(rs.err.take(300))
@@ -310,6 +315,34 @@ object Repo {
             j = runResolve(true)
             nf = j.optJSONArray("formats")?.length() ?: 0
             android.util.Log.i("HOV", "resolve(带 cookie 重试): formats=$nf")
+        }
+        // 2026-10-18（与 macOS/Linux 同案）：匿名"成功但档位被降"（SABR 实验只给 360p）→
+        // 带 cookie 重试一次取更高；门槛：请求了具体上限且最高可用视频高度 < min(上限,1080)
+        fun maxVideoH(root: JSONObject): Int {
+            val fa = root.optJSONArray("formats") ?: return 0
+            var m = 0
+            for (i in 0 until fa.length()) {
+                val f = fa.optJSONObject(i) ?: continue
+                if (f.optString("vcodec") == "none") continue
+                val h = f.optInt("height", 0)
+                if (h > m) m = h
+            }
+            return m
+        }
+        val capH0 = Settings.videoMaxHeight
+        if (nf > 0 && capH0 > 0 && cookieFile("youtube").exists()) {
+            val bestAnon = maxVideoH(j)
+            if (bestAnon in 1 until minOf(capH0, 1080)) {
+                android.util.Log.i("HOV", "[画质] 匿名仅 ${bestAnon}p（请求≤${capH0}p）→ 带 cookie 重试")
+                runCatching {
+                    val j2 = runResolve(true)
+                    val bestCk = maxVideoH(j2)
+                    if (bestCk > bestAnon) {
+                        android.util.Log.i("HOV", "[画质] cookie 路径 ${bestCk}p → 采用")
+                        j = j2
+                    }
+                }
+            }
         }
         run {
             val fa = j.optJSONArray("formats") ?: return@run

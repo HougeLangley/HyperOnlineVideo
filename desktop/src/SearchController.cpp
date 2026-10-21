@@ -323,6 +323,17 @@ void MainWindow::doSearch() {
         const int src = srcBox_ ? srcBox_->currentIndex() : 0;
         if (src == 4) { refreshLocalLibrary(q); return; }   // 本地库：关键词当文件名过滤（可为空）
         if (q.isEmpty()) return;
+        // 搜索历史（2026-10-20 三端同功能 ✓ 开关关/本地库过滤不记 ✗）
+        if (settings_.boolean("search.historyEnabled", true)) {
+            QStringList hist;
+            const auto doc = QJsonDocument::fromJson(settings_.str("search.history", "[]").toUtf8());
+            for (const auto &hv : doc.array()) hist << hv.toString();
+            hist.removeAll(q); hist.prepend(q); while (hist.size() > 15) hist.removeLast();
+            QJsonArray arr; for (const auto &hv : hist) arr.append(hv);
+            settings_.set("search.history", QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+            settings_.save();
+            refreshSearchHistory();
+        }
         if (src == 1) { biliSearch(q); return; }       // B站（官方 search/type 接口）
         if (src == 2) { musicSearch(q); return; }      // 网易云音乐
         if (src == 3) { qqMusicSearch(q); return; }    // QQ音乐

@@ -215,6 +215,9 @@ final class MpvView: NSOpenGLView {
             mpv_set_option_string(mpv, "cache-secs", "60")
             mpv_set_option_string(mpv, "demuxer-max-bytes", "64MiB")
             mpv_set_option_string(mpv, "demuxer-max-back-bytes", "16MiB")
+            // 2026-10-17: network read stalls otherwise wait forever (no default timeout).
+            mpv_set_option_string(mpv, "network-timeout", "30")
+            mpv_set_option_string(mpv, "stream-lavf-o", "reconnect=1,reconnect_streamed=1")
         } else {
             // 本地文件：关闭大缓存（seek 走直读，最快也最稳）
             mpv_set_option_string(mpv, "cache", "no")

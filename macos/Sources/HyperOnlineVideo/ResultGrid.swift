@@ -12,7 +12,7 @@ final class ResultCardItem: NSCollectionViewItem {
     override func loadView() {
         let root = NSView()
         root.wantsLayer = true
-        root.layer?.cornerRadius = 10
+        root.layer?.cornerRadius = 12
         // 半透明卡片（配合全屏时的毛玻璃面板；普通窗口下也更有层次）
         root.layer?.backgroundColor = ThemeColors.cardBG.cgColor
         root.layer?.borderWidth = 1

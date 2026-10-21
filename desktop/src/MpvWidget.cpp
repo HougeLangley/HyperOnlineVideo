@@ -430,6 +430,9 @@ void MpvWidget::prepareCacheOptions(bool isNetwork) {
         mpv_set_option_string(mpv_, "demuxer-readahead-secs", "60");
         mpv_set_option_string(mpv_, "demuxer-max-bytes", "64MiB");
         mpv_set_option_string(mpv_, "cache-pause", "yes");
+        // 2026-10-17: network read stalls otherwise wait forever (no default timeout).
+        mpv_set_option_string(mpv_, "network-timeout", "30");
+        mpv_set_option_string(mpv_, "stream-lavf-o", "reconnect=1,reconnect_streamed=1");
     } else {
         mpv_set_option_string(mpv_, "cache", "no");
         mpv_set_option_string(mpv_, "demuxer-readahead-secs", "4");

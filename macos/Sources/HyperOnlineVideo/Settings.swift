@@ -28,6 +28,8 @@ final class Settings {
         "network.cookiesFromBrowser": "",   // 从系统浏览器读 cookie（A0 登录方案）
         "video.fillScreen": false,   // 默认**不**裁切：上下黑边可接受，裁掉左右反而丢失画面（用户实测反馈）
         "video.maxHeight": 0,               // 视频清晰度上限（0=自动不限，-1=仅音频，否则 360/480/720/1080…）
+        "search.historyEnabled": true,       // 搜索历史记录（2026-10-20 三端同功能 ✓）
+        "search.history": "[]",              // JSON 数组字符串（15 条去重置顶 ✓）
 "ui.theme": "auto",                        // auto=跟随系统 light/dark（与 Linux/Android 同键 ✓）
         "ui.hoverReveal": true,             // 全屏时鼠标贴边缘浮出面板（与 Linux 同键 ✓）
         "ui.windowFrame": "",               // W1 ✓ 窗口几何 "x,y,w,h"（空=首启 → 1180x720 并居中 ✓；退出时保存，画中画/全屏态除外 ✓）
@@ -97,6 +99,10 @@ final class Settings {
         case "ui.thumbSize":
             guard let d = Double(v), d >= 24, d <= 200 else { return "缩略图高度必须是 24 ~ 200 之间的数字（pt）" }
             return nil
+        case "search.historyEnabled":
+            return v == "true" || v == "false" ? nil : "取值必须是 true / false"
+        case "search.history":
+            return v.hasPrefix("[") ? nil : "必须是 JSON 数组字符串"
         case "network.cookiesFromBrowser":
             if v.isEmpty { return nil }
             let head = v.split(separator: "+").first?.split(separator: ":").first.map(String.init)?.lowercased() ?? ""

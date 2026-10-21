@@ -16,7 +16,7 @@ MACOS_DIR="$(pwd)"
 REPO_DIR="$(cd .. && pwd)"
 APP_NAME="HyperOnlineVideo"
 APP="$MACOS_DIR/build/$APP_NAME.app"
-VER="1.3.1"
+VER="1.3.2"
 DO_DMG=1
 [ "${1:-}" = "--no-dmg" ] && DO_DMG=0
 
@@ -30,6 +30,9 @@ echo "== 2/6 组装 .app =="
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
+# 图标字体（与桌面端同一套 Material Symbols）
+cp "$MACOS_DIR/../desktop/resources/icons/HovSymbolsOutlined.ttf" "$APP/Contents/Resources/" 2>/dev/null || true
+cp "$MACOS_DIR/../desktop/resources/icons/HovSymbolsFilled.ttf" "$APP/Contents/Resources/" 2>/dev/null || true
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -40,6 +43,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>聚合视频 Hyper Online Video</string>
   <key>CFBundleExecutable</key><string>$APP_NAME</string>
   <key>CFBundleIdentifier</key><string>com.hougelangley.hyperonlinevideo</string>
+  <key>ATSApplicationFontsPath</key>
+  <string>.</string>
   <key>CFBundleVersion</key><string>$VER</string>
   <key>CFBundleShortVersionString</key><string>$VER</string>
   <key>CFBundlePackageType</key><string>APPL</string>
